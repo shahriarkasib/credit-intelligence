@@ -1,0 +1,21 @@
+{
+  "$schema": "https://langchain-ai.github.io/langgraph/schemas/langgraph.json",
+  "graphs": {
+    "credit_intelligence": {
+      "path": "./src/agents/graph.py:graph",
+      "description": "Credit Intelligence Agentic Workflow - Analyzes company creditworthiness using multiple data sources and AI reasoning"
+    }
+  },
+  "env": ".env",
+  "python_version": "3.11",
+  "dependencies": [
+    "langgraph>=0.2.0",
+    "langchain>=0.3.0",
+    "langsmith>=0.1.0",
+    "python-dotenv",
+    "groq",
+    "requests",
+    "duckduckgo-search",
+    "finnhub-python"
+  ]
+}

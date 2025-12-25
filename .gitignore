@@ -1,0 +1,43 @@
+# Virtual environment
+venv/
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+
+# Environment variables (contains API keys!)
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data/Cache
+data/results/
+*.db
+*.sqlite
+
+# Logs
+*.log
+
+# Claude Code
+.claude/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Build
+dist/
+build/
+*.egg-info/
+# LangGraph cache
+.langgraph_api/
+data/*.xlsx

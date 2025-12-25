@@ -1,0 +1,67 @@
+# Credit Intelligence Configuration
+
+# Data Sources Configuration
+data_sources:
+  sec_edgar:
+    enabled: true
+    base_url: "https://data.sec.gov"
+    user_agent: "CreditIntelligence Demo contact@example.com"
+    rate_limit: 10  # requests per second
+
+  opencorporates:
+    enabled: true
+    base_url: "https://api.opencorporates.com/v0.4"
+    # api_key loaded from environment if available
+    rate_limit: 5  # free tier limit
+
+  finnhub:
+    enabled: true
+    base_url: "https://finnhub.io/api/v1"
+    rate_limit: 60  # calls per minute (free tier)
+
+  court_listener:
+    enabled: true
+    base_url: "https://www.courtlistener.com/api/rest/v3"
+    rate_limit: 5000  # per hour
+
+  opensanctions:
+    enabled: true
+    base_url: "https://api.opensanctions.org"
+    rate_limit: 100
+
+  web_search:
+    enabled: true
+    provider: "duckduckgo"
+    max_results: 10
+
+# Agent Configuration
+agents:
+  supervisor:
+    model: "gpt-4o-mini"
+    temperature: 0.1
+    max_retries: 3
+
+  search_agent:
+    model: "gpt-4o-mini"
+    temperature: 0.1
+    max_search_results: 5
+
+  api_agent:
+    model: "gpt-4o-mini"
+    temperature: 0.0
+    timeout: 30
+
+# Workflow Configuration
+workflow:
+  max_iterations: 10
+  parallel_execution: true
+
+# Database Configuration
+database:
+  type: "sqlite"
+  path: "data/results/credit_intelligence.db"
+
+# Logging
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

@@ -1,0 +1,148 @@
+{
+  "name": "Finance Domain Golden Test Set v1",
+  "description": "Golden test set for credit intelligence evaluation focusing on financial analysis, credit assessment, and company data interpretation.",
+  "created": "2024-12-21",
+  "category": "finance",
+  "test_cases": [
+    {
+      "id": "fin_001",
+      "prompt": "What is the formula for calculating Return on Equity (ROE)?",
+      "golden_answer": "ROE = Net Income / Shareholders' Equity",
+      "category": "formula",
+      "difficulty": "easy"
+    },
+    {
+      "id": "fin_002",
+      "prompt": "What does a current ratio below 1.0 indicate about a company's financial health?",
+      "golden_answer": "A current ratio below 1.0 indicates that a company may have difficulty meeting its short-term obligations, as its current liabilities exceed its current assets. This suggests potential liquidity problems.",
+      "category": "analysis",
+      "difficulty": "medium"
+    },
+    {
+      "id": "fin_003",
+      "prompt": "What is the difference between operating cash flow and free cash flow?",
+      "golden_answer": "Operating cash flow is the cash generated from a company's core business operations, while free cash flow is operating cash flow minus capital expenditures. Free cash flow represents the cash available for distribution to investors or reinvestment.",
+      "category": "concepts",
+      "difficulty": "medium"
+    },
+    {
+      "id": "fin_004",
+      "prompt": "If a company has a debt-to-equity ratio of 2.5, what does this indicate about its capital structure?",
+      "golden_answer": "A debt-to-equity ratio of 2.5 indicates the company has $2.50 of debt for every $1 of equity. This is considered highly leveraged, suggesting higher financial risk but potentially higher returns. The company relies heavily on debt financing.",
+      "category": "analysis",
+      "difficulty": "medium"
+    },
+    {
+      "id": "fin_005",
+      "prompt": "Is Apple Inc. (AAPL) a public or private company?",
+      "golden_answer": "Public",
+      "category": "classification",
+      "difficulty": "easy"
+    },
+    {
+      "id": "credit_001",
+      "prompt": "What are the four main factors (4 C's) of credit analysis?",
+      "golden_answer": "The 4 C's of credit analysis are: Character (willingness to pay), Capacity (ability to pay), Capital (financial reserves), and Collateral (assets to secure the loan).",
+      "category": "credit",
+      "difficulty": "easy"
+    },
+    {
+      "id": "credit_002",
+      "prompt": "A company has filed for Chapter 11 bankruptcy. Should they be approved for new credit?",
+      "golden_answer": "No, a company in Chapter 11 bankruptcy should not be approved for new unsecured credit without court approval. Chapter 11 indicates severe financial distress and high credit risk.",
+      "category": "credit_decision",
+      "difficulty": "easy"
+    },
+    {
+      "id": "credit_003",
+      "prompt": "What does a company's appearance on the OFAC SDN list mean for credit approval?",
+      "golden_answer": "A company on the OFAC SDN (Specially Designated Nationals) list must be denied credit and all business dealings. It is illegal to conduct financial transactions with sanctioned entities, and doing so results in severe penalties.",
+      "category": "compliance",
+      "difficulty": "easy"
+    },
+    {
+      "id": "calc_001",
+      "prompt": "A company has $10 million in revenue and $1.5 million in net income. What is the profit margin?",
+      "golden_answer": "15%",
+      "category": "calculation",
+      "difficulty": "easy"
+    },
+    {
+      "id": "calc_002",
+      "prompt": "Calculate the current ratio: Current Assets = $5 million, Current Liabilities = $2.5 million",
+      "golden_answer": "2.0",
+      "category": "calculation",
+      "difficulty": "easy"
+    },
+    {
+      "id": "calc_003",
+      "prompt": "A company has Total Assets of $100 million and Total Liabilities of $60 million. What is the debt-to-assets ratio?",
+      "golden_answer": "0.6 or 60%",
+      "category": "calculation",
+      "difficulty": "easy"
+    },
+    {
+      "id": "risk_001",
+      "prompt": "A company has positive revenue growth but negative operating cash flow for 3 consecutive years. What does this suggest?",
+      "golden_answer": "This suggests potential financial problems despite revenue growth. The company may be struggling with collections, inventory management, or has high operating costs. It could indicate aggressive revenue recognition or working capital issues.",
+      "category": "risk_analysis",
+      "difficulty": "hard"
+    },
+    {
+      "id": "risk_002",
+      "prompt": "What industry typically has the highest credit risk: Technology, Utilities, or Restaurants?",
+      "golden_answer": "Restaurants typically have the highest credit risk due to high failure rates, low margins, high competition, and sensitivity to economic conditions. Utilities generally have the lowest risk due to regulated, stable cash flows.",
+      "category": "industry_risk",
+      "difficulty": "medium"
+    },
+    {
+      "id": "analysis_001",
+      "prompt": "A company's PE ratio is 5 while the industry average is 15. What might this indicate?",
+      "golden_answer": "A PE ratio significantly below the industry average (5 vs 15) may indicate the company is undervalued, or alternatively, investors expect lower future growth or perceive higher risk. Further analysis is needed to determine if it's a value opportunity or a value trap.",
+      "category": "valuation",
+      "difficulty": "hard"
+    },
+    {
+      "id": "analysis_002",
+      "prompt": "What type of financial statement would you review to understand a company's liquidity position?",
+      "golden_answer": "The Balance Sheet, which shows current assets and current liabilities used to calculate liquidity ratios like current ratio and quick ratio. The Cash Flow Statement also provides insights into cash management.",
+      "category": "financial_statements",
+      "difficulty": "easy"
+    },
+    {
+      "id": "credit_004",
+      "prompt": "A company has been operating for only 6 months. What additional due diligence should be performed?",
+      "golden_answer": "For a new company, additional due diligence should include: background checks on owners/directors, personal guarantees, verification of business licenses, review of business plan, higher collateral requirements, references from suppliers/customers, and possibly starting with a smaller credit limit.",
+      "category": "due_diligence",
+      "difficulty": "medium"
+    },
+    {
+      "id": "credit_005",
+      "prompt": "What is the significance of a company having multiple recent director resignations?",
+      "golden_answer": "Multiple director resignations can be a red flag indicating potential governance issues, internal conflicts, financial problems, or undisclosed risks. This warrants deeper investigation and potentially indicates elevated credit risk.",
+      "category": "risk_signals",
+      "difficulty": "medium"
+    },
+    {
+      "id": "compliance_001",
+      "prompt": "What is a PEP and why is it relevant for credit decisions?",
+      "golden_answer": "PEP stands for Politically Exposed Person - individuals who hold or have held prominent public functions. They are relevant for credit decisions due to higher corruption and money laundering risks, requiring enhanced due diligence.",
+      "category": "compliance",
+      "difficulty": "medium"
+    },
+    {
+      "id": "fin_006",
+      "prompt": "What does EBITDA stand for and what does it measure?",
+      "golden_answer": "EBITDA stands for Earnings Before Interest, Taxes, Depreciation, and Amortization. It measures a company's operating profitability before the impact of capital structure, tax environment, and non-cash charges.",
+      "category": "concepts",
+      "difficulty": "easy"
+    },
+    {
+      "id": "fin_007",
+      "prompt": "A company's accounts receivable days outstanding increased from 30 to 60 days. What does this suggest?",
+      "golden_answer": "Increasing accounts receivable days (30 to 60) suggests the company is taking longer to collect payments from customers. This could indicate deteriorating customer quality, collection problems, or more lenient credit terms, all of which increase credit risk.",
+      "category": "working_capital",
+      "difficulty": "medium"
+    }
+  ]
+}

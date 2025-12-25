@@ -1,0 +1,91 @@
+{
+  "name": "Demo Companies for Credit Intelligence",
+  "description": "Sample company data for demonstrating the credit intelligence workflow. Uses publicly available information about well-known companies.",
+  "companies": [
+    {
+      "name": "Apple Inc",
+      "ticker": "AAPL",
+      "jurisdiction": "US",
+      "type": "public",
+      "industry": "Technology",
+      "description": "Large-cap technology company with strong financials",
+      "expected_risk": "low",
+      "notes": "Excellent credit profile - strong cash position, low debt, consistent profitability"
+    },
+    {
+      "name": "Microsoft Corporation",
+      "ticker": "MSFT",
+      "jurisdiction": "US",
+      "type": "public",
+      "industry": "Technology",
+      "description": "Large-cap technology company",
+      "expected_risk": "low",
+      "notes": "Strong credit profile - diversified revenue, subscription model, strong cash flow"
+    },
+    {
+      "name": "Tesla Inc",
+      "ticker": "TSLA",
+      "jurisdiction": "US",
+      "type": "public",
+      "industry": "Automotive/Technology",
+      "description": "Growth company with higher volatility",
+      "expected_risk": "medium",
+      "notes": "Moderate risk - high growth but also high capex, competitive industry"
+    },
+    {
+      "name": "Amazon.com Inc",
+      "ticker": "AMZN",
+      "jurisdiction": "US",
+      "type": "public",
+      "industry": "E-commerce/Technology",
+      "description": "E-commerce and cloud computing giant",
+      "expected_risk": "low",
+      "notes": "Strong credit - dominant market position, AWS cash cow, diversified"
+    },
+    {
+      "name": "JPMorgan Chase & Co",
+      "ticker": "JPM",
+      "jurisdiction": "US",
+      "type": "public",
+      "industry": "Financial Services",
+      "description": "Largest US bank by assets",
+      "expected_risk": "low",
+      "notes": "Strong credit - systemically important bank, well capitalized"
+    },
+    {
+      "name": "Walmart Inc",
+      "ticker": "WMT",
+      "jurisdiction": "US",
+      "type": "public",
+      "industry": "Retail",
+      "description": "World's largest retailer",
+      "expected_risk": "low",
+      "notes": "Strong credit - stable revenue, essential services, strong supply chain"
+    },
+    {
+      "name": "Acme Test Corp",
+      "ticker": null,
+      "jurisdiction": "US",
+      "type": "private",
+      "industry": "Manufacturing",
+      "description": "Fictional private company for testing non-public company workflow",
+      "expected_risk": "medium",
+      "notes": "Testing scenario - limited financial data availability"
+    },
+    {
+      "name": "Global Trade LLC",
+      "ticker": null,
+      "jurisdiction": "US",
+      "type": "private",
+      "industry": "Trading",
+      "description": "Fictional company to test OpenCorporates and sanctions checks",
+      "expected_risk": "high",
+      "notes": "Testing scenario - requires enhanced due diligence"
+    }
+  ],
+  "usage_instructions": {
+    "public_companies": "Use ticker symbol for full data from SEC EDGAR and Finnhub",
+    "private_companies": "Limited to OpenCorporates, CourtListener, OpenSanctions, and web search",
+    "demo_command": "python -m src.main analyze --company 'Apple Inc'"
+  }
+}
