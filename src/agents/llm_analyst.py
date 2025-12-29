@@ -59,7 +59,7 @@ class LLMAnalystAgent:
     MODELS = {
         "primary": "llama-3.3-70b-versatile",  # Best quality
         "fast": "llama-3.1-8b-instant",  # Fastest
-        "balanced": "mixtral-8x7b-32768",  # Good balance
+        "balanced": "llama3-70b-8192",  # Good balance (llama3 base model)
     }
 
     CREDIT_ANALYSIS_PROMPT = """You are an expert credit analyst. Analyze the following company data and provide a credit risk assessment.

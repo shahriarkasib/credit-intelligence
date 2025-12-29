@@ -4,10 +4,11 @@ An enterprise-grade demo environment that transforms manual credit intelligence 
 
 ## Project Overview
 
-This project demonstrates two key capabilities:
+This project demonstrates three key capabilities:
 
-1. **Agentic Workflow Transformation**: Automate credit intelligence data collection from multiple public sources to assess company creditworthiness
-2. **Consistency-as-Correctness Evaluation (Part 3)**: Validate the hypothesis that inter-model LLM consistency can serve as a reliable proxy for output correctness
+1. **Tool-Based Agentic Workflow**: LLM-powered supervisor that autonomously selects and executes tools for credit data collection
+2. **Comprehensive Evaluation Framework**: Evaluate tool selection accuracy, synthesis quality, and cross-run consistency
+3. **Full Observability**: Step-by-step logging with metrics, token usage, and cost estimation
 
 ### Target Use Case
 
@@ -25,22 +26,60 @@ This project demonstrates two key capabilities:
 ## Architecture Overview
 
 ```
-                    ┌────────────────────────────────────────┐
-                    │           SUPERVISOR AGENT             │
-                    │  - Receives company details            │
-                    │  - Orchestrates workflow               │
-                    │  - Synthesizes credit assessment       │
-                    └──────────────┬─────────────┬───────────┘
-                                   │             │
-                    ┌──────────────▼─────┐ ┌─────▼──────────────┐
-                    │    SEARCH AGENT    │ │     API AGENT      │
-                    │  - Web search      │ │  - SEC EDGAR       │
-                    │  - News gathering  │ │  - OpenCorporates  │
-                    │  - Sentiment       │ │  - Finnhub         │
-                    └────────────────────┘ │  - CourtListener   │
-                                           │  - OpenSanctions   │
-                                           └────────────────────┘
+                         ┌──────────────────────────────────────────────┐
+                         │           TOOL SUPERVISOR (LLM)              │
+                         │  - Receives company name                     │
+                         │  - Analyzes company type (public/private)    │
+                         │  - Selects appropriate tools                 │
+                         │  - Synthesizes credit assessment             │
+                         └─────────────────────┬────────────────────────┘
+                                               │
+                    ┌──────────────────────────┼──────────────────────────┐
+                    │                          │                          │
+          ┌─────────▼─────────┐    ┌───────────▼───────────┐   ┌──────────▼──────────┐
+          │   SEC EDGAR TOOL  │    │   MARKET DATA TOOL    │   │   WEB SEARCH TOOL   │
+          │   (fetch_sec_data)│    │  (fetch_market_data)  │   │    (web_search)     │
+          │                   │    │                       │   │                     │
+          │ • 10-K filings    │    │ • Stock quotes        │   │ • Company info      │
+          │ • Financial data  │    │ • Company profile     │   │ • News articles     │
+          │ • CIK lookup      │    │ • Fundamentals        │   │ • Sentiment         │
+          └───────────────────┘    └───────────────────────┘   └─────────────────────┘
+                    │                          │                          │
+                    └──────────────────────────┼──────────────────────────┘
+                                               │
+                         ┌─────────────────────▼────────────────────────┐
+                         │           EVALUATION FRAMEWORK               │
+                         │  - Tool selection accuracy (precision/recall)│
+                         │  - Data quality assessment                   │
+                         │  - Synthesis quality scoring                 │
+                         │  - Multi-run consistency                     │
+                         └──────────────────────────────────────────────┘
 ```
+
+---
+
+## Key Features
+
+### Tool-Based Agent Architecture
+
+The LLM Supervisor dynamically selects which tools to use based on company type:
+
+| Company Type | Tools Selected | Reasoning |
+|--------------|----------------|-----------|
+| **Public US** (Apple, Microsoft) | SEC + Market Data | Official filings available |
+| **Public Non-US** (Toyota, Samsung) | Market Data + Web Search | No SEC filings |
+| **Private** (Local LLC) | Web Search + Legal Data | Limited public data |
+
+### Evaluation Metrics
+
+Every workflow run is evaluated on:
+
+| Metric | Description | Target |
+|--------|-------------|--------|
+| **Tool Selection F1** | Did LLM choose correct tools? | ≥ 0.85 |
+| **Data Completeness** | How much data was collected? | ≥ 0.80 |
+| **Synthesis Quality** | Is assessment well-reasoned? | ≥ 0.75 |
+| **Cross-Run Consistency** | Same results across runs? | ≥ 0.90 |
 
 ---
 
@@ -50,165 +89,46 @@ This project demonstrates two key capabilities:
 credit_intelligence/
 ├── README.md                    # This file
 ├── requirements.txt             # Python dependencies
-├── .env.example                 # Environment variables template
-├── config/
-│   ├── config.yaml              # Main configuration
-│   └── models.yaml              # LLM model configurations
+├── .env                         # Environment variables (API keys)
+├── langgraph.json               # LangGraph Studio configuration
+├── docs/
+│   ├── SYSTEM_OVERVIEW.md       # Detailed system documentation
+│   ├── IMPLEMENTATION_PLAN.md   # Implementation details
+│   └── MONGODB_SCHEMA.md        # Database schema documentation
 ├── src/
-│   ├── data_sources/            # Part 1: Data Source Connectors
-│   │   ├── base.py              # Base connector class
-│   │   ├── sec_edgar.py         # SEC EDGAR (US public companies)
-│   │   ├── opencorporates.py    # Global company registry
-│   │   ├── finnhub.py           # Stock/market data
-│   │   ├── court_listener.py    # Court records
-│   │   ├── opensanctions.py     # Sanctions/PEP checks
-│   │   └── web_search.py        # DuckDuckGo web search
-│   ├── agents/                  # Part 2: Agentic Workflow
-│   │   ├── supervisor.py        # Main orchestrator
+│   ├── tools/                   # Tool-based agents
+│   │   ├── base_tool.py         # Base tool class with metrics
+│   │   ├── tool_executor.py     # Tool management and execution
+│   │   ├── sec_tool.py          # SEC EDGAR data tool
+│   │   ├── finnhub_tool.py      # Market data tool
+│   │   ├── court_tool.py        # Legal records tool
+│   │   └── web_search_tool.py   # Web search tool
+│   ├── agents/                  # Agent implementations
+│   │   ├── tool_supervisor.py   # LLM-based tool selection
+│   │   ├── supervisor.py        # Original supervisor
 │   │   ├── search_agent.py      # Web search agent
 │   │   ├── api_agent.py         # External API agent
+│   │   ├── llm_analyst.py       # LLM analysis agent
 │   │   └── workflow.py          # LangGraph workflow
-│   └── evaluation/              # Part 3: Consistency Evaluation
-│       ├── execution_wrapper.py # Multi-LLM router
-│       ├── consistency_scorer.py# Consistency scoring
-│       ├── correctness_scorer.py# Correctness validation
-│       └── analyzer.py          # Correlation analysis
-├── data/
-│   ├── sample_companies/        # Demo company data
-│   └── golden_test_sets/        # Ground truth test data
-├── tests/
-└── docs/
-    └── data_source_mapping.md   # Detailed field mapping
+│   ├── evaluation/              # Evaluation framework
+│   │   ├── tool_selection_evaluator.py  # Tool choice evaluation
+│   │   ├── workflow_evaluator.py        # Full workflow evaluation
+│   │   ├── consistency_scorer.py        # Cross-run consistency
+│   │   ├── correctness_scorer.py        # Output correctness
+│   │   └── analyzer.py                  # Correlation analysis
+│   ├── run_logging/             # Logging infrastructure
+│   │   ├── run_logger.py        # MongoDB logging
+│   │   └── metrics_collector.py # Metrics collection
+│   ├── data_sources/            # Data source connectors
+│   │   ├── sec_edgar.py         # SEC EDGAR API
+│   │   ├── finnhub.py           # Finnhub stock data
+│   │   ├── court_listener.py    # Court records
+│   │   └── web_search.py        # DuckDuckGo search
+│   ├── test_tool_workflow.py    # Test suite
+│   └── run_evaluation.py        # Evaluation runner
+└── data/
+    └── evaluation_results/      # Saved evaluation results
 ```
-
----
-
-## Part 1: Data Sources
-
-### Free Data Sources Used
-
-All data sources are **free** for demo purposes:
-
-| Source | URL | Free Tier | Data Available |
-|--------|-----|-----------|----------------|
-| SEC EDGAR | sec.gov/developer | Unlimited | US public company financials |
-| OpenCorporates | api.opencorporates.com | 500/month | Global company registry (140+ jurisdictions) |
-| Finnhub | finnhub.io | 60 calls/min | Stock data, fundamentals |
-| CourtListener | courtlistener.com | 5000/hour | Federal/state court records |
-| OpenSanctions | opensanctions.org | Unlimited | Sanctions, PEPs, watchlists |
-| DuckDuckGo | duckduckgo.com | N/A | Web search (no API key needed) |
-
-### Data Fields (20 Key Fields)
-
-| # | Field | Source | Credit Question |
-|---|-------|--------|-----------------|
-| 1 | Company Name | OpenCorporates | Identity/Fraud |
-| 2 | Registration Number | OpenCorporates | Identity/Fraud |
-| 3 | Company Status | OpenCorporates | Fraud Check |
-| 4 | Incorporation Date | OpenCorporates | Ability to Pay |
-| 5 | Directors/Officers | OpenCorporates | Fraud Check |
-| 6 | Annual Revenue | SEC EDGAR | Ability to Pay |
-| 7 | Net Income | SEC EDGAR | Ability to Pay |
-| 8 | Total Assets | SEC EDGAR | Ability to Pay |
-| 9 | Total Liabilities | SEC EDGAR | Ability to Pay |
-| 10 | Operating Cash Flow | SEC EDGAR | Ability to Pay |
-| 11 | Current Stock Price | Finnhub | Ability to Pay |
-| 12 | Market Capitalization | Finnhub | Ability to Pay |
-| 13 | Industry | Finnhub | Risk Assessment |
-| 14 | Federal Court Cases | CourtListener | Willingness to Pay |
-| 15 | Bankruptcy Filings | CourtListener | Willingness to Pay |
-| 16 | Judgments/Liens | CourtListener | Willingness to Pay |
-| 17 | Sanctions Status | OpenSanctions | Fraud Check |
-| 18 | PEP Status | OpenSanctions | Fraud Check |
-| 19 | Recent News | Web Search | Risk Assessment |
-| 20 | News Sentiment | Web Search + LLM | Risk Assessment |
-
----
-
-## Part 2: Agentic Workflow
-
-### Agent Architecture
-
-**Platform**: LangGraph (open source)
-
-| Agent | Role | Tools |
-|-------|------|-------|
-| **Supervisor** | Receives company name, orchestrates workflow, synthesizes final credit report | Routes to sub-agents |
-| **Search Agent** | Gathers public web information | DuckDuckGo search |
-| **API Agent** | Fetches structured data from external APIs | SEC, OpenCorp, Finnhub, CourtListener, OpenSanctions |
-
-### Workflow Steps
-
-1. **Input**: Company name and optional jurisdiction
-2. **Supervisor**: Analyzes input, creates task plan
-3. **API Agent**: Fetches structured data (parallel API calls)
-4. **Search Agent**: Gathers unstructured web data
-5. **Supervisor**: Synthesizes all data into credit assessment
-6. **Output**: Structured credit intelligence report with risk scores
-
----
-
-## Part 3: Consistency-as-Correctness Evaluation
-
-### Hypothesis
-
-> **If multiple diverse LLMs produce consistent outputs for a given prompt, that output is likely correct.**
-
-### Evaluation Framework
-
-```
-┌─────────────┐
-│   Prompt    │
-└──────┬──────┘
-       │
-       ▼
-┌──────────────────────────────────────┐
-│       EXECUTION WRAPPER              │
-│  Routes prompt to 3+ LLMs            │
-└──────┬───────────┬───────────┬───────┘
-       │           │           │
-       ▼           ▼           ▼
-   ┌───────┐   ┌───────┐   ┌───────┐
-   │GPT-4o │   │Claude │   │Ollama │
-   │ mini  │   │Haiku  │   │Llama  │
-   └───┬───┘   └───┬───┘   └───┬───┘
-       │           │           │
-       ▼           ▼           ▼
-┌──────────────────────────────────────┐
-│       CONSISTENCY SCORER             │
-│  - Semantic similarity (Sentence-BERT)│
-│  - Output: Consistent/Inconsistent   │
-└──────────────────┬───────────────────┘
-                   │
-                   ▼
-┌──────────────────────────────────────┐
-│       CORRECTNESS SCORER             │
-│  - Compare against golden truth      │
-│  - Output: Correct/Incorrect         │
-└──────────────────┬───────────────────┘
-                   │
-                   ▼
-┌──────────────────────────────────────┐
-│       CORRELATION ANALYZER           │
-│  - Calculate consistency↔correctness │
-│  - Target: ≥85% correlation          │
-└──────────────────────────────────────┘
-```
-
-### Success Criteria
-
-- **Correlation ≥ 85%** between inter-model consistency and correctness
-- **OR Near-100% precision**: when system says "correct," it actually is correct
-
-### Logged Metrics (per evaluation)
-
-- Prompt and raw input
-- Context (if applicable)
-- Raw output from each LLM
-- Golden answer
-- Consistency score
-- Correctness score
-- Execution stats (tokens, latency, errors)
 
 ---
 
@@ -232,64 +152,148 @@ cp .env.example .env
 
 ### Required API Keys
 
-| Key | Required | How to Get |
-|-----|----------|------------|
-| `OPENAI_API_KEY` | Yes (for agents) | platform.openai.com |
-| `FINNHUB_API_KEY` | Yes | finnhub.io (free tier) |
-| `ANTHROPIC_API_KEY` | Optional | For Claude models in evaluation |
-| `OPENCORPORATES_API_KEY` | Optional | Higher rate limits |
+| Key | Required | Cost | How to Get |
+|-----|----------|------|------------|
+| `GROQ_API_KEY` | **Yes** | Free | [console.groq.com](https://console.groq.com) |
+| `FINNHUB_API_KEY` | Yes | Free tier | [finnhub.io](https://finnhub.io) |
+| `COURTLISTENER_API_KEY` | Optional | Free | [courtlistener.com](https://www.courtlistener.com) |
+| `MONGODB_URI` | Optional | Free tier | [mongodb.com/atlas](https://www.mongodb.com/atlas) |
 
 ---
 
 ## Usage
 
-### Run Credit Intelligence Workflow
+### Run Tests
 
 ```bash
-# Analyze a public US company (uses SEC EDGAR)
-python -m src.main analyze --company "Apple Inc"
-
-# Analyze with specific jurisdiction
-python -m src.main analyze --company "Microsoft Corporation" --jurisdiction US
-
-# Analyze any company (uses OpenCorporates)
-python -m src.main analyze --company "BMW AG" --jurisdiction DE
+cd src
+source ../venv/bin/activate
+python test_tool_workflow.py
 ```
 
-### Run Consistency Evaluation (Part 3)
+Expected output:
+```
+============================================================
+TEST SUMMARY
+============================================================
+  Tool Executor: PASS
+  Tool Supervisor: PASS
+  Full Assessment: PASS
+  Evaluation Framework: PASS
+  Logging Infrastructure: PASS
+
+  Total: 5/5 tests passed
+```
+
+### Run Single Company Assessment
 
 ```bash
-# Run evaluation on golden test set
-python -m src.evaluation.run --test-set data/golden_test_sets/finance_v1.json
+python run_evaluation.py --company "Apple Inc"
+```
 
-# Generate correlation report
-python -m src.evaluation.analyzer --results data/results/
+Output includes:
+- **Risk Level**: low / medium / high / critical
+- **Credit Score**: 0-100
+- **Confidence**: 0.0-1.0
+- **Tools Used**: Which data sources were queried
+- **Evaluation Scores**: Tool selection accuracy, synthesis quality
 
-# Run with specific models
-python -m src.evaluation.run --models gpt-4o-mini,claude-3-haiku
+### Run Consistency Evaluation (Multiple Runs)
+
+```bash
+# Run 3 assessments for consistency check
+python run_evaluation.py --company "Microsoft Corporation" --runs 3
+```
+
+### Run Batch Evaluation
+
+```bash
+# Evaluate multiple companies
+python run_evaluation.py --companies "Apple Inc,Microsoft,Tesla"
+```
+
+### Run with LangGraph Studio
+
+```bash
+# Start LangGraph Studio (visual workflow)
+cd credit_intelligence
+langgraph dev
+```
+
+Then open http://localhost:2024 in your browser.
+
+---
+
+## Sample Output
+
+```json
+{
+  "company_name": "Microsoft Corporation",
+  "run_id": "b164c57d-bd80-4ec7-85a7-b5138032833b",
+  "total_execution_time_ms": 19469.90,
+  "tool_selection": {
+    "tools_selected": ["fetch_sec_data", "fetch_market_data", "fetch_legal_data"],
+    "reasoning": "Microsoft is a US public company, SEC filings are available..."
+  },
+  "assessment": {
+    "risk_level": "low",
+    "credit_score": 92,
+    "confidence": 0.8,
+    "reasoning": "Strong financial position with consistent revenue growth...",
+    "risk_factors": ["High market concentration in cloud services"],
+    "positive_factors": ["Strong cash reserves", "Market leader", "Consistent growth"]
+  },
+  "evaluation": {
+    "tool_selection_score": 1.0,
+    "data_completeness": 0.85,
+    "synthesis_consistency": 0.92
+  }
+}
 ```
 
 ---
 
-## Demo Companies
+## Data Sources
 
-For demonstration, we use these publicly-traded companies with available data:
+All data sources are **free** for demo purposes:
 
-| Company | Ticker | Jurisdiction | Data Available |
-|---------|--------|--------------|----------------|
-| Apple Inc | AAPL | US | Full (SEC + all sources) |
-| Microsoft Corporation | MSFT | US | Full (SEC + all sources) |
-| Tesla Inc | TSLA | US | Full (SEC + all sources) |
-| Alphabet Inc | GOOGL | US | Full (SEC + all sources) |
+| Source | Tool Name | Free Tier | Data Available |
+|--------|-----------|-----------|----------------|
+| SEC EDGAR | `fetch_sec_data` | Unlimited | US public company financials |
+| Finnhub | `fetch_market_data` | 60 calls/min | Stock data, fundamentals |
+| CourtListener | `fetch_legal_data` | 5000/hour | Federal/state court records |
+| DuckDuckGo | `web_search` | Unlimited | Web search, news |
 
 ---
 
-## Key Deliverables
+## Evaluation Framework
 
-1. **Data Source Mapping** - `docs/data_source_mapping.md`
-2. **Working Agentic Workflow** - `src/agents/`
-3. **Consistency Evaluation Framework** - `src/evaluation/`
-4. **Demo Results** - `data/results/`
+### Tool Selection Evaluation
+
+Measures if the LLM chose appropriate tools:
+
+```
+Expected tools for Apple Inc: [fetch_sec_data, fetch_market_data]
+Selected tools:               [fetch_sec_data, fetch_market_data]
+
+Precision: 1.00 (all selected tools were correct)
+Recall:    1.00 (all expected tools were selected)
+F1 Score:  1.00
+```
+
+### Consistency Evaluation
+
+Run the same company multiple times to measure consistency:
+
+```
+Run 1: risk_level=low, credit_score=92
+Run 2: risk_level=low, credit_score=90
+Run 3: risk_level=low, credit_score=91
+
+Risk Level Consistency: 1.0 (all agree)
+Credit Score Range: 2 points
+Overall Consistency: 0.95
+```
 
 ---
 
@@ -297,24 +301,43 @@ For demonstration, we use these publicly-traded companies with available data:
 
 | Component | Technology | Cost |
 |-----------|------------|------|
+| LLM | Groq (Llama 3.3 70B) | Free |
 | Agent Framework | LangGraph | Free (OSS) |
-| LLM (Agents) | GPT-4o-mini | Pay per use |
-| LLM (Local option) | Ollama + Llama | Free |
 | Web Search | DuckDuckGo | Free |
-| Database | SQLite | Free |
+| Database | MongoDB Atlas | Free tier |
 | Embeddings | Sentence-BERT | Free (OSS) |
+
+### Groq Models Used
+
+| Model | Use Case | Speed |
+|-------|----------|-------|
+| `llama-3.3-70b-versatile` | Tool selection, synthesis | Primary |
+| `llama-3.1-8b-instant` | Fast assessments | Fast |
+| `mixtral-8x7b-32768` | Cross-model validation | Balanced |
+
+---
+
+## MongoDB Schema
+
+See `docs/MONGODB_SCHEMA.md` for full documentation. Key collections:
+
+| Collection | Purpose |
+|------------|---------|
+| `runs` | Complete workflow run summaries |
+| `steps` | Individual step logs with metrics |
+| `tool_calls` | Tool execution logs |
+| `assessments` | Final credit assessments |
+| `evaluations` | Evaluation results |
 
 ---
 
 ## References
 
 - [LangGraph Documentation](https://python.langchain.com/docs/langgraph)
-- [Karpathy's LLM Council](https://github.com/karpathy/llm-council) - Inspiration for consistency evaluation
+- [Groq API](https://console.groq.com) - Free LLM inference
 - [SEC EDGAR API](https://www.sec.gov/developer)
-- [OpenCorporates API](https://api.opencorporates.com/documentation)
 - [Finnhub API](https://finnhub.io/docs/api)
 - [CourtListener API](https://www.courtlistener.com/help/api/)
-- [OpenSanctions API](https://www.opensanctions.org/docs/api/)
 
 ---
 

@@ -1,0 +1,590 @@
+"""Run Logger - Logs complete workflow runs to MongoDB with local JSON fallback."""
+
+import os
+import ssl
+import uuid
+import json
+import logging
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+from pathlib import Path
+
+# Auto-load .env file
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent.parent.parent / ".env")
+
+logger = logging.getLogger(__name__)
+
+# Try to import MongoDB and certifi
+try:
+    from pymongo import MongoClient
+    from pymongo.server_api import ServerApi
+    MONGODB_AVAILABLE = True
+except ImportError:
+    MONGODB_AVAILABLE = False
+
+try:
+    import certifi
+    CERTIFI_AVAILABLE = True
+except ImportError:
+    CERTIFI_AVAILABLE = False
+
+
+class RunLogger:
+    """
+    Comprehensive logger that stores all run data to MongoDB with local JSON fallback.
+
+    Collections:
+    - runs: Complete run summaries
+    - steps: Individual step logs
+    - tool_calls: Tool execution logs
+    - evaluations: Evaluation results
+
+    When MongoDB is unavailable, data is saved to local JSON files in data/run_logs/
+    """
+
+    def __init__(self, connection_string: Optional[str] = None):
+        self.connection_string = connection_string or os.getenv("MONGODB_URI")
+        self.client = None
+        self.db = None
+
+        # Local fallback directory
+        self.local_log_dir = Path("data/run_logs")
+        self.local_log_dir.mkdir(parents=True, exist_ok=True)
+        self._local_runs: Dict[str, Dict[str, Any]] = {}  # In-memory cache for local runs
+
+        if MONGODB_AVAILABLE and self.connection_string:
+            try:
+                # Connection options for MongoDB Atlas
+                options = {
+                    "server_api": ServerApi('1'),
+                    "serverSelectionTimeoutMS": 10000,
+                }
+                if CERTIFI_AVAILABLE:
+                    options["tlsCAFile"] = certifi.where()
+
+                self.client = MongoClient(self.connection_string, **options)
+                self.client.admin.command('ping')
+                self.db = self.client.credit_intelligence
+                logger.info("RunLogger connected to MongoDB Atlas")
+            except Exception as e:
+                logger.warning(f"MongoDB connection failed: {e}")
+
+    def is_connected(self) -> bool:
+        return self.db is not None
+
+    def _save_local_run(self, run_id: str):
+        """Save run data to local JSON file."""
+        if run_id in self._local_runs:
+            filepath = self.local_log_dir / f"run_{run_id}.json"
+            with open(filepath, "w") as f:
+                json.dump(self._local_runs[run_id], f, indent=2, default=str)
+
+    def _load_local_run(self, run_id: str) -> Optional[Dict[str, Any]]:
+        """Load run data from local JSON file."""
+        if run_id in self._local_runs:
+            return self._local_runs[run_id]
+        filepath = self.local_log_dir / f"run_{run_id}.json"
+        if filepath.exists():
+            with open(filepath, "r") as f:
+                return json.load(f)
+        return None
+
+    # ==================== RUN LOGGING ====================
+
+    def start_run(self, company_name: str, context: Dict[str, Any] = None) -> str:
+        """
+        Start a new run and return run_id.
+
+        Args:
+            company_name: Company being analyzed
+            context: Additional context
+
+        Returns:
+            run_id: Unique run identifier
+        """
+        run_id = str(uuid.uuid4())
+
+        run_doc = {
+            "run_id": run_id,
+            "company_name": company_name,
+            "context": context or {},
+            "status": "started",
+            "started_at": datetime.utcnow(),
+            "steps": [],
+            "tool_calls": [],
+            "metrics": {},
+            "evaluation": {},
+        }
+
+        if self.is_connected():
+            self.db.runs.insert_one(run_doc)
+        else:
+            # Local fallback
+            self._local_runs[run_id] = run_doc
+            self._save_local_run(run_id)
+            logger.info(f"Saving run {run_id} locally (MongoDB unavailable)")
+
+        logger.info(f"Started run {run_id} for {company_name}")
+        return run_id
+
+    def log_step(
+        self,
+        run_id: str,
+        step_name: str,
+        input_data: Dict[str, Any],
+        output_data: Dict[str, Any],
+        execution_time_ms: float,
+        tokens_used: Dict[str, int] = None,
+        success: bool = True,
+        error: str = None,
+    ):
+        """Log a workflow step."""
+        step_doc = {
+            "run_id": run_id,
+            "step_name": step_name,
+            "input_data": input_data,
+            "output_data": output_data,
+            "execution_time_ms": execution_time_ms,
+            "tokens_used": tokens_used or {},
+            "success": success,
+            "error": error,
+            "timestamp": datetime.utcnow(),
+        }
+
+        if self.is_connected():
+            # Add to steps collection
+            self.db.steps.insert_one(step_doc)
+            # Update run document
+            self.db.runs.update_one(
+                {"run_id": run_id},
+                {"$push": {"steps": {
+                    "step_name": step_name,
+                    "execution_time_ms": execution_time_ms,
+                    "success": success,
+                }}}
+            )
+        elif run_id in self._local_runs:
+            # Local fallback
+            self._local_runs[run_id]["steps"].append({
+                "step_name": step_name,
+                "execution_time_ms": execution_time_ms,
+                "success": success,
+            })
+            self._save_local_run(run_id)
+
+        logger.debug(f"Logged step {step_name} for run {run_id}")
+
+    def log_tool_call(
+        self,
+        run_id: str,
+        tool_name: str,
+        input_params: Dict[str, Any],
+        output_data: Dict[str, Any],
+        execution_time_ms: float,
+        success: bool,
+        selection_reason: str = "",
+    ):
+        """Log a tool execution."""
+        tool_doc = {
+            "run_id": run_id,
+            "tool_name": tool_name,
+            "input_params": input_params,
+            "output_data": output_data,
+            "execution_time_ms": execution_time_ms,
+            "success": success,
+            "selection_reason": selection_reason,
+            "timestamp": datetime.utcnow(),
+        }
+
+        if self.is_connected():
+            self.db.tool_calls.insert_one(tool_doc)
+            self.db.runs.update_one(
+                {"run_id": run_id},
+                {"$push": {"tool_calls": {
+                    "tool_name": tool_name,
+                    "success": success,
+                    "execution_time_ms": execution_time_ms,
+                }}}
+            )
+        elif run_id in self._local_runs:
+            # Local fallback
+            self._local_runs[run_id]["tool_calls"].append({
+                "tool_name": tool_name,
+                "success": success,
+                "execution_time_ms": execution_time_ms,
+            })
+            self._save_local_run(run_id)
+
+        logger.debug(f"Logged tool call {tool_name} for run {run_id}")
+
+    def log_tool_selection(
+        self,
+        run_id: str,
+        company_name: str,
+        tools_selected: List[str],
+        selection_reasoning: Dict[str, Any],
+        llm_metrics: Dict[str, Any],
+    ):
+        """Log tool selection decision."""
+        selection_doc = {
+            "run_id": run_id,
+            "company_name": company_name,
+            "tools_selected": tools_selected,
+            "selection_reasoning": selection_reasoning,
+            "llm_metrics": llm_metrics,
+            "timestamp": datetime.utcnow(),
+        }
+
+        if self.is_connected():
+            self.db.tool_selections.insert_one(selection_doc)
+        elif run_id in self._local_runs:
+            # Local fallback
+            self._local_runs[run_id]["tool_selection"] = {
+                "tools_selected": tools_selected,
+                "selection_reasoning": selection_reasoning,
+                "llm_metrics": llm_metrics,
+            }
+            self._save_local_run(run_id)
+
+        logger.info(f"Tool selection for {company_name}: {tools_selected}")
+
+    def log_assessment(
+        self,
+        run_id: str,
+        company_name: str,
+        assessment: Dict[str, Any],
+        llm_metrics: Dict[str, Any],
+    ):
+        """Log final credit assessment."""
+        assessment_doc = {
+            "run_id": run_id,
+            "company_name": company_name,
+            **assessment,
+            "llm_metrics": llm_metrics,
+            "timestamp": datetime.utcnow(),
+        }
+
+        if self.is_connected():
+            self.db.assessments.insert_one(assessment_doc)
+        elif run_id in self._local_runs:
+            # Local fallback
+            self._local_runs[run_id]["assessment"] = {
+                **assessment,
+                "llm_metrics": llm_metrics,
+            }
+            self._save_local_run(run_id)
+
+        logger.info(f"Assessment logged for {company_name}: {assessment.get('risk_level')}")
+
+    def complete_run(
+        self,
+        run_id: str,
+        final_result: Dict[str, Any],
+        total_metrics: Dict[str, Any],
+    ):
+        """Mark run as complete with final results."""
+        if self.is_connected():
+            self.db.runs.update_one(
+                {"run_id": run_id},
+                {
+                    "$set": {
+                        "status": "completed",
+                        "completed_at": datetime.utcnow(),
+                        "final_result": final_result,
+                        "metrics": total_metrics,
+                    }
+                }
+            )
+        elif run_id in self._local_runs:
+            # Local fallback
+            self._local_runs[run_id]["status"] = "completed"
+            self._local_runs[run_id]["completed_at"] = datetime.utcnow().isoformat()
+            self._local_runs[run_id]["final_result"] = final_result
+            self._local_runs[run_id]["metrics"] = total_metrics
+            self._save_local_run(run_id)
+
+        logger.info(f"Completed run {run_id}")
+
+    def fail_run(self, run_id: str, error: str):
+        """Mark run as failed."""
+        if self.is_connected():
+            self.db.runs.update_one(
+                {"run_id": run_id},
+                {
+                    "$set": {
+                        "status": "failed",
+                        "completed_at": datetime.utcnow(),
+                        "error": error,
+                    }
+                }
+            )
+        elif run_id in self._local_runs:
+            # Local fallback
+            self._local_runs[run_id]["status"] = "failed"
+            self._local_runs[run_id]["completed_at"] = datetime.utcnow().isoformat()
+            self._local_runs[run_id]["error"] = error
+            self._save_local_run(run_id)
+
+        logger.error(f"Failed run {run_id}: {error}")
+
+    # ==================== STEP LOGGING ====================
+
+    def log_workflow_step(
+        self,
+        run_id: str,
+        step_name: str,
+        step_number: int,
+        input_data: Dict[str, Any],
+        output_data: Dict[str, Any],
+        execution_time_ms: float,
+        success: bool = True,
+        error: str = None,
+    ):
+        """Log a detailed workflow step."""
+        step_doc = {
+            "run_id": run_id,
+            "step_name": step_name,
+            "step_number": step_number,
+            "input_data": input_data,
+            "output_data": output_data,
+            "execution_time_ms": execution_time_ms,
+            "success": success,
+            "error": error,
+            "timestamp": datetime.utcnow(),
+        }
+
+        if self.is_connected():
+            self.db.workflow_steps.insert_one(step_doc)
+        elif run_id in self._local_runs:
+            if "workflow_steps" not in self._local_runs[run_id]:
+                self._local_runs[run_id]["workflow_steps"] = []
+            self._local_runs[run_id]["workflow_steps"].append(step_doc)
+            self._save_local_run(run_id)
+
+        logger.debug(f"Logged workflow step {step_name} for run {run_id}")
+
+    def log_llm_call(
+        self,
+        run_id: str,
+        call_type: str,
+        model: str,
+        prompt: str,
+        response: str,
+        prompt_tokens: int,
+        completion_tokens: int,
+        execution_time_ms: float,
+    ):
+        """Log an LLM API call."""
+        llm_doc = {
+            "run_id": run_id,
+            "call_type": call_type,
+            "model": model,
+            "prompt": prompt or "",  # Full prompt - no truncation
+            "response": response or "",  # Full response - no truncation
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": prompt_tokens + completion_tokens,
+            "execution_time_ms": execution_time_ms,
+            "timestamp": datetime.utcnow(),
+        }
+
+        if self.is_connected():
+            self.db.llm_calls.insert_one(llm_doc)
+        elif run_id in self._local_runs:
+            if "llm_calls" not in self._local_runs[run_id]:
+                self._local_runs[run_id]["llm_calls"] = []
+            self._local_runs[run_id]["llm_calls"].append(llm_doc)
+            self._save_local_run(run_id)
+
+        logger.debug(f"Logged LLM call {call_type} for run {run_id}")
+
+    def log_data_source(
+        self,
+        run_id: str,
+        source_name: str,
+        success: bool,
+        records_found: int,
+        data_summary: Dict[str, Any],
+        execution_time_ms: float,
+    ):
+        """Log data source fetch result."""
+        source_doc = {
+            "run_id": run_id,
+            "source_name": source_name,
+            "success": success,
+            "records_found": records_found,
+            "data_summary": data_summary,
+            "execution_time_ms": execution_time_ms,
+            "timestamp": datetime.utcnow(),
+        }
+
+        if self.is_connected():
+            self.db.data_sources.insert_one(source_doc)
+        elif run_id in self._local_runs:
+            if "data_sources" not in self._local_runs[run_id]:
+                self._local_runs[run_id]["data_sources"] = []
+            self._local_runs[run_id]["data_sources"].append(source_doc)
+            self._save_local_run(run_id)
+
+        logger.debug(f"Logged data source {source_name} for run {run_id}")
+
+    def log_consistency_score(
+        self,
+        run_id: str,
+        company_name: str,
+        evaluation_type: str,
+        num_runs: int,
+        risk_level_consistency: float,
+        score_consistency: float,
+        reasoning_similarity: float,
+        overall_consistency: float,
+        risk_levels: List[str],
+        credit_scores: List[int],
+    ):
+        """Log consistency evaluation scores."""
+        consistency_doc = {
+            "run_id": run_id,
+            "company_name": company_name,
+            "evaluation_type": evaluation_type,
+            "num_runs": num_runs,
+            "risk_level_consistency": risk_level_consistency,
+            "score_consistency": score_consistency,
+            "reasoning_similarity": reasoning_similarity,
+            "overall_consistency": overall_consistency,
+            "risk_levels": risk_levels,
+            "credit_scores": credit_scores,
+            "timestamp": datetime.utcnow(),
+        }
+
+        if self.is_connected():
+            self.db.consistency_scores.insert_one(consistency_doc)
+        elif run_id in self._local_runs:
+            self._local_runs[run_id]["consistency"] = consistency_doc
+            self._save_local_run(run_id)
+
+        logger.info(f"Logged {evaluation_type} consistency for {company_name}: {overall_consistency:.2f}")
+
+    # ==================== EVALUATION LOGGING ====================
+
+    def log_evaluation(
+        self,
+        run_id: str,
+        evaluation_type: str,
+        metrics: Dict[str, Any],
+        scores: Dict[str, float],
+    ):
+        """Log evaluation results."""
+        eval_doc = {
+            "run_id": run_id,
+            "evaluation_type": evaluation_type,
+            "metrics": metrics,
+            "scores": scores,
+            "timestamp": datetime.utcnow(),
+        }
+
+        if self.is_connected():
+            self.db.evaluations.insert_one(eval_doc)
+            self.db.runs.update_one(
+                {"run_id": run_id},
+                {"$set": {f"evaluation.{evaluation_type}": scores}}
+            )
+        elif run_id in self._local_runs:
+            # Local fallback
+            if "evaluation" not in self._local_runs[run_id]:
+                self._local_runs[run_id]["evaluation"] = {}
+            self._local_runs[run_id]["evaluation"][evaluation_type] = scores
+            self._save_local_run(run_id)
+
+        logger.info(f"Logged {evaluation_type} evaluation for run {run_id}")
+
+    # ==================== RETRIEVAL ====================
+
+    def get_run(self, run_id: str) -> Optional[Dict[str, Any]]:
+        """Get a complete run by ID."""
+        if self.is_connected():
+            return self.db.runs.find_one({"run_id": run_id})
+        # Try local fallback
+        return self._load_local_run(run_id)
+
+    def get_run_steps(self, run_id: str) -> List[Dict[str, Any]]:
+        """Get all steps for a run."""
+        if self.is_connected():
+            return list(self.db.steps.find({"run_id": run_id}).sort("timestamp", 1))
+        # Try local fallback
+        run = self._load_local_run(run_id)
+        return run.get("steps", []) if run else []
+
+    def get_run_tool_calls(self, run_id: str) -> List[Dict[str, Any]]:
+        """Get all tool calls for a run."""
+        if self.is_connected():
+            return list(self.db.tool_calls.find({"run_id": run_id}).sort("timestamp", 1))
+        # Try local fallback
+        run = self._load_local_run(run_id)
+        return run.get("tool_calls", []) if run else []
+
+    def get_recent_runs(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """Get recent runs."""
+        if self.is_connected():
+            return list(self.db.runs.find().sort("started_at", -1).limit(limit))
+        # Try local fallback - read all local run files
+        runs = []
+        for filepath in self.local_log_dir.glob("run_*.json"):
+            try:
+                with open(filepath, "r") as f:
+                    runs.append(json.load(f))
+            except Exception:
+                continue
+        # Sort by started_at
+        runs.sort(key=lambda x: x.get("started_at", ""), reverse=True)
+        return runs[:limit]
+
+    def get_runs_for_company(self, company_name: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get runs for a specific company."""
+        if self.is_connected():
+            return list(self.db.runs.find(
+                {"company_name": company_name}
+            ).sort("started_at", -1).limit(limit))
+        # Local fallback
+        runs = self.get_recent_runs(limit=1000)
+        filtered = [r for r in runs if r.get("company_name") == company_name]
+        return filtered[:limit]
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Get overall statistics."""
+        if self.is_connected():
+            return {
+                "connected": True,
+                "storage": "mongodb",
+                "total_runs": self.db.runs.count_documents({}),
+                "completed_runs": self.db.runs.count_documents({"status": "completed"}),
+                "failed_runs": self.db.runs.count_documents({"status": "failed"}),
+                "total_steps": self.db.steps.count_documents({}),
+                "total_tool_calls": self.db.tool_calls.count_documents({}),
+                "total_evaluations": self.db.evaluations.count_documents({}),
+            }
+
+        # Local fallback stats
+        runs = self.get_recent_runs(limit=1000)
+        return {
+            "connected": False,
+            "storage": "local_json",
+            "local_log_dir": str(self.local_log_dir),
+            "total_runs": len(runs),
+            "completed_runs": len([r for r in runs if r.get("status") == "completed"]),
+            "failed_runs": len([r for r in runs if r.get("status") == "failed"]),
+            "total_steps": sum(len(r.get("steps", [])) for r in runs),
+            "total_tool_calls": sum(len(r.get("tool_calls", [])) for r in runs),
+        }
+
+
+# Singleton instance
+_logger: Optional[RunLogger] = None
+
+
+def get_run_logger(force_new: bool = False) -> RunLogger:
+    """Get the global RunLogger instance."""
+    global _logger
+    if _logger is None or force_new:
+        _logger = RunLogger()
+    return _logger

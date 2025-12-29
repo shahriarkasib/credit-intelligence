@@ -7,6 +7,7 @@ from .supervisor import SupervisorAgent, CreditAssessment
 from .search_agent import SearchAgent
 from .api_agent import APIAgent
 from .workflow import CreditIntelligenceWorkflow, run_credit_analysis
+from .tool_supervisor import ToolSupervisor
 
 # Optional LLM analyst (requires groq)
 try:
@@ -25,6 +26,7 @@ __all__ = [
     "APIAgent",
     "CreditIntelligenceWorkflow",
     "run_credit_analysis",
+    "ToolSupervisor",
     "LLMAnalystAgent",
     "LLMAnalysisResult",
     "analyze_with_llm",

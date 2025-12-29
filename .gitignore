@@ -41,3 +41,16 @@ build/
 # LangGraph cache
 .langgraph_api/
 data/*.xlsx
+credentials/
+
+# Frontend (Next.js)
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# Evaluation results
+data/evaluation_results/
+
+# Run logs (runtime data)
+data/run_logs/
+src/data/

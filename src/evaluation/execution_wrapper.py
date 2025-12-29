@@ -105,9 +105,9 @@ class ExecutionWrapper:
             enabled=True,
         ),
         ModelConfig(
-            name="groq-mixtral",
+            name="groq-gemma2",
             provider="groq",
-            model_id="mixtral-8x7b-32768",
+            model_id="gemma2-9b-it",
             temperature=0.0,
             enabled=True,
         ),

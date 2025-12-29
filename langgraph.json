@@ -3,7 +3,11 @@
   "graphs": {
     "credit_intelligence": {
       "path": "./src/agents/graph.py:graph",
-      "description": "Credit Intelligence Agentic Workflow - Analyzes company creditworthiness using multiple data sources and AI reasoning"
+      "description": "Credit Intelligence Agentic Workflow - Fully automatic credit analysis with comprehensive logging"
+    },
+    "credit_intelligence_hitl": {
+      "path": "./src/agents/graph.py:graph_hitl",
+      "description": "Credit Intelligence with Human-in-the-Loop - Pauses for approval before data fetching"
     }
   },
   "env": ".env",
@@ -16,6 +20,10 @@
     "groq",
     "requests",
     "duckduckgo-search",
-    "finnhub-python"
+    "finnhub-python",
+    "pymongo",
+    "gspread",
+    "google-auth",
+    "sentence-transformers"
   ]
 }
