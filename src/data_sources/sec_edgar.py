@@ -25,7 +25,7 @@ class SECEdgarDataSource(BaseDataSource):
 
     def __init__(self, user_agent: Optional[str] = None):
         user_agent = user_agent or os.getenv(
-            "SEC_EDGAR_USER_AGENT",
+            "SEC_USER_AGENT",
             "CreditIntelligence Demo contact@example.com"
         )
         super().__init__(

@@ -34,6 +34,26 @@ from agents.api_agent import APIAgent
 from agents.search_agent import SearchAgent
 from agents.llm_analyst import LLMAnalystAgent
 
+# Import LLM parser for company input
+try:
+    from agents.llm_parser import get_llm_parser, parse_company_input as llm_parse_company
+    LLM_PARSER_AVAILABLE = True
+except ImportError:
+    LLM_PARSER_AVAILABLE = False
+    llm_parse_company = None
+
+# Import LangSmith configuration
+try:
+    from config.langsmith_config import setup_langsmith, is_langsmith_enabled, get_langsmith_url
+    from config.step_logs import StepLogger, PROMPTS
+    LANGSMITH_CONFIG_AVAILABLE = True
+    # Setup LangSmith tracing
+    setup_langsmith(project_name="credit-intelligence")
+except ImportError:
+    LANGSMITH_CONFIG_AVAILABLE = False
+    StepLogger = None
+    PROMPTS = {}
+
 # Import MongoDB storage
 try:
     from storage.mongodb import CreditIntelligenceDB
@@ -145,7 +165,14 @@ db = CreditIntelligenceDB() if MONGODB_AVAILABLE else None
 
 
 def parse_input(state: CreditWorkflowState) -> Dict[str, Any]:
-    """Parse and enrich company input."""
+    """Parse and enrich company input using LLM.
+
+    This step now uses an LLM to intelligently parse company names and determine:
+    - Whether the company is public or private
+    - Stock ticker symbol (if applicable)
+    - Jurisdiction and industry
+    - Confidence in the determination
+    """
     import time
     start_time = time.time()
 
@@ -158,6 +185,9 @@ def parse_input(state: CreditWorkflowState) -> Dict[str, Any]:
         run_id = str(uuid.uuid4())
 
     logger.info(f"Starting run {run_id} for company: {company_name}")
+
+    # Initialize step logger for tracking prompts
+    step_logger = StepLogger(run_id) if StepLogger else None
 
     # Validate input
     if not company_name:
@@ -183,21 +213,40 @@ def parse_input(state: CreditWorkflowState) -> Dict[str, Any]:
             )
         return result
 
-    company_info = supervisor.parse_company_input(
-        company_name,
-        state.get("jurisdiction"),
-    )
+    # Use LLM parser if available, otherwise fallback to rule-based
+    llm_metrics = {}
+    if LLM_PARSER_AVAILABLE and llm_parse_company:
+        logger.info(f"Using LLM parser for: {company_name}")
+        parser = get_llm_parser()
+        company_info, llm_metrics = parser.parse_company_llm(
+            company_name,
+            context={"jurisdiction": state.get("jurisdiction")},
+            step_logger=step_logger,
+        )
+    else:
+        logger.info(f"Using rule-based parser for: {company_name}")
+        company_info = supervisor.parse_company_input(
+            company_name,
+            state.get("jurisdiction"),
+        )
 
     # Check if company was recognized
     is_known = company_info.get("is_public_company", False)
     ticker = company_info.get("ticker")
+    confidence = company_info.get("confidence", 0.5)
+    parsed_by = company_info.get("parsed_by", "rule-based")
+    reasoning = company_info.get("reasoning", "")
 
     if is_known and ticker:
         validation_msg = f"Found: {company_name} (Ticker: {ticker}) - Public company, full data available."
+        if reasoning:
+            validation_msg += f" [{reasoning}]"
         requires_review = False
     else:
-        validation_msg = f"Note: '{company_name}' not found in known companies database. Will search as private company with limited data sources."
-        requires_review = True
+        validation_msg = f"Note: '{company_name}' identified as private company. Will search with limited data sources."
+        if reasoning:
+            validation_msg += f" [{reasoning}]"
+        requires_review = confidence < 0.7  # Review if low confidence
 
     result = {
         "run_id": run_id,
@@ -208,7 +257,7 @@ def parse_input(state: CreditWorkflowState) -> Dict[str, Any]:
         "requires_review": requires_review,
     }
 
-    # Log step
+    # Log step with LLM metrics
     if wf_logger:
         wf_logger.log_step(
             run_id=run_id,
@@ -218,10 +267,17 @@ def parse_input(state: CreditWorkflowState) -> Dict[str, Any]:
             output_data={
                 "is_public": is_known,
                 "ticker": ticker,
+                "confidence": confidence,
+                "parsed_by": parsed_by,
+                "reasoning": reasoning,
                 "requires_review": requires_review,
+                "llm_metrics": llm_metrics,
             },
             execution_time_ms=(time.time() - start_time) * 1000,
             success=True,
+            llm_model=llm_metrics.get("model"),
+            tokens_used=llm_metrics.get("total_tokens"),
+            prompt_used=llm_metrics.get("prompt_used"),
         )
 
     return result
