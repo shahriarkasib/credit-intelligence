@@ -115,12 +115,14 @@ class SheetsLogger:
                 "confidence", "reasoning", "recommendations", "timestamp"
             ],
             "evaluations": [
-                "run_id", "company_name", "tool_selection_score", "data_quality_score",
-                "synthesis_score", "overall_score", "timestamp"
+                "run_id", "company_name", "tool_selection_score", "tool_reasoning",
+                "data_quality_score", "data_reasoning", "synthesis_score",
+                "synthesis_reasoning", "overall_score", "timestamp"
             ],
             "tool_selections": [
                 "run_id", "company_name", "selected_tools", "expected_tools",
-                "precision", "recall", "f1_score", "timestamp"
+                "correct_tools", "missing_tools", "extra_tools",
+                "precision", "recall", "f1_score", "reasoning", "timestamp"
             ],
             # NEW: Detailed step-by-step logs
             "step_logs": [
@@ -306,8 +308,11 @@ class SheetsLogger:
         data_quality_score: float,
         synthesis_score: float,
         overall_score: float,
+        tool_reasoning: str = "",
+        data_reasoning: str = "",
+        synthesis_reasoning: str = "",
     ):
-        """Log evaluation results (non-blocking)."""
+        """Log evaluation results with reasoning (non-blocking)."""
         if not self.is_connected():
             return
 
@@ -315,8 +320,11 @@ class SheetsLogger:
             run_id,
             company_name,
             tool_selection_score,
+            self._safe_str(tool_reasoning, max_length=500),
             data_quality_score,
+            self._safe_str(data_reasoning, max_length=500),
             synthesis_score,
+            self._safe_str(synthesis_reasoning, max_length=500),
             overall_score,
             datetime.utcnow().isoformat(),
         ]
@@ -339,8 +347,12 @@ class SheetsLogger:
         precision: float = 0,
         recall: float = 0,
         f1_score: float = 0,
+        correct_tools: List[str] = None,
+        missing_tools: List[str] = None,
+        extra_tools: List[str] = None,
+        reasoning: str = "",
     ):
-        """Log tool selection decision (non-blocking)."""
+        """Log tool selection decision with reasoning (non-blocking)."""
         if not self.is_connected():
             return
 
@@ -349,9 +361,13 @@ class SheetsLogger:
             company_name,
             ", ".join(selected_tools) if selected_tools else "",
             ", ".join(expected_tools) if expected_tools else "",
+            ", ".join(correct_tools) if correct_tools else "",
+            ", ".join(missing_tools) if missing_tools else "",
+            ", ".join(extra_tools) if extra_tools else "",
             precision,
             recall,
             f1_score,
+            self._safe_str(reasoning, max_length=500),
             datetime.utcnow().isoformat(),
         ]
 

@@ -249,9 +249,12 @@ class WorkflowLogger:
         data_quality_score: float,
         synthesis_score: float,
         overall_score: float,
+        tool_reasoning: str = "",
+        data_reasoning: str = "",
+        synthesis_reasoning: str = "",
         details: Dict[str, Any] = None,
     ):
-        """Log evaluation to all storage."""
+        """Log evaluation with reasoning to all storage."""
         # Log to Google Sheets
         if self.sheets_logger.is_connected():
             self.sheets_logger.log_evaluation(
@@ -261,6 +264,9 @@ class WorkflowLogger:
                 data_quality_score=data_quality_score,
                 synthesis_score=synthesis_score,
                 overall_score=overall_score,
+                tool_reasoning=tool_reasoning,
+                data_reasoning=data_reasoning,
+                synthesis_reasoning=synthesis_reasoning,
             )
         logger.info(f"[{run_id[:8]}] Evaluation: {overall_score:.2f}")
 
@@ -273,8 +279,12 @@ class WorkflowLogger:
         precision: float,
         recall: float,
         f1_score: float,
+        correct_tools: List[str] = None,
+        missing_tools: List[str] = None,
+        extra_tools: List[str] = None,
+        reasoning: str = "",
     ):
-        """Log tool selection to all storage."""
+        """Log tool selection with reasoning to all storage."""
         # Log to Google Sheets
         if self.sheets_logger.is_connected():
             self.sheets_logger.log_tool_selection(
@@ -285,6 +295,10 @@ class WorkflowLogger:
                 precision=precision,
                 recall=recall,
                 f1_score=f1_score,
+                correct_tools=correct_tools,
+                missing_tools=missing_tools,
+                extra_tools=extra_tools,
+                reasoning=reasoning,
             )
         logger.info(f"[{run_id[:8]}] Tool selection F1: {f1_score:.2f}")
 

@@ -983,15 +983,60 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
 
         # 3. Evaluate synthesis quality
         synthesis_score = 0.0
+        synthesis_present = []
+        synthesis_missing = []
         if assessment:
             # Check for required fields
             required_fields = ["overall_risk_level", "credit_score_estimate", "recommendations"]
-            present = sum(1 for f in required_fields if assessment.get(f))
+            for field in required_fields:
+                if assessment.get(field):
+                    synthesis_present.append(field)
+                else:
+                    synthesis_missing.append(field)
+            present = len(synthesis_present)
             synthesis_score = present / len(required_fields)
 
             # Bonus for LLM reasoning
             if assessment.get("llm_reasoning"):
                 synthesis_score = min(1.0, synthesis_score + 0.2)
+                synthesis_present.append("llm_reasoning (+0.2 bonus)")
+
+        # Generate human-readable reasoning for each score
+        # Tool selection reasoning
+        correct_tools = tool_eval.details.get("true_positives", [])
+        missing_tools = tool_eval.details.get("false_negatives", [])
+        extra_tools = tool_eval.details.get("false_positives", [])
+        company_type = tool_eval.details.get("company_type", "unknown")
+
+        tool_reasoning_parts = [f"Company classified as '{company_type}'."]
+        if correct_tools:
+            tool_reasoning_parts.append(f"Correctly selected: {', '.join(correct_tools)}.")
+        if missing_tools:
+            tool_reasoning_parts.append(f"Missing expected: {', '.join(missing_tools)}.")
+        if extra_tools:
+            tool_reasoning_parts.append(f"Extra (not expected): {', '.join(extra_tools)}.")
+        tool_reasoning_parts.append(f"Precision={tool_eval.precision:.2f}, Recall={tool_eval.recall:.2f}.")
+        tool_reasoning = " ".join(tool_reasoning_parts)
+
+        # Data quality reasoning
+        all_possible_sources = ["SEC", "Finnhub", "CourtListener", "WebSearch"]
+        missing_sources = [s for s in all_possible_sources if s not in data_sources_used]
+        data_reasoning_parts = [f"Used {len(data_sources_used)}/4 data sources."]
+        if data_sources_used:
+            data_reasoning_parts.append(f"Active: {', '.join(data_sources_used)}.")
+        if missing_sources:
+            data_reasoning_parts.append(f"Not used: {', '.join(missing_sources)}.")
+        data_reasoning = " ".join(data_reasoning_parts)
+
+        # Synthesis reasoning
+        synthesis_reasoning_parts = []
+        if synthesis_present:
+            synthesis_reasoning_parts.append(f"Present: {', '.join(synthesis_present)}.")
+        if synthesis_missing:
+            synthesis_reasoning_parts.append(f"Missing: {', '.join(synthesis_missing)}.")
+        if not synthesis_present and not synthesis_missing:
+            synthesis_reasoning_parts.append("No assessment data available.")
+        synthesis_reasoning = " ".join(synthesis_reasoning_parts)
 
         # 4. Build evaluation result
         evaluation = {
@@ -1001,21 +1046,30 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
             "tool_selection": {
                 "planned_tools": planned_tools,
                 "expected_tools": tool_eval.expected_tools,
+                "correct_tools": correct_tools,
+                "missing_tools": missing_tools,
+                "extra_tools": extra_tools,
                 "precision": tool_eval.precision,
                 "recall": tool_eval.recall,
                 "f1_score": tool_eval.f1_score,
                 "is_correct": tool_eval.is_correct,
+                "reasoning": tool_reasoning,
             },
             "data_quality": {
                 "sources_used": data_sources_used,
+                "missing_sources": missing_sources,
                 "completeness": data_quality_score,
+                "reasoning": data_reasoning,
             },
             "synthesis": {
                 "score": synthesis_score,
+                "present_fields": synthesis_present,
+                "missing_fields": synthesis_missing,
                 "has_risk_level": bool(assessment.get("overall_risk_level")),
                 "has_credit_score": bool(assessment.get("credit_score_estimate")),
                 "has_recommendations": bool(assessment.get("recommendations")),
                 "has_llm_reasoning": bool(assessment.get("llm_reasoning")),
+                "reasoning": synthesis_reasoning,
             },
             "overall_score": (tool_selection_score + data_quality_score + synthesis_score) / 3,
         }
@@ -1060,7 +1114,7 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                 success=True,
             )
 
-            # Log tool selection
+            # Log tool selection with reasoning
             wf_logger.log_tool_selection(
                 run_id=run_id,
                 company_name=company_name,
@@ -1069,9 +1123,13 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                 precision=tool_eval.precision,
                 recall=tool_eval.recall,
                 f1_score=tool_eval.f1_score,
+                correct_tools=correct_tools,
+                missing_tools=missing_tools,
+                extra_tools=extra_tools,
+                reasoning=tool_reasoning,
             )
 
-            # Log evaluation
+            # Log evaluation with reasoning
             wf_logger.log_evaluation(
                 run_id=run_id,
                 company_name=company_name,
@@ -1079,6 +1137,9 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                 data_quality_score=data_quality_score,
                 synthesis_score=synthesis_score,
                 overall_score=evaluation["overall_score"],
+                tool_reasoning=tool_reasoning,
+                data_reasoning=data_reasoning,
+                synthesis_reasoning=synthesis_reasoning,
             )
 
             # Log consistency scores from multi-LLM evaluation
