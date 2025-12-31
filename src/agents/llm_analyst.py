@@ -27,6 +27,13 @@ class LLMAnalysisResult:
     raw_response: str = ""
     model_used: str = ""
     error: Optional[str] = None
+    # Token usage and cost tracking
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    input_cost: float = 0.0
+    output_cost: float = 0.0
+    total_cost: float = 0.0
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -41,6 +48,12 @@ class LLMAnalysisResult:
             "credit_score_estimate": self.credit_score_estimate,
             "model_used": self.model_used,
             "error": self.error,
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "total_tokens": self.total_tokens,
+            "input_cost": self.input_cost,
+            "output_cost": self.output_cost,
+            "total_cost": self.total_cost,
         }
 
 
@@ -208,6 +221,27 @@ Respond ONLY with the JSON object."""
             result = self._parse_llm_response(raw_response)
             result.model_used = self.model_id
             result.raw_response = raw_response
+
+            # Extract token usage and calculate cost
+            usage = getattr(response, 'usage', None)
+            if usage:
+                result.prompt_tokens = getattr(usage, 'prompt_tokens', 0) or 0
+                result.completion_tokens = getattr(usage, 'completion_tokens', 0) or 0
+                result.total_tokens = getattr(usage, 'total_tokens', 0) or 0
+
+                # Calculate cost (Groq pricing per 1M tokens)
+                from config.cost_tracker import calculate_cost_for_tokens
+                cost = calculate_cost_for_tokens(
+                    model=self.model_id,
+                    prompt_tokens=result.prompt_tokens,
+                    completion_tokens=result.completion_tokens,
+                    provider="groq",
+                )
+                result.input_cost = cost["input_cost"]
+                result.output_cost = cost["output_cost"]
+                result.total_cost = cost["total_cost"]
+
+                logger.info(f"LLM call: {result.total_tokens} tokens, ${result.total_cost:.6f}")
 
             return result
 

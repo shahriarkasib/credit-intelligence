@@ -100,8 +100,27 @@ class WorkflowLogger:
         prompt_tokens: int,
         completion_tokens: int,
         execution_time_ms: float,
+        input_cost: float = 0.0,
+        output_cost: float = 0.0,
+        total_cost: float = 0.0,
     ):
-        """Log an LLM API call to all storage."""
+        """Log an LLM API call with cost tracking to all storage."""
+        # Calculate cost if not provided
+        if total_cost == 0 and (prompt_tokens > 0 or completion_tokens > 0):
+            try:
+                from config.cost_tracker import calculate_cost_for_tokens
+                cost = calculate_cost_for_tokens(
+                    model=model,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    provider="groq",
+                )
+                input_cost = cost["input_cost"]
+                output_cost = cost["output_cost"]
+                total_cost = cost["total_cost"]
+            except Exception:
+                pass
+
         # Log to MongoDB
         if self.run_logger.is_connected():
             self.run_logger.log_llm_call(
@@ -115,7 +134,7 @@ class WorkflowLogger:
                 execution_time_ms=execution_time_ms,
             )
 
-        # Log to Google Sheets
+        # Log to Google Sheets with cost
         if self.sheets_logger.is_connected():
             self.sheets_logger.log_llm_call(
                 run_id=run_id,
@@ -127,9 +146,12 @@ class WorkflowLogger:
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
                 execution_time_ms=execution_time_ms,
+                input_cost=input_cost,
+                output_cost=output_cost,
+                total_cost=total_cost,
             )
 
-        logger.debug(f"[{run_id[:8]}] LLM {call_type}: {prompt_tokens}+{completion_tokens} tokens ({execution_time_ms:.0f}ms)")
+        logger.debug(f"[{run_id[:8]}] LLM {call_type}: {prompt_tokens}+{completion_tokens} tokens, ${total_cost:.6f} ({execution_time_ms:.0f}ms)")
 
     def log_data_source(
         self,

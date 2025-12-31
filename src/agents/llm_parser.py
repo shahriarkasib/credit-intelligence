@@ -104,7 +104,11 @@ Be accurate and conservative - if unsure, indicate uncertainty."""
 
         if PROMPTS and "parse_input" in PROMPTS:
             template = PROMPTS["parse_input"]["user"]
-            return template.format(company_name=company_name, context=context_str)
+            try:
+                return template.format(company_name=company_name, context=context_str)
+            except KeyError:
+                # Fallback if template has issues
+                pass
 
         return f"""Analyze this company and provide structured information:
 

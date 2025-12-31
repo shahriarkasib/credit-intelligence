@@ -257,7 +257,7 @@ def parse_input(state: CreditWorkflowState) -> Dict[str, Any]:
         "requires_review": requires_review,
     }
 
-    # Log step with LLM metrics
+    # Log step with LLM metrics (include LLM info in output_data)
     if wf_logger:
         wf_logger.log_step(
             run_id=run_id,
@@ -272,12 +272,11 @@ def parse_input(state: CreditWorkflowState) -> Dict[str, Any]:
                 "reasoning": reasoning,
                 "requires_review": requires_review,
                 "llm_metrics": llm_metrics,
+                "llm_model": llm_metrics.get("model"),
+                "tokens_used": llm_metrics.get("total_tokens"),
             },
             execution_time_ms=(time.time() - start_time) * 1000,
             success=True,
-            llm_model=llm_metrics.get("model"),
-            tokens_used=llm_metrics.get("total_tokens"),
-            prompt_used=llm_metrics.get("prompt_used"),
         )
 
     return result
@@ -615,9 +614,16 @@ def synthesize(state: CreditWorkflowState) -> Dict[str, Any]:
                             "confidence": llm_result.confidence,
                             "reasoning": llm_result.reasoning,
                             "success": True,
+                            # Token and cost tracking
+                            "prompt_tokens": llm_result.prompt_tokens,
+                            "completion_tokens": llm_result.completion_tokens,
+                            "total_tokens": llm_result.total_tokens,
+                            "input_cost": llm_result.input_cost,
+                            "output_cost": llm_result.output_cost,
+                            "total_cost": llm_result.total_cost,
                         })
 
-                        # Log each LLM call
+                        # Log each LLM call with token usage
                         if wf_logger:
                             wf_logger.log_llm_call(
                                 run_id=run_id,
@@ -635,12 +641,12 @@ def synthesize(state: CreditWorkflowState) -> Dict[str, Any]:
                                     "positive_factors": llm_result.positive_factors,
                                     "recommendations": llm_result.recommendations,
                                 }, default=str),
-                                prompt_tokens=0,
-                                completion_tokens=0,
+                                prompt_tokens=llm_result.prompt_tokens,
+                                completion_tokens=llm_result.completion_tokens,
                                 execution_time_ms=llm_exec_time,
                             )
 
-                        logger.info(f"  [{call_type}] {model_id}: {llm_result.risk_level} (score: {llm_result.credit_score_estimate})")
+                        logger.info(f"  [{call_type}] {model_id}: {llm_result.risk_level} (score: {llm_result.credit_score_estimate}, tokens: {llm_result.total_tokens}, cost: ${llm_result.total_cost:.6f})")
                     else:
                         logger.warning(f"  [{call_type}] {model_id}: Failed - {llm_result.error}")
                         llm_results.append({
@@ -698,6 +704,12 @@ def synthesize(state: CreditWorkflowState) -> Dict[str, Any]:
             if cross_model_score_std < 10:
                 cross_model_consistency = min(1.0, cross_model_consistency + 0.3)
 
+            # Calculate total tokens and cost across all LLM calls
+            total_tokens = sum(r.get("total_tokens", 0) for r in successful_results)
+            total_prompt_tokens = sum(r.get("prompt_tokens", 0) for r in successful_results)
+            total_completion_tokens = sum(r.get("completion_tokens", 0) for r in successful_results)
+            total_cost = sum(r.get("total_cost", 0) for r in successful_results)
+
             # Store consistency data in assessment
             assessment_dict["llm_consistency"] = {
                 "num_llm_calls": len(successful_results),
@@ -707,9 +719,16 @@ def synthesize(state: CreditWorkflowState) -> Dict[str, Any]:
                 "risk_levels": all_risk_levels,
                 "credit_scores": all_scores,
                 "llm_results": successful_results,
+                # Token and cost summary
+                "total_tokens": total_tokens,
+                "prompt_tokens": total_prompt_tokens,
+                "completion_tokens": total_completion_tokens,
+                "total_cost": round(total_cost, 6),
+                "total_cost_formatted": f"${total_cost:.4f}",
             }
 
             logger.info(f"Consistency: same_model={same_model_consistency:.2f}, cross_model={cross_model_consistency:.2f}")
+            logger.info(f"Total tokens: {total_tokens}, Total cost: ${total_cost:.4f}")
             for model_type, data in model_consistency.items():
                 logger.info(f"  {model_type}: {data['consistency']:.2f} (std={data['score_std']:.1f})")
 
@@ -930,17 +949,17 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
         workflow_evaluator = WorkflowEvaluator()
 
         # 1. Evaluate tool selection
-        # Extract tools that were planned to be used
+        # Extract tools that were planned to be used based on task actions
         planned_tools = []
         for task in task_plan:
-            source = task.get("source", "").lower()
-            if "sec" in source:
+            action = task.get("action", "").lower()
+            if "sec" in action or "edgar" in action:
                 planned_tools.append("fetch_sec_data")
-            elif "finnhub" in source or "market" in source:
+            elif "finnhub" in action or "market" in action:
                 planned_tools.append("fetch_market_data")
-            elif "court" in source:
+            elif "court" in action or "sanction" in action or "opencorporates" in action:
                 planned_tools.append("fetch_legal_data")
-            elif "search" in source or "web" in source:
+            elif "search" in action or "web" in action:
                 planned_tools.append("web_search")
 
         tool_eval = tool_evaluator.evaluate(

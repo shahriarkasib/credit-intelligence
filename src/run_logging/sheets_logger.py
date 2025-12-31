@@ -132,7 +132,8 @@ class SheetsLogger:
             "llm_calls": [
                 "run_id", "company_name", "call_type", "model",
                 "prompt_summary", "response_summary", "prompt_tokens",
-                "completion_tokens", "total_tokens", "execution_time_ms", "timestamp"
+                "completion_tokens", "total_tokens", "input_cost", "output_cost",
+                "total_cost", "execution_time_ms", "timestamp"
             ],
             # NEW: Consistency scores (includes model name for per-model tracking)
             "consistency_scores": [
@@ -144,6 +145,13 @@ class SheetsLogger:
             "data_sources": [
                 "run_id", "company_name", "source_name", "success",
                 "records_found", "data_summary", "execution_time_ms", "timestamp"
+            ],
+            # NEW: LangSmith traces
+            "langsmith_traces": [
+                "run_id", "company_name", "step_name", "run_type", "status",
+                "total_tokens", "prompt_tokens", "completion_tokens",
+                "latency_ms", "model", "error", "input_preview",
+                "output_preview", "timestamp"
             ]
         }
 
@@ -409,10 +417,29 @@ class SheetsLogger:
         prompt_tokens: int,
         completion_tokens: int,
         execution_time_ms: float,
+        input_cost: float = 0.0,
+        output_cost: float = 0.0,
+        total_cost: float = 0.0,
     ):
-        """Log an LLM API call (non-blocking)."""
+        """Log an LLM API call with cost tracking (non-blocking)."""
         if not self.is_connected():
             return
+
+        # Calculate cost if not provided
+        if total_cost == 0 and (prompt_tokens > 0 or completion_tokens > 0):
+            try:
+                from config.cost_tracker import calculate_cost_for_tokens
+                cost = calculate_cost_for_tokens(
+                    model=model,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    provider="groq",
+                )
+                input_cost = cost["input_cost"]
+                output_cost = cost["output_cost"]
+                total_cost = cost["total_cost"]
+            except Exception:
+                pass  # Cost calculation optional
 
         row = [
             run_id,
@@ -424,6 +451,9 @@ class SheetsLogger:
             prompt_tokens,
             completion_tokens,
             prompt_tokens + completion_tokens,
+            round(input_cost, 6),
+            round(output_cost, 6),
+            round(total_cost, 6),
             execution_time_ms,
             datetime.utcnow().isoformat(),
         ]
@@ -510,6 +540,52 @@ class SheetsLogger:
                 sheet.append_row(row)
             except Exception as e:
                 logger.error(f"Failed to log data source to sheets: {e}")
+
+        _sheets_executor.submit(_write)
+
+    def log_langsmith_trace(
+        self,
+        run_id: str,
+        company_name: str,
+        step_name: str,
+        run_type: str,
+        status: str,
+        total_tokens: int = 0,
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+        latency_ms: float = 0,
+        model: str = "",
+        error: str = "",
+        input_preview: str = "",
+        output_preview: str = "",
+    ):
+        """Log a LangSmith trace (non-blocking)."""
+        if not self.is_connected():
+            return
+
+        row = [
+            run_id,
+            company_name,
+            step_name,
+            run_type,
+            status,
+            total_tokens,
+            prompt_tokens,
+            completion_tokens,
+            latency_ms,
+            model,
+            error or "",
+            self._safe_str(input_preview, max_length=1000),
+            self._safe_str(output_preview, max_length=1000),
+            datetime.utcnow().isoformat(),
+        ]
+
+        def _write():
+            try:
+                sheet = self._get_sheet("langsmith_traces")
+                sheet.append_row(row)
+            except Exception as e:
+                logger.error(f"Failed to log LangSmith trace to sheets: {e}")
 
         _sheets_executor.submit(_write)
 
