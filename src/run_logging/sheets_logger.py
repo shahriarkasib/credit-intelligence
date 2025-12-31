@@ -149,9 +149,7 @@ class SheetsLogger:
             # NEW: LangSmith traces
             "langsmith_traces": [
                 "run_id", "company_name", "step_name", "run_type", "status",
-                "total_tokens", "prompt_tokens", "completion_tokens",
-                "latency_ms", "model", "error", "input_preview",
-                "output_preview", "timestamp"
+                "latency_ms", "error", "input_preview", "output_preview", "timestamp"
             ]
         }
 
@@ -550,11 +548,7 @@ class SheetsLogger:
         step_name: str,
         run_type: str,
         status: str,
-        total_tokens: int = 0,
-        prompt_tokens: int = 0,
-        completion_tokens: int = 0,
         latency_ms: float = 0,
-        model: str = "",
         error: str = "",
         input_preview: str = "",
         output_preview: str = "",
@@ -569,11 +563,7 @@ class SheetsLogger:
             step_name,
             run_type,
             status,
-            total_tokens,
-            prompt_tokens,
-            completion_tokens,
             latency_ms,
-            model,
             error or "",
             self._safe_str(input_preview, max_length=1000),
             self._safe_str(output_preview, max_length=1000),

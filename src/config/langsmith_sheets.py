@@ -136,24 +136,10 @@ class LangSmithSheetsLogger:
                 run_type = run.run_type if hasattr(run, 'run_type') else "chain"
                 status = run.status if hasattr(run, 'status') else "unknown"
 
-                # Token usage
-                total_tokens = run.total_tokens or 0 if hasattr(run, 'total_tokens') else 0
-                prompt_tokens = run.prompt_tokens or 0 if hasattr(run, 'prompt_tokens') else 0
-                completion_tokens = run.completion_tokens or 0 if hasattr(run, 'completion_tokens') else 0
-
                 # Latency
                 latency_ms = 0
                 if hasattr(run, 'start_time') and hasattr(run, 'end_time') and run.start_time and run.end_time:
                     latency_ms = (run.end_time - run.start_time).total_seconds() * 1000
-
-                # Model info
-                model = ""
-                if hasattr(run, 'extra') and run.extra:
-                    extra = run.extra
-                    if isinstance(extra, dict):
-                        model = extra.get("invocation_params", {}).get("model", "")
-                        if not model:
-                            model = extra.get("metadata", {}).get("ls_model_name", "")
 
                 # Error
                 error = run.error if hasattr(run, 'error') else ""
@@ -171,11 +157,7 @@ class LangSmithSheetsLogger:
                     step_name=name,
                     run_type=run_type,
                     status=status,
-                    total_tokens=total_tokens,
-                    prompt_tokens=prompt_tokens,
-                    completion_tokens=completion_tokens,
                     latency_ms=latency_ms,
-                    model=model,
                     error=error or "",
                     input_preview=input_preview,
                     output_preview=output_preview,
@@ -228,24 +210,10 @@ class LangSmithSheetsLogger:
                             elif key == "input" and isinstance(value, str):
                                 company_name = value[:50]
 
-                # Token usage
-                total_tokens = run.total_tokens or 0 if hasattr(run, 'total_tokens') else 0
-                prompt_tokens = run.prompt_tokens or 0 if hasattr(run, 'prompt_tokens') else 0
-                completion_tokens = run.completion_tokens or 0 if hasattr(run, 'completion_tokens') else 0
-
                 # Latency
                 latency_ms = 0
                 if hasattr(run, 'start_time') and hasattr(run, 'end_time') and run.start_time and run.end_time:
                     latency_ms = (run.end_time - run.start_time).total_seconds() * 1000
-
-                # Model info
-                model = ""
-                if hasattr(run, 'extra') and run.extra:
-                    extra = run.extra
-                    if isinstance(extra, dict):
-                        model = extra.get("invocation_params", {}).get("model", "")
-                        if not model:
-                            model = extra.get("metadata", {}).get("ls_model_name", "")
 
                 # Error
                 error = run.error if hasattr(run, 'error') else ""
@@ -262,11 +230,7 @@ class LangSmithSheetsLogger:
                     step_name=name,
                     run_type=run_type,
                     status=status,
-                    total_tokens=total_tokens,
-                    prompt_tokens=prompt_tokens,
-                    completion_tokens=completion_tokens,
                     latency_ms=latency_ms,
-                    model=model,
                     error=error or "",
                     input_preview=input_preview,
                     output_preview=output_preview,
