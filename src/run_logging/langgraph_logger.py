@@ -246,7 +246,28 @@ class LangGraphEventLogger:
     def _handle_chain_end(self, event: LangGraphEvent, data: Dict, run_id: str) -> None:
         """Handle chain end event."""
         event.status = "completed"
-        event.output_data = self._truncate(str(data.get("output", {})))
+
+        # Extract meaningful output summary
+        output = data.get("output", {})
+        if isinstance(output, dict):
+            # Extract key fields for summary
+            summary_parts = []
+            if "status" in output:
+                summary_parts.append(f"status={output['status']}")
+            if "risk_level" in output:
+                summary_parts.append(f"risk={output['risk_level']}")
+            if "credit_score" in output:
+                summary_parts.append(f"score={output['credit_score']}")
+            if "company_info" in output and isinstance(output["company_info"], dict):
+                info = output["company_info"]
+                if "is_public_company" in info:
+                    summary_parts.append(f"public={info['is_public_company']}")
+            if summary_parts:
+                event.output_data = ", ".join(summary_parts)
+            else:
+                event.output_data = self._truncate(str(output))
+        else:
+            event.output_data = self._truncate(str(output))
 
         # Calculate duration
         start_time = self._event_starts.pop(event.event_name, None)
@@ -310,22 +331,23 @@ class LangGraphEventLogger:
         # Model name from metadata
         event.model = event.metadata.get("ls_model_name") if event.metadata else None
 
-        # Get full response from buffer
-        if event.event_name in self._token_buffer:
-            full_response = "".join(self._token_buffer.pop(event.event_name, []))
-            event.output_data = self._truncate(full_response)
+        # Extract output - it's usually an AIMessage with .content
+        output = data.get("output")
+        if output:
+            # AIMessage has .content attribute
+            if hasattr(output, "content"):
+                event.output_data = self._truncate(str(output.content))
+            # Or it could be a dict
+            elif isinstance(output, dict):
+                event.output_data = self._truncate(str(output.get("content", output)))
+            # Or just stringify
+            else:
+                event.output_data = self._truncate(str(output))
 
-        # Extract from output if available
-        output = data.get("output", {})
-        if hasattr(output, "generations"):
-            gens = output.generations
-            if gens and gens[0]:
-                event.output_data = self._truncate(str(gens[0][0].text if hasattr(gens[0][0], 'text') else gens[0][0]))
-
-        # Token usage
-        if hasattr(output, "llm_output") and output.llm_output:
-            token_usage = output.llm_output.get("token_usage", {})
-            event.tokens = token_usage.get("total_tokens", 0)
+        # Token usage from response metadata
+        if hasattr(output, "response_metadata"):
+            usage = output.response_metadata.get("token_usage", {})
+            event.tokens = usage.get("total_tokens", 0)
 
         # Calculate duration
         start_time = self._event_starts.pop(f"llm_{event.event_name}", None)
