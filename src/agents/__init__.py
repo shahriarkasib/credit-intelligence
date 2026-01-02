@@ -19,6 +19,22 @@ except ImportError:
     LLMAnalysisResult = None
     analyze_with_llm = None
 
+# LangChain-native supervisor (Step 4)
+try:
+    from .langchain_supervisor import (
+        LangChainSupervisor,
+        get_supervisor,
+        is_langchain_supervisor_available,
+        USE_LANGCHAIN_SUPERVISOR,
+    )
+    LANGCHAIN_SUPERVISOR_AVAILABLE = is_langchain_supervisor_available()
+except ImportError:
+    LANGCHAIN_SUPERVISOR_AVAILABLE = False
+    LangChainSupervisor = None
+    get_supervisor = None
+    is_langchain_supervisor_available = None
+    USE_LANGCHAIN_SUPERVISOR = False
+
 __all__ = [
     "SupervisorAgent",
     "CreditAssessment",
@@ -31,4 +47,10 @@ __all__ = [
     "LLMAnalysisResult",
     "analyze_with_llm",
     "LLM_AVAILABLE",
+    # LangChain supervisor
+    "LangChainSupervisor",
+    "get_supervisor",
+    "is_langchain_supervisor_available",
+    "LANGCHAIN_SUPERVISOR_AVAILABLE",
+    "USE_LANGCHAIN_SUPERVISOR",
 ]

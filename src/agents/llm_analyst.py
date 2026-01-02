@@ -1,15 +1,51 @@
 """LLM-Powered Analyst Agent for Credit Intelligence.
 
 Uses Groq (free) for AI-powered credit analysis and reasoning.
+Now supports LangChain ChatGroq with automatic token tracking.
 """
 
 import os
 import json
 import logging
-from typing import Any, Dict, List, Optional
+import time
+from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
+
+# Import LangChain ChatGroq (preferred)
+try:
+    from config.langchain_llm import get_chat_groq, is_langchain_groq_available
+    from config.langchain_callbacks import CostTrackerCallback
+    from langchain_core.messages import HumanMessage
+    LANGCHAIN_GROQ_AVAILABLE = is_langchain_groq_available()
+except ImportError:
+    LANGCHAIN_GROQ_AVAILABLE = False
+    logger.warning("LangChain Groq not available, using legacy Groq client")
+
+# Import cost tracker
+try:
+    from config.cost_tracker import get_cost_tracker, calculate_cost_for_tokens
+    COST_TRACKER_AVAILABLE = True
+except ImportError:
+    COST_TRACKER_AVAILABLE = False
+
+# Import output parsers (Step 3)
+try:
+    from config.output_parsers import (
+        parse_credit_assessment,
+        parse_validation_result,
+        result_to_dict,
+        is_parsers_available,
+    )
+    from config.output_schemas import CreditAssessment, ValidationResult
+    OUTPUT_PARSERS_AVAILABLE = is_parsers_available()
+except ImportError:
+    OUTPUT_PARSERS_AVAILABLE = False
+    logger.warning("Output parsers not available, using legacy JSON parsing")
+
+# Feature flag: Use LangChain ChatGroq instead of raw Groq SDK
+USE_LANGCHAIN_LLM = os.getenv("USE_LANGCHAIN_LLM", "true").lower() == "true"
 
 
 @dataclass
@@ -150,13 +186,16 @@ Respond ONLY with the JSON object."""
         """
         self.api_key = api_key or os.getenv("GROQ_API_KEY")
         self.model_id = self.MODELS.get(model, self.MODELS["primary"])
-        self.client = None
+        self.client = None  # Legacy Groq client
+        self._use_langchain = USE_LANGCHAIN_LLM and LANGCHAIN_GROQ_AVAILABLE
 
-        if self.api_key:
+        if self._use_langchain:
+            logger.info(f"LLM Analyst using LangChain ChatGroq: {self.model_id}")
+        elif self.api_key:
             try:
                 from groq import Groq
                 self.client = Groq(api_key=self.api_key)
-                logger.info(f"LLM Analyst initialized with model: {self.model_id}")
+                logger.info(f"LLM Analyst using legacy Groq: {self.model_id}")
             except ImportError:
                 logger.warning("groq package not installed. Run: pip install groq")
             except Exception as e:
@@ -166,7 +205,146 @@ Respond ONLY with the JSON object."""
 
     def is_available(self) -> bool:
         """Check if LLM analysis is available."""
-        return self.client is not None
+        return self._use_langchain or self.client is not None
+
+    def _call_llm(
+        self,
+        prompt: str,
+        model: Optional[str] = None,
+        temperature: float = 0.1,
+        max_tokens: int = 1024,
+        call_type: str = "",
+    ) -> Tuple[str, Dict[str, Any]]:
+        """
+        Call LLM and return response with metrics.
+
+        Uses LangChain ChatGroq when available, falls back to legacy Groq SDK.
+
+        Args:
+            prompt: The prompt to send
+            model: Model to use (defaults to self.model_id)
+            temperature: Sampling temperature
+            max_tokens: Maximum tokens in response
+            call_type: Type of call for cost tracking
+
+        Returns:
+            Tuple of (response_text, metrics_dict)
+        """
+        model = model or self.model_id
+        start_time = time.time()
+
+        if self._use_langchain:
+            return self._call_llm_langchain(prompt, model, temperature, max_tokens, call_type, start_time)
+
+        return self._call_llm_legacy(prompt, model, temperature, max_tokens, start_time)
+
+    def _call_llm_langchain(
+        self,
+        prompt: str,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        call_type: str,
+        start_time: float,
+    ) -> Tuple[str, Dict[str, Any]]:
+        """Call LLM using LangChain ChatGroq."""
+        callbacks = []
+        if COST_TRACKER_AVAILABLE:
+            tracker = get_cost_tracker()
+            callbacks.append(CostTrackerCallback(tracker=tracker, call_type=call_type))
+
+        llm = get_chat_groq(
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            callbacks=callbacks,
+        )
+
+        if not llm:
+            raise RuntimeError("Failed to create ChatGroq instance")
+
+        response = llm.invoke([HumanMessage(content=prompt)])
+        execution_time = (time.time() - start_time) * 1000
+
+        # Extract token usage
+        usage_metadata = getattr(response, 'usage_metadata', {}) or {}
+        prompt_tokens = usage_metadata.get('input_tokens', 0)
+        completion_tokens = usage_metadata.get('output_tokens', 0)
+        total_tokens = usage_metadata.get('total_tokens', prompt_tokens + completion_tokens)
+
+        # Calculate cost
+        cost_info = {"input_cost": 0.0, "output_cost": 0.0, "total_cost": 0.0}
+        if COST_TRACKER_AVAILABLE and total_tokens > 0:
+            cost_info = calculate_cost_for_tokens(
+                model=model,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                provider="groq",
+            )
+
+        metrics = {
+            "model": model,
+            "execution_time_ms": round(execution_time, 2),
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+            "input_cost": cost_info["input_cost"],
+            "output_cost": cost_info["output_cost"],
+            "total_cost": cost_info["total_cost"],
+            "llm_backend": "langchain_chatgroq",
+        }
+
+        return response.content, metrics
+
+    def _call_llm_legacy(
+        self,
+        prompt: str,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        start_time: float,
+    ) -> Tuple[str, Dict[str, Any]]:
+        """Call LLM using legacy Groq SDK."""
+        if not self.client:
+            raise RuntimeError("Groq client not available")
+
+        response = self.client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+
+        execution_time = (time.time() - start_time) * 1000
+
+        usage = getattr(response, 'usage', None)
+        prompt_tokens = getattr(usage, 'prompt_tokens', 0) or 0 if usage else 0
+        completion_tokens = getattr(usage, 'completion_tokens', 0) or 0 if usage else 0
+        total_tokens = getattr(usage, 'total_tokens', 0) or 0 if usage else 0
+
+        # Calculate cost
+        cost_info = {"input_cost": 0.0, "output_cost": 0.0, "total_cost": 0.0}
+        if COST_TRACKER_AVAILABLE and total_tokens > 0:
+            cost_info = calculate_cost_for_tokens(
+                model=model,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                provider="groq",
+            )
+
+        metrics = {
+            "model": model,
+            "execution_time_ms": round(execution_time, 2),
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+            "input_cost": cost_info["input_cost"],
+            "output_cost": cost_info["output_cost"],
+            "total_cost": cost_info["total_cost"],
+            "llm_backend": "groq_sdk",
+        }
+
+        return response.choices[0].message.content, metrics
 
     def analyze_company(
         self,
@@ -207,41 +385,47 @@ Respond ONLY with the JSON object."""
         )
 
         try:
-            # Call Groq API
-            response = self.client.chat.completions.create(
-                model=self.model_id,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,  # Low temperature for consistent analysis
+            # Call LLM using new unified helper
+            raw_response, metrics = self._call_llm(
+                prompt=prompt,
+                temperature=0.1,
                 max_tokens=1024,
+                call_type="credit_analysis",
             )
 
-            raw_response = response.choices[0].message.content
+            # Parse JSON response with new OutputParser (with fallback)
+            if OUTPUT_PARSERS_AVAILABLE:
+                parsed = parse_credit_assessment(raw_response)
+                parsed_dict = result_to_dict(parsed)
 
-            # Parse JSON response
-            result = self._parse_llm_response(raw_response)
-            result.model_used = self.model_id
+                # Convert Pydantic result to LLMAnalysisResult dataclass
+                result = LLMAnalysisResult(
+                    success=True,
+                    risk_level=parsed_dict.get("risk_level", "unknown"),
+                    confidence=parsed_dict.get("confidence", 0.5),
+                    reasoning=parsed_dict.get("reasoning", ""),
+                    key_findings=parsed_dict.get("key_findings", []),
+                    risk_factors=parsed_dict.get("risk_factors", []),
+                    positive_factors=parsed_dict.get("positive_factors", []),
+                    recommendations=parsed_dict.get("recommendations", []),
+                    credit_score_estimate=parsed_dict.get("credit_score", 50),
+                )
+            else:
+                # Legacy parsing
+                result = self._parse_llm_response(raw_response)
+
+            result.model_used = metrics.get("model", self.model_id)
             result.raw_response = raw_response
 
-            # Extract token usage and calculate cost
-            usage = getattr(response, 'usage', None)
-            if usage:
-                result.prompt_tokens = getattr(usage, 'prompt_tokens', 0) or 0
-                result.completion_tokens = getattr(usage, 'completion_tokens', 0) or 0
-                result.total_tokens = getattr(usage, 'total_tokens', 0) or 0
+            # Set token usage and cost from metrics
+            result.prompt_tokens = metrics.get("prompt_tokens", 0)
+            result.completion_tokens = metrics.get("completion_tokens", 0)
+            result.total_tokens = metrics.get("total_tokens", 0)
+            result.input_cost = metrics.get("input_cost", 0.0)
+            result.output_cost = metrics.get("output_cost", 0.0)
+            result.total_cost = metrics.get("total_cost", 0.0)
 
-                # Calculate cost (Groq pricing per 1M tokens)
-                from config.cost_tracker import calculate_cost_for_tokens
-                cost = calculate_cost_for_tokens(
-                    model=self.model_id,
-                    prompt_tokens=result.prompt_tokens,
-                    completion_tokens=result.completion_tokens,
-                    provider="groq",
-                )
-                result.input_cost = cost["input_cost"]
-                result.output_cost = cost["output_cost"]
-                result.total_cost = cost["total_cost"]
-
-                logger.info(f"LLM call: {result.total_tokens} tokens, ${result.total_cost:.6f}")
+            logger.info(f"LLM call: {result.total_tokens} tokens, ${result.total_cost:.6f}")
 
             return result
 
@@ -289,27 +473,34 @@ Respond ONLY with the JSON object."""
         )
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.model_id,
-                messages=[{"role": "user", "content": prompt}],
+            # Call LLM using new unified helper
+            raw_response, metrics = self._call_llm(
+                prompt=prompt,
                 temperature=0.1,
                 max_tokens=512,
+                call_type="validation",
             )
 
-            raw_response = response.choices[0].message.content
+            # Parse with new OutputParser (with fallback)
+            if OUTPUT_PARSERS_AVAILABLE:
+                parsed = parse_validation_result(raw_response)
+                result = result_to_dict(parsed)
+                result["_metrics"] = metrics
+                return result
+            else:
+                # Legacy parsing
+                try:
+                    start_idx = raw_response.find("{")
+                    end_idx = raw_response.rfind("}") + 1
+                    if start_idx >= 0 and end_idx > start_idx:
+                        json_str = raw_response[start_idx:end_idx]
+                        result = json.loads(json_str)
+                        result["_metrics"] = metrics
+                        return result
+                except json.JSONDecodeError:
+                    pass
 
-            # Try to parse JSON
-            try:
-                # Find JSON in response
-                start_idx = raw_response.find("{")
-                end_idx = raw_response.rfind("}") + 1
-                if start_idx >= 0 and end_idx > start_idx:
-                    json_str = raw_response[start_idx:end_idx]
-                    return json.loads(json_str)
-            except json.JSONDecodeError:
-                pass
-
-            return {"raw_response": raw_response, "parse_error": True}
+            return {"raw_response": raw_response, "parse_error": True, "_metrics": metrics}
 
         except Exception as e:
             logger.error(f"Validation error: {e}")
@@ -350,13 +541,15 @@ Provide a 2-3 sentence explanation of:
 Keep your response concise and professional."""
 
         try:
-            response = self.client.chat.completions.create(
+            # Call LLM using new unified helper with fast model
+            response, _metrics = self._call_llm(
+                prompt=prompt,
                 model=self.MODELS["fast"],  # Use fast model for explanations
-                messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
                 max_tokens=256,
+                call_type="risk_explanation",
             )
-            return response.choices[0].message.content
+            return response
 
         except Exception as e:
             logger.error(f"Explanation error: {e}")

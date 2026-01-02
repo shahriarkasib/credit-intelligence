@@ -72,6 +72,21 @@ except ImportError:
     WorkflowEvaluator = None
     get_workflow_logger = None
 
+# Import LangGraph event logger
+try:
+    from run_logging.langgraph_logger import (
+        LangGraphEventLogger,
+        run_graph_with_event_logging,
+        get_langgraph_logger,
+    )
+    LANGGRAPH_LOGGER_AVAILABLE = True
+except ImportError:
+    LANGGRAPH_LOGGER_AVAILABLE = False
+    LangGraphEventLogger = None
+    run_graph_with_event_logging = None
+    get_langgraph_logger = None
+    logger.warning("LangGraph event logger not available")
+
 # Initialize workflow logger
 wf_logger = get_workflow_logger() if get_workflow_logger else None
 
@@ -1305,6 +1320,136 @@ graph_hitl = build_graph().compile(
 
 
 # =============================================================================
+# ASYNC RUNNER WITH EVENT LOGGING
+# =============================================================================
+
+async def run_with_event_logging(
+    company_name: str,
+    jurisdiction: Optional[str] = None,
+    ticker: Optional[str] = None,
+    log_to_sheets: bool = True,
+    log_to_mongodb: bool = True,
+) -> Dict[str, Any]:
+    """
+    Run the credit intelligence workflow with full LangGraph event logging.
+
+    This function captures all LangGraph events (chain starts, LLM calls,
+    tool executions, etc.) and logs them to Google Sheets and MongoDB.
+
+    Args:
+        company_name: Company to analyze
+        jurisdiction: Optional jurisdiction (e.g., "US", "UK")
+        ticker: Optional stock ticker
+        log_to_sheets: Whether to log events to Google Sheets
+        log_to_mongodb: Whether to log events to MongoDB
+
+    Returns:
+        Final workflow state with assessment
+
+    Example:
+        import asyncio
+        result = asyncio.run(run_with_event_logging("Apple Inc"))
+        print(result["assessment"]["overall_risk_level"])
+    """
+    if not LANGGRAPH_LOGGER_AVAILABLE:
+        logger.warning("LangGraph event logger not available, running without event logging")
+        # Fallback to sync execution
+        initial_state = {
+            "company_name": company_name,
+            "jurisdiction": jurisdiction,
+            "ticker": ticker,
+            "company_info": {},
+            "task_plan": [],
+            "api_data": {},
+            "search_data": {},
+            "assessment": None,
+            "errors": [],
+            "status": "started",
+            "llm_results": [],
+            "human_approved": False,
+            "human_feedback": None,
+            "validation_message": "",
+            "requires_review": False,
+        }
+        return graph.invoke(initial_state)
+
+    # Generate run_id
+    run_id = str(uuid.uuid4())
+
+    # Create initial state
+    initial_state = {
+        "company_name": company_name,
+        "jurisdiction": jurisdiction,
+        "ticker": ticker,
+        "run_id": run_id,
+        "company_info": {},
+        "task_plan": [],
+        "api_data": {},
+        "search_data": {},
+        "assessment": None,
+        "errors": [],
+        "status": "started",
+        "llm_results": [],
+        "human_approved": False,
+        "human_feedback": None,
+        "validation_message": "",
+        "requires_review": False,
+    }
+
+    logger.info(f"Starting workflow with event logging: run_id={run_id}, company={company_name}")
+
+    # Run with event logging
+    result = await run_graph_with_event_logging(
+        graph=graph,
+        input_state=initial_state,
+        run_id=run_id,
+        company_name=company_name,
+        log_to_sheets=log_to_sheets,
+        log_to_mongodb=log_to_mongodb,
+    )
+
+    logger.info(f"Workflow completed with event logging: run_id={run_id}")
+
+    return result
+
+
+def run_sync_with_logging(
+    company_name: str,
+    jurisdiction: Optional[str] = None,
+    ticker: Optional[str] = None,
+    log_to_sheets: bool = True,
+    log_to_mongodb: bool = True,
+) -> Dict[str, Any]:
+    """
+    Synchronous wrapper for run_with_event_logging.
+
+    Use this when you're not in an async context.
+
+    Args:
+        company_name: Company to analyze
+        jurisdiction: Optional jurisdiction
+        ticker: Optional stock ticker
+        log_to_sheets: Whether to log to Sheets
+        log_to_mongodb: Whether to log to MongoDB
+
+    Returns:
+        Final workflow state
+
+    Example:
+        result = run_sync_with_logging("Apple Inc")
+    """
+    import asyncio
+
+    return asyncio.run(run_with_event_logging(
+        company_name=company_name,
+        jurisdiction=jurisdiction,
+        ticker=ticker,
+        log_to_sheets=log_to_sheets,
+        log_to_mongodb=log_to_mongodb,
+    ))
+
+
+# =============================================================================
 # VISUALIZATION UTILITIES
 # =============================================================================
 
@@ -1460,6 +1605,9 @@ if __name__ == "__main__":
     parser.add_argument("--ascii", action="store_true", help="Print ASCII diagram")
     parser.add_argument("--save", type=str, help="Save graph as PNG image")
     parser.add_argument("--run", type=str, help="Run workflow for a company")
+    parser.add_argument("--run-with-logging", type=str, help="Run workflow with full event logging")
+    parser.add_argument("--no-sheets", action="store_true", help="Disable Google Sheets logging")
+    parser.add_argument("--no-mongodb", action="store_true", help="Disable MongoDB logging")
 
     args = parser.parse_args()
 
@@ -1469,8 +1617,32 @@ if __name__ == "__main__":
         print_graph_ascii()
     elif args.save:
         save_graph_image(args.save)
+    elif args.run_with_logging:
+        # Run with full event logging
+        print(f"\nRunning workflow with event logging for: {args.run_with_logging}")
+        print(f"  Sheets logging: {'disabled' if args.no_sheets else 'enabled'}")
+        print(f"  MongoDB logging: {'disabled' if args.no_mongodb else 'enabled'}")
+        print("-" * 60)
+
+        result = run_sync_with_logging(
+            company_name=args.run_with_logging,
+            log_to_sheets=not args.no_sheets,
+            log_to_mongodb=not args.no_mongodb,
+        )
+
+        if result.get("assessment"):
+            assessment = result["assessment"]
+            print(f"\nAssessment for {args.run_with_logging}:")
+            print(f"  Risk Level: {assessment.get('overall_risk_level', 'N/A')}")
+            print(f"  Credit Score: {assessment.get('credit_score_estimate', 'N/A')}/100")
+            print(f"  Confidence: {assessment.get('confidence_score', 0):.2f}")
+        else:
+            print(f"\nNo assessment generated. Status: {result.get('status')}")
+            print(f"Errors: {result.get('errors', [])}")
+
+        print("\nEvent logging complete. Check langgraph_events sheet and MongoDB.")
     elif args.run:
-        # Run the workflow
+        # Run the workflow (without event logging)
         initial_state = {
             "company_name": args.run,
             "jurisdiction": None,

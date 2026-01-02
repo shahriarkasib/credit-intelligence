@@ -7,7 +7,25 @@ from .finnhub_tool import FinnhubTool
 from .court_tool import CourtListenerTool
 from .web_search_tool import WebSearchTool
 
+# LangChain tool wrappers (Step 2)
+from .langchain_tools import (
+    get_langchain_tool,
+    get_all_langchain_tools,
+    bind_tools_to_llm,
+    is_langchain_tools_available,
+    # Pydantic schemas
+    SECToolInput,
+    FinnhubToolInput,
+    CourtToolInput,
+    WebSearchToolInput,
+)
+from .langchain_executor import (
+    LangChainToolExecutor,
+    get_langchain_tool_executor,
+)
+
 __all__ = [
+    # Legacy tools
     "BaseTool",
     "ToolResult",
     "ToolExecutor",
@@ -16,4 +34,16 @@ __all__ = [
     "FinnhubTool",
     "CourtListenerTool",
     "WebSearchTool",
+    # LangChain tools
+    "get_langchain_tool",
+    "get_all_langchain_tools",
+    "bind_tools_to_llm",
+    "is_langchain_tools_available",
+    "LangChainToolExecutor",
+    "get_langchain_tool_executor",
+    # Input schemas
+    "SECToolInput",
+    "FinnhubToolInput",
+    "CourtToolInput",
+    "WebSearchToolInput",
 ]

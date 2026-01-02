@@ -10,13 +10,53 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-# Import Groq client
+# Import Groq client (legacy)
 try:
     from groq import Groq
     GROQ_AVAILABLE = True
 except ImportError:
     GROQ_AVAILABLE = False
     logger.warning("groq not installed")
+
+# Import LangChain ChatGroq (preferred)
+try:
+    from config.langchain_llm import get_chat_groq, is_langchain_groq_available
+    from config.langchain_callbacks import CostTrackerCallback
+    from langchain_core.messages import HumanMessage
+    LANGCHAIN_GROQ_AVAILABLE = is_langchain_groq_available()
+except ImportError:
+    LANGCHAIN_GROQ_AVAILABLE = False
+    logger.warning("LangChain Groq not available, using legacy Groq client")
+
+# Import cost tracker
+try:
+    from config.cost_tracker import get_cost_tracker
+    COST_TRACKER_AVAILABLE = True
+except ImportError:
+    COST_TRACKER_AVAILABLE = False
+
+# Import output parsers (Step 3)
+try:
+    from config.output_parsers import (
+        parse_tool_selection,
+        parse_credit_assessment,
+        get_format_instructions,
+        result_to_dict,
+        is_parsers_available,
+    )
+    from config.output_schemas import ToolSelection, CreditAssessment
+    OUTPUT_PARSERS_AVAILABLE = is_parsers_available()
+except ImportError:
+    OUTPUT_PARSERS_AVAILABLE = False
+    logger.warning("Output parsers not available, using legacy JSON parsing")
+
+# Import centralized prompts
+try:
+    from config.prompts import get_prompt_text, get_prompt
+    PROMPTS_AVAILABLE = True
+except ImportError:
+    PROMPTS_AVAILABLE = False
+    logger.warning("Centralized prompts not available, using inline prompts")
 
 from tools import ToolExecutor, get_tool_executor
 
@@ -27,6 +67,9 @@ MODELS = {
     "fast": "llama-3.1-8b-instant",
     "balanced": "gemma2-9b-it",
 }
+
+# Feature flag: Use LangChain ChatGroq instead of raw Groq SDK
+USE_LANGCHAIN_LLM = os.getenv("USE_LANGCHAIN_LLM", "true").lower() == "true"
 
 
 class ToolSupervisor:
@@ -47,13 +90,17 @@ class ToolSupervisor:
     def __init__(self, model: str = "primary"):
         self.model = MODELS.get(model, model)
         self.tool_executor = get_tool_executor()
-        self._client = None
+        self._client = None  # Legacy Groq client
+        self._use_langchain = USE_LANGCHAIN_LLM and LANGCHAIN_GROQ_AVAILABLE
 
-        if GROQ_AVAILABLE:
+        # Initialize appropriate LLM client
+        if self._use_langchain:
+            logger.info(f"ToolSupervisor using LangChain ChatGroq: {self.model}")
+        elif GROQ_AVAILABLE:
             api_key = os.getenv("GROQ_API_KEY")
             if api_key:
                 self._client = Groq(api_key=api_key)
-                logger.info(f"ToolSupervisor initialized with model: {self.model}")
+                logger.info(f"ToolSupervisor using legacy Groq: {self.model}")
 
         # Logging
         self.decision_log: List[Dict[str, Any]] = []
@@ -62,6 +109,21 @@ class ToolSupervisor:
         """Generate prompt for tool selection."""
         tool_specs = self.tool_executor.get_tool_specs_text()
 
+        # Try to use centralized prompts
+        if PROMPTS_AVAILABLE:
+            try:
+                system_prompt, user_prompt = get_prompt_text(
+                    "tool_selection",
+                    company_name=company_name,
+                    context=json.dumps(context or {}),
+                    tool_specs=tool_specs,
+                )
+                # Combine system and user for legacy single-prompt call
+                return f"{system_prompt}\n\n{user_prompt}"
+            except Exception as e:
+                logger.warning(f"Failed to get centralized prompt: {e}")
+
+        # Fallback to inline prompt
         prompt = f"""You are a credit intelligence agent. Your task is to select the appropriate tools to gather information about a company for credit risk assessment.
 
 ## Company to Analyze
@@ -107,16 +169,34 @@ Only include tools that are truly needed. Be efficient.
         tool_selection: Dict[str, Any]
     ) -> str:
         """Generate prompt for final credit synthesis."""
+        tool_reasoning = json.dumps(tool_selection.get('company_analysis', {}), indent=2)
+        tool_results_str = json.dumps(tool_results, indent=2, default=str)
+
+        # Try to use centralized prompts
+        if PROMPTS_AVAILABLE:
+            try:
+                system_prompt, user_prompt = get_prompt_text(
+                    "credit_synthesis",
+                    company_name=company_name,
+                    tool_reasoning=tool_reasoning,
+                    tool_results=tool_results_str,
+                )
+                # Combine system and user for legacy single-prompt call
+                return f"{system_prompt}\n\n{user_prompt}"
+            except Exception as e:
+                logger.warning(f"Failed to get centralized prompt: {e}")
+
+        # Fallback to inline prompt
         prompt = f"""You are a senior credit analyst. Analyze the collected data and provide a credit risk assessment.
 
 ## Company
 Name: {company_name}
 
 ## Tool Selection Reasoning
-{json.dumps(tool_selection.get('company_analysis', {}), indent=2)}
+{tool_reasoning}
 
 ## Collected Data
-{json.dumps(tool_results, indent=2, default=str)}
+{tool_results_str}
 
 ## Your Task
 Based on ALL the data collected, provide a comprehensive credit risk assessment.
@@ -142,17 +222,95 @@ Respond with a JSON object:
 """
         return prompt
 
-    def _call_llm(self, prompt: str, temperature: float = 0.1) -> Tuple[str, Dict[str, Any]]:
+    def _call_llm(self, prompt: str, temperature: float = 0.1, call_type: str = "") -> Tuple[str, Dict[str, Any]]:
         """
         Call LLM and return response with metrics.
+
+        Uses LangChain ChatGroq with callbacks when available, falls back to legacy Groq SDK.
+
+        Args:
+            prompt: The prompt to send to the LLM
+            temperature: Sampling temperature (0-1)
+            call_type: Type of call for cost tracking (e.g., "tool_selection", "synthesis")
 
         Returns:
             Tuple of (response_text, metrics_dict)
         """
+        start_time = time.time()
+
+        # Use LangChain ChatGroq with callbacks (preferred)
+        if self._use_langchain:
+            return self._call_llm_langchain(prompt, temperature, call_type, start_time)
+
+        # Fallback to legacy Groq SDK
+        return self._call_llm_legacy(prompt, temperature, start_time)
+
+    def _call_llm_langchain(
+        self,
+        prompt: str,
+        temperature: float,
+        call_type: str,
+        start_time: float,
+    ) -> Tuple[str, Dict[str, Any]]:
+        """Call LLM using LangChain ChatGroq with automatic token tracking."""
+        # Setup callbacks for automatic token/cost tracking
+        callbacks = []
+        if COST_TRACKER_AVAILABLE:
+            tracker = get_cost_tracker()
+            callbacks.append(CostTrackerCallback(tracker=tracker, call_type=call_type))
+
+        # Get ChatGroq instance
+        llm = get_chat_groq(
+            model=self.model,
+            temperature=temperature,
+            callbacks=callbacks,
+        )
+
+        if not llm:
+            raise RuntimeError("Failed to create ChatGroq instance")
+
+        # Make the call
+        response = llm.invoke([HumanMessage(content=prompt)])
+        execution_time = (time.time() - start_time) * 1000
+
+        # Extract metrics from response metadata
+        usage_metadata = getattr(response, 'usage_metadata', {}) or {}
+        response_metadata = getattr(response, 'response_metadata', {}) or {}
+
+        # Try to get token usage from various sources
+        prompt_tokens = usage_metadata.get('input_tokens', 0)
+        completion_tokens = usage_metadata.get('output_tokens', 0)
+        total_tokens = usage_metadata.get('total_tokens', prompt_tokens + completion_tokens)
+
+        # Fallback: check response_metadata
+        if not total_tokens and response_metadata:
+            token_usage = response_metadata.get('token_usage', {})
+            prompt_tokens = token_usage.get('prompt_tokens', 0)
+            completion_tokens = token_usage.get('completion_tokens', 0)
+            total_tokens = token_usage.get('total_tokens', prompt_tokens + completion_tokens)
+
+        metrics = {
+            "model": self.model,
+            "execution_time_ms": round(execution_time, 2),
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+            "llm_backend": "langchain_chatgroq",
+        }
+
+        logger.debug(f"LangChain LLM call: {self.model}, {total_tokens} tokens, {execution_time:.0f}ms")
+
+        return response.content, metrics
+
+    def _call_llm_legacy(
+        self,
+        prompt: str,
+        temperature: float,
+        start_time: float,
+    ) -> Tuple[str, Dict[str, Any]]:
+        """Call LLM using legacy Groq SDK (fallback)."""
         if not self._client:
             raise RuntimeError("Groq client not available")
-
-        start_time = time.time()
 
         response = self._client.chat.completions.create(
             model=self.model,
@@ -171,6 +329,7 @@ Respond with a JSON object:
             "prompt_tokens": usage.prompt_tokens if usage else 0,
             "completion_tokens": usage.completion_tokens if usage else 0,
             "total_tokens": usage.total_tokens if usage else 0,
+            "llm_backend": "groq_sdk",
         }
 
         return response.choices[0].message.content, metrics
@@ -216,9 +375,14 @@ Respond with a JSON object:
         run_id = run_id or str(uuid.uuid4())
 
         prompt = self._get_tool_selection_prompt(company_name, context)
-        response, llm_metrics = self._call_llm(prompt)
+        response, llm_metrics = self._call_llm(prompt, call_type="tool_selection")
 
-        selection = self._parse_json_response(response)
+        # Parse with new OutputParser (with legacy fallback)
+        if OUTPUT_PARSERS_AVAILABLE:
+            parsed = parse_tool_selection(response, legacy_parser=self._parse_json_response)
+            selection = result_to_dict(parsed)
+        else:
+            selection = self._parse_json_response(response)
 
         # Log the decision
         decision_log = {
@@ -334,8 +498,14 @@ Respond with a JSON object:
             tool_selection.get("selection", {}),
         )
 
-        response, llm_metrics = self._call_llm(prompt)
-        assessment = self._parse_json_response(response)
+        response, llm_metrics = self._call_llm(prompt, call_type="synthesis")
+
+        # Parse with new OutputParser (with legacy fallback)
+        if OUTPUT_PARSERS_AVAILABLE:
+            parsed = parse_credit_assessment(response, legacy_parser=self._parse_json_response)
+            assessment = result_to_dict(parsed)
+        else:
+            assessment = self._parse_json_response(response)
 
         # Log synthesis
         synthesis_log = {

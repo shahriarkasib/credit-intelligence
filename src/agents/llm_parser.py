@@ -5,22 +5,58 @@ Replaces the rule-based lookup with intelligent LLM-powered parsing that can:
 - Determine stock tickers
 - Classify industry and jurisdiction
 - Handle variations in company names
+
+Now supports LangChain ChatGroq with automatic token tracking.
 """
 
 import os
 import json
 import logging
+import time
 from typing import Any, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-# Try to import Groq
+# Import LangChain ChatGroq (preferred)
+try:
+    from config.langchain_llm import get_chat_groq, is_langchain_groq_available
+    from config.langchain_callbacks import CostTrackerCallback
+    from langchain_core.messages import HumanMessage, SystemMessage
+    LANGCHAIN_GROQ_AVAILABLE = is_langchain_groq_available()
+except ImportError:
+    LANGCHAIN_GROQ_AVAILABLE = False
+    logger.warning("LangChain Groq not available, using legacy Groq client")
+
+# Import cost tracker
+try:
+    from config.cost_tracker import get_cost_tracker, calculate_cost_for_tokens
+    COST_TRACKER_AVAILABLE = True
+except ImportError:
+    COST_TRACKER_AVAILABLE = False
+
+# Try to import Groq (legacy fallback)
 try:
     from groq import Groq
     GROQ_AVAILABLE = True
 except ImportError:
     GROQ_AVAILABLE = False
     logger.warning("groq not installed - LLM parsing not available")
+
+# Feature flag: Use LangChain ChatGroq instead of raw Groq SDK
+USE_LANGCHAIN_LLM = os.getenv("USE_LANGCHAIN_LLM", "true").lower() == "true"
+
+# Import output parsers (Step 3)
+try:
+    from config.output_parsers import (
+        parse_company,
+        result_to_dict,
+        is_parsers_available,
+    )
+    from config.output_schemas import ParsedCompany
+    OUTPUT_PARSERS_AVAILABLE = is_parsers_available()
+except ImportError:
+    OUTPUT_PARSERS_AVAILABLE = False
+    logger.warning("Output parsers not available, using legacy JSON parsing")
 
 # Import prompts
 try:
@@ -69,19 +105,135 @@ class LLMCompanyParser:
 
     def __init__(self, model: str = "llama-3.3-70b-versatile"):
         self.model = model
-        self._client = None
+        self._client = None  # Legacy Groq client
+        self._use_langchain = USE_LANGCHAIN_LLM and LANGCHAIN_GROQ_AVAILABLE
 
-        if GROQ_AVAILABLE:
+        if self._use_langchain:
+            logger.info(f"LLMCompanyParser using LangChain ChatGroq: {model}")
+        elif GROQ_AVAILABLE:
             api_key = os.getenv("GROQ_API_KEY")
             if api_key:
                 self._client = Groq(api_key=api_key)
-                logger.info(f"LLMCompanyParser initialized with model: {model}")
+                logger.info(f"LLMCompanyParser using legacy Groq: {model}")
             else:
                 logger.warning("GROQ_API_KEY not set - using fallback parsing")
 
     def is_available(self) -> bool:
         """Check if LLM parsing is available."""
-        return self._client is not None
+        return self._use_langchain or self._client is not None
+
+    def _call_llm(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float = 0.1,
+        max_tokens: int = 500,
+        call_type: str = "",
+    ) -> Tuple[str, Dict[str, Any]]:
+        """
+        Call LLM with system and user prompts, return response with metrics.
+
+        Uses LangChain ChatGroq when available, falls back to legacy Groq SDK.
+        """
+        start_time = time.time()
+
+        if self._use_langchain:
+            return self._call_llm_langchain(
+                system_prompt, user_prompt, temperature, max_tokens, call_type, start_time
+            )
+
+        return self._call_llm_legacy(
+            system_prompt, user_prompt, temperature, max_tokens, start_time
+        )
+
+    def _call_llm_langchain(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float,
+        max_tokens: int,
+        call_type: str,
+        start_time: float,
+    ) -> Tuple[str, Dict[str, Any]]:
+        """Call LLM using LangChain ChatGroq."""
+        callbacks = []
+        if COST_TRACKER_AVAILABLE:
+            tracker = get_cost_tracker()
+            callbacks.append(CostTrackerCallback(tracker=tracker, call_type=call_type))
+
+        llm = get_chat_groq(
+            model=self.model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            callbacks=callbacks,
+        )
+
+        if not llm:
+            raise RuntimeError("Failed to create ChatGroq instance")
+
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_prompt),
+        ]
+        response = llm.invoke(messages)
+        execution_time = (time.time() - start_time) * 1000
+
+        # Extract token usage
+        usage_metadata = getattr(response, 'usage_metadata', {}) or {}
+        prompt_tokens = usage_metadata.get('input_tokens', 0)
+        completion_tokens = usage_metadata.get('output_tokens', 0)
+        total_tokens = usage_metadata.get('total_tokens', prompt_tokens + completion_tokens)
+
+        metrics = {
+            "model": self.model,
+            "execution_time_ms": round(execution_time, 2),
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+            "prompt_used": user_prompt,
+            "system_prompt": system_prompt,
+            "llm_backend": "langchain_chatgroq",
+        }
+
+        return response.content, metrics
+
+    def _call_llm_legacy(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float,
+        max_tokens: int,
+        start_time: float,
+    ) -> Tuple[str, Dict[str, Any]]:
+        """Call LLM using legacy Groq SDK."""
+        if not self._client:
+            raise RuntimeError("Groq client not available")
+
+        response = self._client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+
+        execution_time = (time.time() - start_time) * 1000
+
+        usage = response.usage
+        metrics = {
+            "model": self.model,
+            "execution_time_ms": round(execution_time, 2),
+            "prompt_tokens": usage.prompt_tokens if usage else 0,
+            "completion_tokens": usage.completion_tokens if usage else 0,
+            "total_tokens": usage.total_tokens if usage else 0,
+            "prompt_used": user_prompt,
+            "system_prompt": system_prompt,
+            "llm_backend": "groq_sdk",
+        }
+
+        return response.choices[0].message.content, metrics
 
     def _get_system_prompt(self) -> str:
         """Get system prompt for company parsing."""
@@ -168,7 +320,7 @@ Respond in JSON format:
         Returns:
             Tuple of (company_info dict, llm_metrics dict)
         """
-        if not self._client:
+        if not self.is_available():
             logger.info("LLM not available, using fallback parsing")
             return self._fallback_parse(company_name, context), {}
 
@@ -185,45 +337,29 @@ Respond in JSON format:
             )
 
         try:
-            import time
-            start_time = time.time()
-
-            response = self._client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
+            # Call LLM using new unified helper
+            response_text, llm_metrics = self._call_llm(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
                 temperature=0.1,
                 max_tokens=500,
+                call_type="parse_company",
             )
-
-            execution_time = (time.time() - start_time) * 1000
-
-            # Extract response and metrics
-            response_text = response.choices[0].message.content
-            usage = response.usage
-
-            llm_metrics = {
-                "model": self.model,
-                "execution_time_ms": round(execution_time, 2),
-                "prompt_tokens": usage.prompt_tokens if usage else 0,
-                "completion_tokens": usage.completion_tokens if usage else 0,
-                "total_tokens": usage.total_tokens if usage else 0,
-                "prompt_used": user_prompt,
-                "system_prompt": system_prompt,
-            }
 
             # Log LLM call
             if step_logger:
                 step_logger.log_llm_call(
                     model=self.model,
                     response=response_text,
-                    tokens=usage.total_tokens if usage else 0,
+                    tokens=llm_metrics.get("total_tokens", 0),
                 )
 
-            # Parse response
-            parsed = self._parse_json_response(response_text)
+            # Parse response with new OutputParser (with fallback)
+            if OUTPUT_PARSERS_AVAILABLE:
+                parsed_result = parse_company(response_text, legacy_parser=self._parse_json_response)
+                parsed = result_to_dict(parsed_result)
+            else:
+                parsed = self._parse_json_response(response_text)
 
             if "error" in parsed:
                 logger.warning(f"Failed to parse LLM response, using fallback")
