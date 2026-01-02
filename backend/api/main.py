@@ -31,6 +31,50 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Import prompt management
+try:
+    from config.prompts import (
+        get_all_prompts,
+        get_prompt,
+        update_prompt,
+        reset_prompt,
+        reset_all_prompts,
+        get_prompt_categories,
+        get_prompt_text,
+    )
+    PROMPTS_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Prompts module not available: {e}")
+    PROMPTS_AVAILABLE = False
+
+# Import storage modules for logs
+try:
+    from storage.mongodb import CreditIntelligenceDB
+    MONGODB_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"MongoDB module not available: {e}")
+    MONGODB_AVAILABLE = False
+    CreditIntelligenceDB = None
+
+try:
+    from run_logging.sheets_logger import SheetsLogger, get_sheets_logger
+    SHEETS_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Sheets logger not available: {e}")
+    SHEETS_AVAILABLE = False
+    SheetsLogger = None
+    get_sheets_logger = None
+
+# Import LangGraph event logger for capturing all events
+try:
+    from run_logging.langgraph_logger import LangGraphEventLogger, get_langgraph_logger
+    LANGGRAPH_LOGGER_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"LangGraph logger not available: {e}")
+    LANGGRAPH_LOGGER_AVAILABLE = False
+    LangGraphEventLogger = None
+    get_langgraph_logger = None
+
 
 # =============================================================================
 # PYDANTIC MODELS
@@ -41,6 +85,20 @@ class CompanyRequest(BaseModel):
     company_name: str
     jurisdiction: Optional[str] = None
     ticker: Optional[str] = None
+
+
+class PromptUpdateRequest(BaseModel):
+    """Request to update a prompt."""
+    system_prompt: Optional[str] = None
+    user_template: Optional[str] = None
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
+class PromptTestRequest(BaseModel):
+    """Request to test a prompt with sample data."""
+    prompt_id: str
+    variables: Dict[str, str] = {}
 
 
 class WorkflowStep(BaseModel):
@@ -382,6 +440,17 @@ async def run_workflow_with_streaming(
         result_queue = queue.Queue()
         final_result = [None]  # Use list for mutability
 
+        # Initialize LangGraph event logger for capturing ALL events
+        event_logger = None
+        if LANGGRAPH_LOGGER_AVAILABLE and get_langgraph_logger:
+            event_logger = get_langgraph_logger(
+                run_id=run_id,
+                company_name=company_name,
+                log_to_sheets=True,
+                log_to_mongodb=True,
+            )
+            logger.info(f"LangGraph event logger initialized for run {run_id}")
+
         def run_graph_streaming():
             """Run graph with streaming and put results in queue."""
             try:
@@ -398,10 +467,60 @@ async def run_workflow_with_streaming(
             except Exception as e:
                 result_queue.put(("error", str(e)))
 
-        # Start graph in thread
+        async def run_graph_with_all_events():
+            """Run graph with astream_events to capture ALL events (LLM, tool, chain)."""
+            try:
+                if event_logger:
+                    event_logger.log_graph_start({
+                        'company_name': company_name,
+                        'jurisdiction': jurisdiction,
+                        'ticker': ticker,
+                    })
+
+                async for event in graph.astream_events(
+                    {
+                        'company_name': company_name,
+                        'jurisdiction': jurisdiction,
+                        'ticker': ticker,
+                    },
+                    version="v2"
+                ):
+                    # Log ALL events to sheets/mongodb
+                    if event_logger:
+                        event_logger.log_event(event)
+
+                    # Also put node outputs in queue for UI updates
+                    event_type = event.get("event", "")
+                    if event_type == "on_chain_end":
+                        node_name = event.get("name", "")
+                        output = event.get("data", {}).get("output", {})
+                        if isinstance(output, dict) and node_name:
+                            result_queue.put(("step", {node_name: output}))
+
+                # Flush remaining events
+                if event_logger:
+                    event_logger.log_graph_end({})
+                    event_logger.flush()
+
+                result_queue.put(("done", None))
+            except Exception as e:
+                if event_logger:
+                    event_logger.log_graph_end({}, error=str(e))
+                    event_logger.flush()
+                result_queue.put(("error", str(e)))
+
+        # Start graph - use async version with full event logging
         import threading
-        graph_thread = threading.Thread(target=run_graph_streaming)
-        graph_thread.start()
+
+        # Use astream_events for full event capture (LLM, tool, chain events)
+        if LANGGRAPH_LOGGER_AVAILABLE and event_logger:
+            # Run async version in background task
+            asyncio.create_task(run_graph_with_all_events())
+            graph_thread = None  # No separate thread needed
+        else:
+            # Fallback to thread-based streaming
+            graph_thread = threading.Thread(target=run_graph_streaming)
+            graph_thread.start()
 
         # Process streaming results
         current_state = {}
@@ -457,8 +576,9 @@ async def run_workflow_with_streaming(
                 logger.warning("Timeout waiting for graph output")
                 break
 
-        # Wait for thread to finish
-        graph_thread.join(timeout=5)
+        # Wait for thread to finish (if using threaded mode)
+        if graph_thread:
+            graph_thread.join(timeout=5)
 
         # Get final result from state
         result = current_state
@@ -610,6 +730,427 @@ async def list_runs():
             }
             for run_id, status in active_runs.items()
         ]
+    }
+
+
+# =============================================================================
+# PROMPT MANAGEMENT ENDPOINTS
+# =============================================================================
+
+@app.get("/prompts")
+async def list_prompts():
+    """Get all available prompts."""
+    if not PROMPTS_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Prompts module not available")
+
+    prompts = get_all_prompts()
+    return {
+        "prompts": list(prompts.values()),
+        "count": len(prompts)
+    }
+
+
+@app.get("/prompts/categories")
+async def list_prompt_categories():
+    """Get prompts organized by category."""
+    if not PROMPTS_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Prompts module not available")
+
+    return get_prompt_categories()
+
+
+@app.get("/prompts/{prompt_id}")
+async def get_prompt_by_id(prompt_id: str):
+    """Get a specific prompt by ID."""
+    if not PROMPTS_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Prompts module not available")
+
+    prompt = get_prompt(prompt_id)
+    if not prompt:
+        raise HTTPException(status_code=404, detail=f"Prompt '{prompt_id}' not found")
+
+    return prompt
+
+
+@app.put("/prompts/{prompt_id}")
+async def update_prompt_by_id(prompt_id: str, request: PromptUpdateRequest):
+    """Update a prompt with custom values."""
+    if not PROMPTS_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Prompts module not available")
+
+    try:
+        updates = request.model_dump(exclude_none=True)
+        updated = update_prompt(prompt_id, updates)
+        return {
+            "status": "updated",
+            "prompt": updated
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.post("/prompts/{prompt_id}/reset")
+async def reset_prompt_by_id(prompt_id: str):
+    """Reset a prompt to its default values."""
+    if not PROMPTS_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Prompts module not available")
+
+    try:
+        prompt = reset_prompt(prompt_id)
+        return {
+            "status": "reset",
+            "prompt": prompt
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.post("/prompts/reset-all")
+async def reset_all_prompts_endpoint():
+    """Reset all prompts to their default values."""
+    if not PROMPTS_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Prompts module not available")
+
+    prompts = reset_all_prompts()
+    return {
+        "status": "all_reset",
+        "count": len(prompts)
+    }
+
+
+@app.post("/prompts/test")
+async def test_prompt(request: PromptTestRequest):
+    """
+    Test a prompt with sample variables.
+
+    Returns the formatted prompt without executing it.
+    """
+    if not PROMPTS_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Prompts module not available")
+
+    try:
+        system_prompt, user_prompt = get_prompt_text(request.prompt_id, **request.variables)
+        return {
+            "prompt_id": request.prompt_id,
+            "system_prompt": system_prompt,
+            "user_prompt": user_prompt,
+            "variables_used": request.variables
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except KeyError as e:
+        raise HTTPException(status_code=400, detail=f"Missing variable: {e}")
+
+
+# =============================================================================
+# LOGS API ENDPOINTS
+# =============================================================================
+
+# Lazy-loaded database instances
+_db_instance = None
+_sheets_instance = None
+
+
+def get_db():
+    """Get or create MongoDB instance."""
+    global _db_instance
+    if _db_instance is None and MONGODB_AVAILABLE:
+        _db_instance = CreditIntelligenceDB()
+    return _db_instance
+
+
+def get_sheets():
+    """Get or create SheetsLogger instance."""
+    global _sheets_instance
+    if _sheets_instance is None and SHEETS_AVAILABLE:
+        _sheets_instance = SheetsLogger()
+    return _sheets_instance
+
+
+@app.get("/logs/evaluations")
+async def get_evaluations(limit: int = 50):
+    """
+    Get recent evaluations from MongoDB.
+
+    Returns evaluation results with scores and reasoning.
+    """
+    db = get_db()
+    if not db or not db.is_connected():
+        return {"evaluations": [], "source": "none", "message": "MongoDB not connected"}
+
+    evaluations = db.get_evaluations(limit=limit)
+
+    # Convert ObjectId to string for JSON serialization
+    for e in evaluations:
+        if "_id" in e:
+            e["_id"] = str(e["_id"])
+
+    return {
+        "evaluations": evaluations,
+        "count": len(evaluations),
+        "source": "mongodb"
+    }
+
+
+@app.get("/logs/evaluations/{run_id}")
+async def get_evaluation_by_run(run_id: str):
+    """
+    Get evaluation for a specific run.
+    """
+    db = get_db()
+    if not db or not db.is_connected():
+        return {"evaluation": None, "source": "none", "message": "MongoDB not connected"}
+
+    # Find evaluation by run_id
+    evaluation = db.db.evaluations.find_one({"run_id": run_id})
+
+    if evaluation:
+        evaluation["_id"] = str(evaluation["_id"])
+
+    return {
+        "evaluation": evaluation,
+        "source": "mongodb"
+    }
+
+
+@app.get("/logs/traces/{run_id}")
+async def get_traces_by_run(run_id: str, limit: int = 100):
+    """
+    Get LangGraph events/traces for a specific run.
+    """
+    db = get_db()
+    if not db or not db.is_connected():
+        return {"traces": [], "source": "none", "message": "MongoDB not connected"}
+
+    events = db.get_langgraph_events(run_id=run_id, limit=limit)
+
+    # Convert ObjectId to string
+    for e in events:
+        if "_id" in e:
+            e["_id"] = str(e["_id"])
+
+    # Also get run summary
+    summary = db.get_langgraph_run_summary(run_id)
+
+    return {
+        "traces": events,
+        "summary": summary,
+        "count": len(events),
+        "source": "mongodb"
+    }
+
+
+@app.get("/logs/assessments")
+async def get_assessments(limit: int = 50):
+    """
+    Get recent credit assessments.
+    """
+    db = get_db()
+    if not db or not db.is_connected():
+        return {"assessments": [], "source": "none", "message": "MongoDB not connected"}
+
+    assessments = db.get_all_assessments(limit=limit)
+
+    # Convert ObjectId to string
+    for a in assessments:
+        if "_id" in a:
+            a["_id"] = str(a["_id"])
+
+    return {
+        "assessments": assessments,
+        "count": len(assessments),
+        "source": "mongodb"
+    }
+
+
+@app.get("/logs/assessments/{company_name}")
+async def get_assessment_by_company(company_name: str, limit: int = 10):
+    """
+    Get assessment history for a specific company.
+    """
+    db = get_db()
+    if not db or not db.is_connected():
+        return {"assessments": [], "source": "none", "message": "MongoDB not connected"}
+
+    assessments = db.get_assessment_history(company_name, limit=limit)
+
+    for a in assessments:
+        if "_id" in a:
+            a["_id"] = str(a["_id"])
+
+    return {
+        "assessments": assessments,
+        "count": len(assessments),
+        "company_name": company_name,
+        "source": "mongodb"
+    }
+
+
+@app.get("/logs/stats")
+async def get_log_stats():
+    """
+    Get database statistics and log counts.
+    """
+    db = get_db()
+    if not db or not db.is_connected():
+        return {"connected": False, "source": "none"}
+
+    stats = db.get_stats()
+    risk_distribution = db.get_risk_distribution()
+
+    return {
+        **stats,
+        "risk_distribution": risk_distribution,
+        "source": "mongodb"
+    }
+
+
+@app.get("/logs/runs/history")
+async def get_run_history(limit: int = 50):
+    """
+    Get recent runs with summaries from MongoDB.
+    """
+    db = get_db()
+    if not db or not db.is_connected():
+        return {"runs": [], "source": "none", "message": "MongoDB not connected"}
+
+    # Try run_summaries first (new Task 17 format), fallback to assessments
+    run_summaries = db.get_run_summaries(limit=limit)
+
+    if run_summaries:
+        runs = []
+        for r in run_summaries:
+            runs.append({
+                "run_id": r.get("run_id", str(r.get("_id", ""))),
+                "company_name": r.get("company_name", ""),
+                "status": r.get("status", "completed"),
+                "risk_level": r.get("risk_level", ""),
+                "credit_score": r.get("credit_score", 0),
+                "confidence": r.get("confidence", 0),
+                "overall_score": r.get("overall_score", 0),
+                "final_decision": r.get("final_decision", ""),
+                "duration_ms": r.get("duration_ms", 0),
+                "total_tokens": r.get("total_tokens", 0),
+                "total_cost": r.get("total_cost", 0),
+                "timestamp": r.get("saved_at", r.get("completed_at", "")),
+            })
+        return {"runs": runs, "count": len(runs), "source": "run_summaries"}
+
+    # Fallback to assessments
+    assessments = db.get_all_assessments(limit=limit)
+    runs = []
+    for a in assessments:
+        runs.append({
+            "run_id": a.get("run_id", str(a.get("_id", ""))),
+            "company_name": a.get("company_name", a.get("company", "")),
+            "risk_level": a.get("overall_risk_level", a.get("risk_level", "")),
+            "credit_score": a.get("credit_score_estimate", a.get("credit_score", 0)),
+            "confidence": a.get("confidence_score", a.get("confidence", 0)),
+            "timestamp": a.get("saved_at", a.get("timestamp", "")),
+        })
+
+    return {
+        "runs": runs,
+        "count": len(runs),
+        "source": "assessments"
+    }
+
+
+@app.get("/logs/llm-calls")
+async def get_llm_calls(run_id: str = None, company_name: str = None, limit: int = 100):
+    """
+    Get LLM call logs from MongoDB.
+    """
+    db = get_db()
+    if not db or not db.is_connected():
+        return {"llm_calls": [], "source": "none", "message": "MongoDB not connected"}
+
+    calls = db.get_llm_calls(run_id=run_id, company_name=company_name, limit=limit)
+
+    for c in calls:
+        if "_id" in c:
+            c["_id"] = str(c["_id"])
+
+    return {
+        "llm_calls": calls,
+        "count": len(calls),
+        "source": "mongodb"
+    }
+
+
+@app.get("/logs/llm-calls/{run_id}/summary")
+async def get_llm_calls_summary(run_id: str):
+    """
+    Get summary of LLM calls for a specific run.
+    """
+    db = get_db()
+    if not db or not db.is_connected():
+        return {"summary": {}, "source": "none", "message": "MongoDB not connected"}
+
+    summary = db.get_llm_calls_summary(run_id)
+
+    return {
+        "summary": summary,
+        "source": "mongodb"
+    }
+
+
+@app.get("/logs/run-summaries")
+async def get_run_summaries(company_name: str = None, status: str = None, limit: int = 50):
+    """
+    Get run summaries from MongoDB.
+    """
+    db = get_db()
+    if not db or not db.is_connected():
+        return {"summaries": [], "source": "none", "message": "MongoDB not connected"}
+
+    summaries = db.get_run_summaries(company_name=company_name, status=status, limit=limit)
+
+    for s in summaries:
+        if "_id" in s:
+            s["_id"] = str(s["_id"])
+
+    return {
+        "summaries": summaries,
+        "count": len(summaries),
+        "source": "mongodb"
+    }
+
+
+@app.get("/logs/run-summaries/{run_id}")
+async def get_run_summary_by_id(run_id: str):
+    """
+    Get a specific run summary.
+    """
+    db = get_db()
+    if not db or not db.is_connected():
+        return {"summary": None, "source": "none", "message": "MongoDB not connected"}
+
+    summary = db.get_run_summary(run_id)
+
+    if summary and "_id" in summary:
+        summary["_id"] = str(summary["_id"])
+
+    return {
+        "summary": summary,
+        "source": "mongodb"
+    }
+
+
+@app.get("/logs/statistics")
+async def get_run_statistics():
+    """
+    Get aggregate statistics across all runs.
+    """
+    db = get_db()
+    if not db or not db.is_connected():
+        return {"statistics": {}, "source": "none", "message": "MongoDB not connected"}
+
+    stats = db.get_run_statistics()
+
+    return {
+        "statistics": stats,
+        "source": "mongodb"
     }
 
 

@@ -152,6 +152,30 @@ class SheetsLogger:
             "langsmith_traces": [
                 "run_id", "company_name", "step_name", "run_type", "status",
                 "latency_ms", "error", "input_preview", "output_preview", "timestamp"
+            ],
+            # NEW: LangGraph events (from astream_events)
+            "langgraph_events": [
+                "run_id", "company_name", "event_type", "event_name", "status",
+                "duration_ms", "model", "tokens", "input_preview", "output_preview",
+                "error", "timestamp"
+            ],
+            # Task 17: Detailed LLM call logs (full Task 17 spec)
+            "llm_calls_detailed": [
+                "run_id", "company_name", "llm_provider", "agent_name", "model",
+                "prompt", "context", "response", "reasoning", "error",
+                "prompt_tokens", "completion_tokens", "total_tokens",
+                "input_cost", "output_cost", "total_cost",
+                "response_time_ms", "timestamp"
+            ],
+            # Task 17: Comprehensive run summaries
+            "run_summaries": [
+                "run_id", "company_name", "status",
+                "risk_level", "credit_score", "confidence", "reasoning",
+                "tool_selection_score", "data_quality_score", "synthesis_score", "overall_score",
+                "final_decision", "decision_reasoning",
+                "errors", "warnings", "tools_used", "agents_used",
+                "started_at", "completed_at", "duration_ms",
+                "total_tokens", "total_cost", "llm_calls_count", "timestamp"
             ]
         }
 
@@ -592,6 +616,199 @@ class SheetsLogger:
                 sheet.append_row(row)
             except Exception as e:
                 logger.error(f"Failed to log LangSmith trace to sheets: {e}")
+
+        _sheets_executor.submit(_write)
+
+    def log_langgraph_event(
+        self,
+        run_id: str,
+        company_name: str,
+        event_type: str,
+        event_name: str,
+        status: str,
+        duration_ms: float = None,
+        model: str = "",
+        tokens: int = None,
+        input_preview: str = "",
+        output_preview: str = "",
+        error: str = "",
+    ):
+        """Log a LangGraph event from astream_events (non-blocking)."""
+        if not self.is_connected():
+            return
+
+        row = [
+            run_id,
+            company_name,
+            event_type,
+            event_name,
+            status,
+            duration_ms if duration_ms is not None else "",
+            model or "",
+            tokens if tokens is not None else "",
+            self._safe_str(input_preview, max_length=1000),
+            self._safe_str(output_preview, max_length=1000),
+            error or "",
+            datetime.utcnow().isoformat(),
+        ]
+
+        def _write():
+            try:
+                sheet = self._get_sheet("langgraph_events")
+                sheet.append_row(row)
+            except Exception as e:
+                logger.error(f"Failed to log LangGraph event to sheets: {e}")
+
+        _sheets_executor.submit(_write)
+
+    # ==================== TASK 17: DETAILED LOGGING ====================
+
+    def log_llm_call_detailed(
+        self,
+        run_id: str,
+        company_name: str,
+        llm_provider: str,
+        agent_name: str,
+        model: str,
+        prompt: str,
+        context: str = "",
+        response: str = "",
+        reasoning: str = "",
+        error: str = "",
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+        response_time_ms: float = 0,
+        input_cost: float = 0,
+        output_cost: float = 0,
+        total_cost: float = 0,
+    ):
+        """
+        Log a detailed LLM call (Task 17 compliant).
+
+        Logs to llm_calls_detailed sheet with all fields:
+        - llm_provider, run_id, agent_name
+        - prompt, context, response, reasoning
+        - error, tokens, response_time_ms, costs
+
+        Non-blocking (async write).
+        """
+        if not self.is_connected():
+            return
+
+        row = [
+            run_id,
+            company_name,
+            llm_provider,
+            agent_name,
+            model,
+            self._safe_str(prompt, max_length=10000),
+            self._safe_str(context, max_length=5000),
+            self._safe_str(response, max_length=10000),
+            self._safe_str(reasoning, max_length=2000),
+            error or "",
+            prompt_tokens,
+            completion_tokens,
+            prompt_tokens + completion_tokens,
+            round(input_cost, 6),
+            round(output_cost, 6),
+            round(total_cost, 6),
+            response_time_ms,
+            datetime.utcnow().isoformat(),
+        ]
+
+        def _write():
+            try:
+                sheet = self._get_sheet("llm_calls_detailed")
+                sheet.append_row(row)
+                logger.debug(f"Logged detailed LLM call for run: {run_id}")
+            except Exception as e:
+                logger.error(f"Failed to log detailed LLM call to sheets: {e}")
+
+        _sheets_executor.submit(_write)
+
+    def log_run_summary(
+        self,
+        run_id: str,
+        company_name: str,
+        status: str = "completed",
+        # Assessment
+        risk_level: str = "",
+        credit_score: int = 0,
+        confidence: float = 0.0,
+        reasoning: str = "",
+        # Eval metrics
+        tool_selection_score: float = 0.0,
+        data_quality_score: float = 0.0,
+        synthesis_score: float = 0.0,
+        overall_score: float = 0.0,
+        # Decision
+        final_decision: str = "",
+        decision_reasoning: str = "",
+        # Execution details
+        errors: List[str] = None,
+        warnings: List[str] = None,
+        tools_used: List[str] = None,
+        agents_used: List[str] = None,
+        # Timing
+        started_at: str = "",
+        completed_at: str = "",
+        duration_ms: float = 0.0,
+        # Costs
+        total_tokens: int = 0,
+        total_cost: float = 0.0,
+        llm_calls_count: int = 0,
+    ):
+        """
+        Log a comprehensive run summary (Task 17 compliant).
+
+        Logs to run_summaries sheet with all fields:
+        - company_name, run_id, status
+        - risk_level, credit_score, confidence, reasoning
+        - ALL eval metrics (tool_selection, data_quality, synthesis, overall)
+        - final_decision (Good/Not Good), decision_reasoning
+        - errors, warnings, tools_used, agents_used
+        - timing (started_at, completed_at, duration_ms)
+        - costs (total_tokens, total_cost, llm_calls_count)
+
+        Non-blocking (async write).
+        """
+        if not self.is_connected():
+            return
+
+        row = [
+            run_id,
+            company_name,
+            status,
+            risk_level,
+            credit_score,
+            round(confidence, 4),
+            self._safe_str(reasoning, max_length=5000),
+            round(tool_selection_score, 4),
+            round(data_quality_score, 4),
+            round(synthesis_score, 4),
+            round(overall_score, 4),
+            final_decision,
+            self._safe_str(decision_reasoning, max_length=2000),
+            ", ".join(errors) if errors else "",
+            ", ".join(warnings) if warnings else "",
+            ", ".join(tools_used) if tools_used else "",
+            ", ".join(agents_used) if agents_used else "",
+            started_at,
+            completed_at,
+            duration_ms,
+            total_tokens,
+            round(total_cost, 6),
+            llm_calls_count,
+            datetime.utcnow().isoformat(),
+        ]
+
+        def _write():
+            try:
+                sheet = self._get_sheet("run_summaries")
+                sheet.append_row(row)
+                logger.info(f"Logged run summary for: {company_name} (run: {run_id})")
+            except Exception as e:
+                logger.error(f"Failed to log run summary to sheets: {e}")
 
         _sheets_executor.submit(_write)
 

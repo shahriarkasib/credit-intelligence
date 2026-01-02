@@ -240,6 +240,466 @@ class CreditIntelligenceDB:
             return []
         return list(self.db.evaluations.find().sort("evaluated_at", -1).limit(limit))
 
+    # ==================== LLM CALL OPERATIONS ====================
+
+    def save_llm_call(self, llm_call: Dict[str, Any]) -> Optional[str]:
+        """
+        Save an LLM API call log.
+
+        Required fields:
+        - run_id: Run identifier
+        - company_name: Company being analyzed
+        - llm_provider: Provider name (groq, openai, etc.)
+        - agent_name: Agent that made the call
+        - model: Model used
+        - prompt: Input prompt
+        - response: LLM response
+        - tokens: Token counts
+
+        Args:
+            llm_call: LLM call data dict
+
+        Returns:
+            Inserted document ID
+        """
+        if not self.is_connected():
+            return None
+
+        doc = {
+            **llm_call,
+            "logged_at": datetime.utcnow(),
+        }
+
+        # Ensure required fields
+        if "run_id" not in doc:
+            logger.error("run_id required for LLM call log")
+            return None
+
+        result = self.db.llm_calls.insert_one(doc)
+        logger.debug(f"Saved LLM call for run: {doc.get('run_id')}")
+        return str(result.inserted_id)
+
+    def save_llm_call_detailed(
+        self,
+        run_id: str,
+        company_name: str,
+        llm_provider: str,
+        agent_name: str,
+        model: str,
+        prompt: str,
+        context: str = "",
+        response: str = "",
+        reasoning: str = "",
+        error: str = "",
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+        response_time_ms: float = 0,
+        input_cost: float = 0,
+        output_cost: float = 0,
+        total_cost: float = 0,
+    ) -> Optional[str]:
+        """
+        Save a detailed LLM call log with all fields.
+
+        This matches Task 17 requirements:
+        - llm provider
+        - run id
+        - agent name
+        - input (prompt)
+        - Context
+        - output
+        - Reasoning
+        - Errors
+        - Tokens Number, response time
+
+        Returns:
+            Inserted document ID
+        """
+        return self.save_llm_call({
+            "run_id": run_id,
+            "company_name": company_name,
+            "llm_provider": llm_provider,
+            "agent_name": agent_name,
+            "model": model,
+            "prompt": prompt,
+            "context": context,
+            "response": response,
+            "reasoning": reasoning,
+            "error": error,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": prompt_tokens + completion_tokens,
+            "response_time_ms": response_time_ms,
+            "input_cost": input_cost,
+            "output_cost": output_cost,
+            "total_cost": total_cost,
+        })
+
+    def get_llm_calls(
+        self,
+        run_id: Optional[str] = None,
+        company_name: Optional[str] = None,
+        agent_name: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """Get LLM calls with optional filters."""
+        if not self.is_connected():
+            return []
+
+        query = {}
+        if run_id:
+            query["run_id"] = run_id
+        if company_name:
+            query["company_name"] = company_name
+        if agent_name:
+            query["agent_name"] = agent_name
+
+        return list(
+            self.db.llm_calls.find(query)
+            .sort("logged_at", -1)
+            .limit(limit)
+        )
+
+    def get_llm_calls_summary(self, run_id: str) -> Dict[str, Any]:
+        """Get summary of LLM calls for a run."""
+        if not self.is_connected():
+            return {}
+
+        pipeline = [
+            {"$match": {"run_id": run_id}},
+            {"$group": {
+                "_id": "$agent_name",
+                "call_count": {"$sum": 1},
+                "total_tokens": {"$sum": "$total_tokens"},
+                "total_cost": {"$sum": "$total_cost"},
+                "avg_response_time": {"$avg": "$response_time_ms"},
+            }},
+        ]
+
+        results = list(self.db.llm_calls.aggregate(pipeline))
+
+        # Also get totals
+        totals = list(self.db.llm_calls.aggregate([
+            {"$match": {"run_id": run_id}},
+            {"$group": {
+                "_id": None,
+                "total_calls": {"$sum": 1},
+                "total_tokens": {"$sum": "$total_tokens"},
+                "total_cost": {"$sum": "$total_cost"},
+                "total_time_ms": {"$sum": "$response_time_ms"},
+            }},
+        ]))
+
+        return {
+            "run_id": run_id,
+            "by_agent": {r["_id"]: r for r in results},
+            "totals": totals[0] if totals else {},
+        }
+
+    # ==================== RUN SUMMARY OPERATIONS ====================
+
+    def save_run_summary(self, run_summary: Dict[str, Any]) -> Optional[str]:
+        """
+        Save a comprehensive run summary.
+
+        Required fields:
+        - run_id: Run identifier
+        - company_name: Company analyzed
+
+        Recommended fields (per Task 17):
+        - status: success/failed
+        - risk_level: Final risk assessment
+        - credit_score: Final credit score
+        - confidence: Confidence score
+        - eval_metrics: Dict of all evaluation metrics
+        - final_decision: Good/Not Good
+        - errors: List of errors
+        - started_at, completed_at, duration_ms
+        - tools_used, agents_used
+        - total_tokens, total_cost
+
+        Returns:
+            Inserted document ID
+        """
+        if not self.is_connected():
+            return None
+
+        doc = {
+            **run_summary,
+            "saved_at": datetime.utcnow(),
+        }
+
+        if "run_id" not in doc:
+            logger.error("run_id required for run summary")
+            return None
+
+        result = self.db.run_summaries.insert_one(doc)
+        logger.info(f"Saved run summary for: {doc.get('company_name')} (run: {doc.get('run_id')})")
+        return str(result.inserted_id)
+
+    def save_run_summary_detailed(
+        self,
+        run_id: str,
+        company_name: str,
+        status: str = "completed",
+        # Final Assessment
+        risk_level: str = "",
+        credit_score: int = 0,
+        confidence: float = 0.0,
+        reasoning: str = "",
+        recommendations: List[str] = None,
+        # Evaluation Metrics
+        eval_metrics: Dict[str, Any] = None,
+        tool_selection_score: float = 0.0,
+        data_quality_score: float = 0.0,
+        synthesis_score: float = 0.0,
+        overall_score: float = 0.0,
+        # Final Decision
+        final_decision: str = "",  # Good/Not Good
+        decision_reasoning: str = "",
+        # Execution Details
+        errors: List[str] = None,
+        warnings: List[str] = None,
+        tools_used: List[str] = None,
+        agents_used: List[str] = None,
+        # Timing
+        started_at: str = "",
+        completed_at: str = "",
+        duration_ms: float = 0.0,
+        # Costs
+        total_tokens: int = 0,
+        total_cost: float = 0.0,
+        llm_calls_count: int = 0,
+    ) -> Optional[str]:
+        """
+        Save a detailed run summary with all fields.
+
+        This matches Task 17 requirements for summary run logs.
+
+        Returns:
+            Inserted document ID
+        """
+        return self.save_run_summary({
+            "run_id": run_id,
+            "company_name": company_name,
+            "status": status,
+            # Assessment
+            "risk_level": risk_level,
+            "credit_score": credit_score,
+            "confidence": confidence,
+            "reasoning": reasoning,
+            "recommendations": recommendations or [],
+            # Eval metrics
+            "eval_metrics": eval_metrics or {},
+            "tool_selection_score": tool_selection_score,
+            "data_quality_score": data_quality_score,
+            "synthesis_score": synthesis_score,
+            "overall_score": overall_score,
+            # Decision
+            "final_decision": final_decision,
+            "decision_reasoning": decision_reasoning,
+            # Execution
+            "errors": errors or [],
+            "warnings": warnings or [],
+            "tools_used": tools_used or [],
+            "agents_used": agents_used or [],
+            # Timing
+            "started_at": started_at,
+            "completed_at": completed_at,
+            "duration_ms": duration_ms,
+            # Costs
+            "total_tokens": total_tokens,
+            "total_cost": total_cost,
+            "llm_calls_count": llm_calls_count,
+        })
+
+    def get_run_summary(self, run_id: str) -> Optional[Dict[str, Any]]:
+        """Get run summary by run_id."""
+        if not self.is_connected():
+            return None
+        return self.db.run_summaries.find_one({"run_id": run_id})
+
+    def get_run_summaries(
+        self,
+        company_name: Optional[str] = None,
+        status: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """Get run summaries with optional filters."""
+        if not self.is_connected():
+            return []
+
+        query = {}
+        if company_name:
+            query["company_name"] = company_name
+        if status:
+            query["status"] = status
+
+        return list(
+            self.db.run_summaries.find(query)
+            .sort("saved_at", -1)
+            .limit(limit)
+        )
+
+    def get_run_statistics(self) -> Dict[str, Any]:
+        """Get aggregate statistics across all runs."""
+        if not self.is_connected():
+            return {}
+
+        pipeline = [
+            {"$group": {
+                "_id": None,
+                "total_runs": {"$sum": 1},
+                "successful_runs": {
+                    "$sum": {"$cond": [{"$eq": ["$status", "completed"]}, 1, 0]}
+                },
+                "failed_runs": {
+                    "$sum": {"$cond": [{"$eq": ["$status", "failed"]}, 1, 0]}
+                },
+                "avg_credit_score": {"$avg": "$credit_score"},
+                "avg_confidence": {"$avg": "$confidence"},
+                "avg_overall_score": {"$avg": "$overall_score"},
+                "total_tokens": {"$sum": "$total_tokens"},
+                "total_cost": {"$sum": "$total_cost"},
+                "avg_duration_ms": {"$avg": "$duration_ms"},
+            }},
+        ]
+
+        results = list(self.db.run_summaries.aggregate(pipeline))
+
+        # Risk level distribution
+        risk_pipeline = [
+            {"$group": {"_id": "$risk_level", "count": {"$sum": 1}}},
+        ]
+        risk_dist = list(self.db.run_summaries.aggregate(risk_pipeline))
+
+        # Decision distribution
+        decision_pipeline = [
+            {"$group": {"_id": "$final_decision", "count": {"$sum": 1}}},
+        ]
+        decision_dist = list(self.db.run_summaries.aggregate(decision_pipeline))
+
+        return {
+            "summary": results[0] if results else {},
+            "risk_distribution": {r["_id"]: r["count"] for r in risk_dist if r["_id"]},
+            "decision_distribution": {d["_id"]: d["count"] for d in decision_dist if d["_id"]},
+        }
+
+    # ==================== LANGGRAPH EVENT OPERATIONS ====================
+
+    def save_langgraph_event(self, event: Dict[str, Any]) -> Optional[str]:
+        """
+        Save a LangGraph event.
+
+        Args:
+            event: LangGraph event dict
+
+        Returns:
+            Inserted document ID
+        """
+        if not self.is_connected():
+            return None
+
+        doc = {
+            **event,
+            "logged_at": datetime.utcnow(),
+        }
+
+        result = self.db.langgraph_events.insert_one(doc)
+        return str(result.inserted_id)
+
+    def save_langgraph_events_batch(self, events: List[Dict[str, Any]]) -> int:
+        """
+        Save multiple LangGraph events in batch.
+
+        Args:
+            events: List of event dicts
+
+        Returns:
+            Number of inserted events
+        """
+        if not self.is_connected() or not events:
+            return 0
+
+        for event in events:
+            event["logged_at"] = datetime.utcnow()
+
+        result = self.db.langgraph_events.insert_many(events)
+        return len(result.inserted_ids)
+
+    def get_langgraph_events(
+        self,
+        run_id: Optional[str] = None,
+        company_name: Optional[str] = None,
+        event_type: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """
+        Query LangGraph events.
+
+        Args:
+            run_id: Filter by run ID
+            company_name: Filter by company name
+            event_type: Filter by event type (e.g., "on_chain_start")
+            limit: Maximum number of events to return
+
+        Returns:
+            List of event documents
+        """
+        if not self.is_connected():
+            return []
+
+        query = {}
+        if run_id:
+            query["run_id"] = run_id
+        if company_name:
+            query["company_name"] = company_name
+        if event_type:
+            query["event_type"] = event_type
+
+        return list(
+            self.db.langgraph_events.find(query)
+            .sort("timestamp", -1)
+            .limit(limit)
+        )
+
+    def get_langgraph_run_summary(self, run_id: str) -> Dict[str, Any]:
+        """
+        Get summary of a LangGraph run.
+
+        Args:
+            run_id: Run ID to summarize
+
+        Returns:
+            Summary dict with event counts and timing
+        """
+        if not self.is_connected():
+            return {}
+
+        pipeline = [
+            {"$match": {"run_id": run_id}},
+            {"$group": {
+                "_id": "$event_type",
+                "count": {"$sum": 1},
+                "avg_duration_ms": {"$avg": "$duration_ms"},
+                "total_tokens": {"$sum": "$tokens"},
+            }},
+        ]
+
+        results = list(self.db.langgraph_events.aggregate(pipeline))
+
+        # Get graph start/end for total duration
+        graph_events = list(self.db.langgraph_events.find({
+            "run_id": run_id,
+            "event_type": {"$in": ["graph_start", "graph_end"]}
+        }).sort("timestamp", 1))
+
+        return {
+            "run_id": run_id,
+            "event_summary": {r["_id"]: r for r in results},
+            "graph_events": graph_events,
+        }
+
     # ==================== STATS & UTILITIES ====================
 
     def get_stats(self) -> Dict[str, Any]:
@@ -253,6 +713,9 @@ class CreditIntelligenceDB:
             "assessments_count": self.db.assessments.count_documents({}),
             "raw_data_count": self.db.raw_data.count_documents({}),
             "evaluations_count": self.db.evaluations.count_documents({}),
+            "langgraph_events_count": self.db.langgraph_events.count_documents({}),
+            "llm_calls_count": self.db.llm_calls.count_documents({}),
+            "run_summaries_count": self.db.run_summaries.count_documents({}),
         }
 
     def get_risk_distribution(self) -> Dict[str, int]:

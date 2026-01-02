@@ -396,6 +396,196 @@ class WorkflowLogger:
                 result[key] = value
         return result
 
+    # ==================== TASK 17: DETAILED LOGGING ====================
+
+    def log_llm_call_detailed(
+        self,
+        run_id: str,
+        company_name: str,
+        llm_provider: str,
+        agent_name: str,
+        model: str,
+        prompt: str,
+        context: str = "",
+        response: str = "",
+        reasoning: str = "",
+        error: str = "",
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+        response_time_ms: float = 0,
+        input_cost: float = 0,
+        output_cost: float = 0,
+        total_cost: float = 0,
+    ):
+        """
+        Log a detailed LLM call (Task 17 compliant).
+
+        Logs to both MongoDB and Google Sheets with all fields:
+        - llm_provider, run_id, agent_name
+        - prompt, context, response, reasoning
+        - error, tokens, response_time_ms, costs
+        """
+        # Calculate cost if not provided
+        if total_cost == 0 and (prompt_tokens > 0 or completion_tokens > 0):
+            try:
+                from config.cost_tracker import calculate_cost_for_tokens
+                cost = calculate_cost_for_tokens(
+                    model=model,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    provider=llm_provider,
+                )
+                input_cost = cost["input_cost"]
+                output_cost = cost["output_cost"]
+                total_cost = cost["total_cost"]
+            except Exception:
+                pass
+
+        # Log to MongoDB
+        if self.run_logger.is_connected():
+            self.run_logger.log_llm_call_detailed(
+                run_id=run_id,
+                company_name=company_name,
+                llm_provider=llm_provider,
+                agent_name=agent_name,
+                model=model,
+                prompt=prompt,
+                context=context,
+                response=response,
+                reasoning=reasoning,
+                error=error,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                response_time_ms=response_time_ms,
+                input_cost=input_cost,
+                output_cost=output_cost,
+                total_cost=total_cost,
+            )
+
+        # Log to Google Sheets
+        if self.sheets_logger.is_connected():
+            self.sheets_logger.log_llm_call_detailed(
+                run_id=run_id,
+                company_name=company_name,
+                llm_provider=llm_provider,
+                agent_name=agent_name,
+                model=model,
+                prompt=prompt,
+                context=context,
+                response=response,
+                reasoning=reasoning,
+                error=error,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                response_time_ms=response_time_ms,
+                input_cost=input_cost,
+                output_cost=output_cost,
+                total_cost=total_cost,
+            )
+
+        logger.debug(f"[{run_id[:8]}] LLM {agent_name}/{model}: {prompt_tokens}+{completion_tokens} tokens, ${total_cost:.6f}")
+
+    def log_run_summary(
+        self,
+        run_id: str,
+        company_name: str,
+        status: str = "completed",
+        # Assessment
+        risk_level: str = "",
+        credit_score: int = 0,
+        confidence: float = 0.0,
+        reasoning: str = "",
+        # Eval metrics
+        tool_selection_score: float = 0.0,
+        data_quality_score: float = 0.0,
+        synthesis_score: float = 0.0,
+        overall_score: float = 0.0,
+        # Decision
+        final_decision: str = "",
+        decision_reasoning: str = "",
+        # Execution details
+        errors: List[str] = None,
+        warnings: List[str] = None,
+        tools_used: List[str] = None,
+        agents_used: List[str] = None,
+        # Timing
+        started_at: str = "",
+        completed_at: str = "",
+        duration_ms: float = 0.0,
+        # Costs
+        total_tokens: int = 0,
+        total_cost: float = 0.0,
+        llm_calls_count: int = 0,
+    ):
+        """
+        Log a comprehensive run summary (Task 17 compliant).
+
+        Logs to both MongoDB and Google Sheets with all fields:
+        - company_name, run_id, status
+        - risk_level, credit_score, confidence, reasoning
+        - ALL eval metrics
+        - final_decision, decision_reasoning
+        - errors, warnings, tools_used, agents_used
+        - timing and cost information
+        """
+        # Log to MongoDB
+        if self.run_logger.is_connected():
+            self.run_logger.log_run_summary_detailed(
+                run_id=run_id,
+                company_name=company_name,
+                status=status,
+                risk_level=risk_level,
+                credit_score=credit_score,
+                confidence=confidence,
+                reasoning=reasoning,
+                tool_selection_score=tool_selection_score,
+                data_quality_score=data_quality_score,
+                synthesis_score=synthesis_score,
+                overall_score=overall_score,
+                final_decision=final_decision,
+                decision_reasoning=decision_reasoning,
+                errors=errors,
+                warnings=warnings,
+                tools_used=tools_used,
+                agents_used=agents_used,
+                started_at=started_at,
+                completed_at=completed_at,
+                duration_ms=duration_ms,
+                total_tokens=total_tokens,
+                total_cost=total_cost,
+                llm_calls_count=llm_calls_count,
+            )
+
+        # Log to Google Sheets
+        if self.sheets_logger.is_connected():
+            self.sheets_logger.log_run_summary(
+                run_id=run_id,
+                company_name=company_name,
+                status=status,
+                risk_level=risk_level,
+                credit_score=credit_score,
+                confidence=confidence,
+                reasoning=reasoning,
+                tool_selection_score=tool_selection_score,
+                data_quality_score=data_quality_score,
+                synthesis_score=synthesis_score,
+                overall_score=overall_score,
+                final_decision=final_decision,
+                decision_reasoning=decision_reasoning,
+                errors=errors,
+                warnings=warnings,
+                tools_used=tools_used,
+                agents_used=agents_used,
+                started_at=started_at,
+                completed_at=completed_at,
+                duration_ms=duration_ms,
+                total_tokens=total_tokens,
+                total_cost=total_cost,
+                llm_calls_count=llm_calls_count,
+            )
+
+        logger.info(f"[{run_id[:8]}] Run summary logged: {company_name} - {risk_level} (score: {credit_score})")
+
 
 # Singleton instance
 _workflow_logger: Optional[WorkflowLogger] = None

@@ -465,6 +465,160 @@ class RunLogger:
 
         logger.info(f"Logged {evaluation_type} consistency for {company_name}: {overall_consistency:.2f}")
 
+    # ==================== TASK 17: DETAILED LOGGING ====================
+
+    def log_llm_call_detailed(
+        self,
+        run_id: str,
+        company_name: str,
+        llm_provider: str,
+        agent_name: str,
+        model: str,
+        prompt: str,
+        context: str = "",
+        response: str = "",
+        reasoning: str = "",
+        error: str = "",
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+        response_time_ms: float = 0,
+        input_cost: float = 0,
+        output_cost: float = 0,
+        total_cost: float = 0,
+    ):
+        """
+        Log a detailed LLM call (Task 17 compliant).
+
+        Stores in llm_calls_detailed collection with all fields:
+        - llm_provider, run_id, agent_name
+        - prompt, context, response, reasoning
+        - error, tokens, response_time_ms, costs
+        """
+        llm_doc = {
+            "run_id": run_id,
+            "company_name": company_name,
+            "llm_provider": llm_provider,
+            "agent_name": agent_name,
+            "model": model,
+            "prompt": prompt,
+            "context": context,
+            "response": response,
+            "reasoning": reasoning,
+            "error": error,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": prompt_tokens + completion_tokens,
+            "input_cost": round(input_cost, 6),
+            "output_cost": round(output_cost, 6),
+            "total_cost": round(total_cost, 6),
+            "response_time_ms": response_time_ms,
+            "timestamp": datetime.utcnow(),
+        }
+
+        if self.is_connected():
+            self.db.llm_calls_detailed.insert_one(llm_doc)
+        elif run_id in self._local_runs:
+            if "llm_calls_detailed" not in self._local_runs[run_id]:
+                self._local_runs[run_id]["llm_calls_detailed"] = []
+            self._local_runs[run_id]["llm_calls_detailed"].append(llm_doc)
+            self._save_local_run(run_id)
+
+        logger.debug(f"Logged detailed LLM call {agent_name}/{model} for run {run_id}")
+
+    def log_run_summary_detailed(
+        self,
+        run_id: str,
+        company_name: str,
+        status: str = "completed",
+        # Assessment
+        risk_level: str = "",
+        credit_score: int = 0,
+        confidence: float = 0.0,
+        reasoning: str = "",
+        # Eval metrics
+        tool_selection_score: float = 0.0,
+        data_quality_score: float = 0.0,
+        synthesis_score: float = 0.0,
+        overall_score: float = 0.0,
+        # Decision
+        final_decision: str = "",
+        decision_reasoning: str = "",
+        # Execution details
+        errors: List[str] = None,
+        warnings: List[str] = None,
+        tools_used: List[str] = None,
+        agents_used: List[str] = None,
+        # Timing
+        started_at: str = "",
+        completed_at: str = "",
+        duration_ms: float = 0.0,
+        # Costs
+        total_tokens: int = 0,
+        total_cost: float = 0.0,
+        llm_calls_count: int = 0,
+    ):
+        """
+        Log a comprehensive run summary (Task 17 compliant).
+
+        Stores in run_summaries collection with all fields:
+        - company_name, run_id, status
+        - risk_level, credit_score, confidence, reasoning
+        - ALL eval metrics
+        - final_decision, decision_reasoning
+        - errors, warnings, tools_used, agents_used
+        - timing and cost information
+        """
+        summary_doc = {
+            "run_id": run_id,
+            "company_name": company_name,
+            "status": status,
+            "risk_level": risk_level,
+            "credit_score": credit_score,
+            "confidence": round(confidence, 4),
+            "reasoning": reasoning,
+            "tool_selection_score": round(tool_selection_score, 4),
+            "data_quality_score": round(data_quality_score, 4),
+            "synthesis_score": round(synthesis_score, 4),
+            "overall_score": round(overall_score, 4),
+            "final_decision": final_decision,
+            "decision_reasoning": decision_reasoning,
+            "errors": errors or [],
+            "warnings": warnings or [],
+            "tools_used": tools_used or [],
+            "agents_used": agents_used or [],
+            "started_at": started_at,
+            "completed_at": completed_at,
+            "duration_ms": duration_ms,
+            "total_tokens": total_tokens,
+            "total_cost": round(total_cost, 6),
+            "llm_calls_count": llm_calls_count,
+            "timestamp": datetime.utcnow(),
+        }
+
+        if self.is_connected():
+            self.db.run_summaries.insert_one(summary_doc)
+        elif run_id in self._local_runs:
+            self._local_runs[run_id]["run_summary"] = summary_doc
+            self._save_local_run(run_id)
+
+        logger.info(f"Logged detailed run summary for {company_name} (run: {run_id})")
+
+    def get_llm_calls_detailed(self, run_id: str = None, limit: int = 100) -> List[Dict[str, Any]]:
+        """Get detailed LLM calls, optionally filtered by run_id."""
+        if not self.is_connected():
+            return []
+
+        query = {"run_id": run_id} if run_id else {}
+        return list(self.db.llm_calls_detailed.find(query).sort("timestamp", -1).limit(limit))
+
+    def get_run_summaries(self, company_name: str = None, limit: int = 50) -> List[Dict[str, Any]]:
+        """Get run summaries, optionally filtered by company name."""
+        if not self.is_connected():
+            return []
+
+        query = {"company_name": company_name} if company_name else {}
+        return list(self.db.run_summaries.find(query).sort("timestamp", -1).limit(limit))
+
     # ==================== EVALUATION LOGGING ====================
 
     def log_evaluation(
