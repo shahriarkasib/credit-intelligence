@@ -6,6 +6,15 @@ from .finnhub import FinnhubDataSource
 from .court_listener import CourtListenerDataSource
 from .web_search import WebSearchDataSource
 
+# Task 11: Web Scraper
+from .web_scraper import (
+    WebScraper,
+    ScrapedContent,
+    get_web_scraper,
+    scrape_url,
+    scrape_company_website,
+)
+
 # Optional sources (may not work without API keys)
 try:
     from .opencorporates import OpenCorporatesDataSource
@@ -25,4 +34,10 @@ __all__ = [
     "WebSearchDataSource",
     "OpenCorporatesDataSource",
     "OpenSanctionsDataSource",
+    # Task 11: Web Scraper
+    "WebScraper",
+    "ScrapedContent",
+    "get_web_scraper",
+    "scrape_url",
+    "scrape_company_website",
 ]
