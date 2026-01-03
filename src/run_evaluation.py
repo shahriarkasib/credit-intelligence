@@ -365,12 +365,10 @@ class EvaluationRunner:
 
             # 1. Log tool selection
             tools_selected = [t.get("name") for t in selection.get("tools_to_use", [])]
-            is_public = selection.get("company_analysis", {}).get("is_likely_public", False)
             self.sheets_logger.log_tool_selection(
                 run_id=run_id,
                 company_name=company_name,
-                tools_selected=tools_selected,
-                is_public=is_public,
+                selected_tools=tools_selected,
                 reasoning=selection.get("company_analysis", {}).get("reasoning", ""),
             )
 
@@ -386,9 +384,10 @@ class EvaluationRunner:
                     run_id=run_id,
                     company_name=company_name,
                     tool_name=tool_name,
-                    success=success,
+                    tool_input={"reason": metric.get("reason", "")},
+                    tool_output={},
                     execution_time_ms=exec_time,
-                    selection_reason=metric.get("reason", ""),
+                    success=success,
                 )
 
                 # Log as workflow step
@@ -455,25 +454,26 @@ class EvaluationRunner:
                 run_id=run_id,
                 company_name=company_name,
                 risk_level=assessment.get("risk_level", ""),
-                credit_score=assessment.get("credit_score", 0),
-                confidence=assessment.get("confidence", 0),
-                key_factors=assessment.get("key_factors", []),
+                credit_score=assessment.get("credit_score", 0) or 0,
+                confidence=assessment.get("confidence", 0) or 0,
+                reasoning=assessment.get("reasoning", ""),
                 recommendations=assessment.get("recommendations", []),
             )
 
             # 5. Log evaluation if available
             if evaluation:
+                tool_score = getattr(evaluation, 'tool_selection_score', 0) or 0
+                data_score = getattr(evaluation, 'data_completeness', 0) or 0
+                synthesis_score = getattr(evaluation, 'synthesis_consistency', 0) or 0
+                overall = (tool_score + data_score + synthesis_score) / 3 if any([tool_score, data_score, synthesis_score]) else 0
+
                 self.sheets_logger.log_evaluation(
                     run_id=run_id,
                     company_name=company_name,
-                    tool_selection_score=getattr(evaluation, 'tool_selection_score', 0),
-                    data_completeness=getattr(evaluation, 'data_completeness', 0),
-                    synthesis_score=getattr(evaluation, 'synthesis_consistency', 0),
-                    overall_score=(
-                        getattr(evaluation, 'tool_selection_score', 0) +
-                        getattr(evaluation, 'data_completeness', 0) +
-                        getattr(evaluation, 'synthesis_consistency', 0)
-                    ) / 3,
+                    tool_selection_score=tool_score,
+                    data_quality_score=data_score,
+                    synthesis_score=synthesis_score,
+                    overall_score=overall,
                 )
 
             # 6. Log run summary
@@ -481,8 +481,6 @@ class EvaluationRunner:
                 run_id=run_id,
                 company_name=company_name,
                 status="completed",
-                started_at=datetime.utcnow(),
-                completed_at=datetime.utcnow(),
                 risk_level=assessment.get("risk_level", ""),
                 credit_score=assessment.get("credit_score"),
                 confidence=assessment.get("confidence"),
