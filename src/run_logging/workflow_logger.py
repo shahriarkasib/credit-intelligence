@@ -356,6 +356,11 @@ class WorkflowLogger:
             run_info = self._run_info[run_id]
             total_time_ms = (time.time() - run_info["started_at"]) * 1000
 
+            # Extract tools_used from api_data keys or explicit tools_used field
+            tools_used = final_result.get("tools_used", [])
+            if not tools_used and "api_data" in final_result:
+                tools_used = list(final_result["api_data"].keys())
+
             self.sheets_logger.log_run(
                 run_id=run_id,
                 company_name=run_info["company_name"],
@@ -364,6 +369,7 @@ class WorkflowLogger:
                 credit_score=final_result.get("credit_score", 0),
                 confidence=final_result.get("confidence", 0),
                 total_time_ms=total_time_ms,
+                tools_used=tools_used,
                 evaluation_score=final_result.get("evaluation_score", 0),
             )
 

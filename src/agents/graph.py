@@ -661,6 +661,29 @@ def synthesize(state: CreditWorkflowState) -> Dict[str, Any]:
                                 execution_time_ms=llm_exec_time,
                             )
 
+                            # Task 17: Log detailed LLM call
+                            wf_logger.log_llm_call_detailed(
+                                run_id=run_id,
+                                company_name=company_name,
+                                llm_provider="groq",
+                                agent_name=call_type,
+                                model=model_id,
+                                prompt=f"Credit analysis for {company_name}",
+                                context=f"API data sources: {list(state.get('api_data', {}).keys())}",
+                                response=json.dumps({
+                                    "risk_level": llm_result.risk_level,
+                                    "credit_score": llm_result.credit_score_estimate,
+                                    "confidence": llm_result.confidence,
+                                }, default=str),
+                                reasoning=llm_result.reasoning or "",
+                                prompt_tokens=llm_result.prompt_tokens,
+                                completion_tokens=llm_result.completion_tokens,
+                                response_time_ms=llm_exec_time,
+                                input_cost=llm_result.input_cost,
+                                output_cost=llm_result.output_cost,
+                                total_cost=llm_result.total_cost,
+                            )
+
                         logger.info(f"  [{call_type}] {model_id}: {llm_result.risk_level} (score: {llm_result.credit_score_estimate}, tokens: {llm_result.total_tokens}, cost: ${llm_result.total_cost:.6f})")
                     else:
                         logger.warning(f"  [{call_type}] {model_id}: Failed - {llm_result.error}")
@@ -1205,12 +1228,41 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                     "risk_level": assessment.get("overall_risk_level"),
                     "credit_score": assessment.get("credit_score_estimate"),
                     "evaluation_score": evaluation["overall_score"],
+                    "api_data": state.get("api_data", {}),
                 },
                 total_metrics={
                     "tool_selection_score": tool_selection_score,
                     "data_quality_score": data_quality_score,
                     "synthesis_score": synthesis_score,
                 },
+            )
+
+            # Task 17: Log comprehensive run summary
+            llm_results = state.get("llm_results", [])
+            total_tokens = sum(r.get("total_tokens", 0) for r in llm_results if r.get("success"))
+            total_cost = sum(r.get("total_cost", 0) for r in llm_results if r.get("success"))
+
+            wf_logger.log_run_summary(
+                run_id=run_id,
+                company_name=company_name,
+                status="completed",
+                risk_level=assessment.get("overall_risk_level", ""),
+                credit_score=assessment.get("credit_score_estimate", 0),
+                confidence=assessment.get("confidence_score", 0.0),
+                reasoning=assessment.get("llm_reasoning", ""),
+                tool_selection_score=tool_selection_score,
+                data_quality_score=data_quality_score,
+                synthesis_score=synthesis_score,
+                overall_score=evaluation.get("overall_score", 0.0),
+                final_decision="APPROVED" if assessment.get("overall_risk_level") in ["low", "LOW", "moderate", "MODERATE"] else "REVIEW_REQUIRED",
+                decision_reasoning=f"Risk level: {assessment.get('overall_risk_level')}, Score: {assessment.get('credit_score_estimate')}",
+                errors=state.get("errors", []),
+                tools_used=list(state.get("api_data", {}).keys()),
+                agents_used=["SupervisorAgent", "APIAgent", "SearchAgent", "LLMAnalystAgent", "EvaluationAgent"],
+                duration_ms=(time.time() - start_time) * 1000,
+                total_tokens=total_tokens,
+                total_cost=total_cost,
+                llm_calls_count=len([r for r in llm_results if r.get("success")]),
             )
 
         return {
