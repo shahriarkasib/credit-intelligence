@@ -111,8 +111,11 @@ credit_intelligence/
 │   │   ├── llm_analyst.py       # LLM analysis agent
 │   │   └── workflow.py          # LangGraph workflow
 │   ├── evaluation/              # Evaluation framework
+│   │   ├── evaluation_brain.py          # Central orchestration layer
 │   │   ├── tool_selection_evaluator.py  # Tool choice evaluation
 │   │   ├── workflow_evaluator.py        # Full workflow evaluation
+│   │   ├── llm_judge_evaluator.py       # LLM-as-a-Judge scoring
+│   │   ├── agent_efficiency_evaluator.py # Agent performance metrics
 │   │   ├── consistency_scorer.py        # Cross-run consistency
 │   │   ├── correctness_scorer.py        # Output correctness
 │   │   └── analyzer.py                  # Correlation analysis
@@ -123,7 +126,9 @@ credit_intelligence/
 │   │   ├── sec_edgar.py         # SEC EDGAR API
 │   │   ├── finnhub.py           # Finnhub stock data
 │   │   ├── court_listener.py    # Court records
-│   │   └── web_search.py        # DuckDuckGo search
+│   │   ├── web_search.py        # DuckDuckGo search
+│   │   ├── tavily_search.py     # Tavily AI-optimized search
+│   │   └── web_scraper.py       # Company website scraper
 │   ├── test_tool_workflow.py    # Test suite
 │   └── run_evaluation.py        # Evaluation runner
 └── data/
@@ -156,8 +161,12 @@ cp .env.example .env
 |-----|----------|------|------------|
 | `GROQ_API_KEY` | **Yes** | Free | [console.groq.com](https://console.groq.com) |
 | `FINNHUB_API_KEY` | Yes | Free tier | [finnhub.io](https://finnhub.io) |
+| `TAVILY_API_KEY` | Recommended | Free tier | [tavily.com](https://tavily.com) |
+| `LANGCHAIN_API_KEY` | Recommended | Free | [smith.langchain.com](https://smith.langchain.com) |
 | `COURTLISTENER_API_KEY` | Optional | Free | [courtlistener.com](https://www.courtlistener.com) |
 | `MONGODB_URI` | Optional | Free tier | [mongodb.com/atlas](https://www.mongodb.com/atlas) |
+
+See `.env.example` for the complete list of environment variables.
 
 ---
 
@@ -262,7 +271,9 @@ All data sources are **free** for demo purposes:
 | SEC EDGAR | `fetch_sec_data` | Unlimited | US public company financials |
 | Finnhub | `fetch_market_data` | 60 calls/min | Stock data, fundamentals |
 | CourtListener | `fetch_legal_data` | 5000/hour | Federal/state court records |
+| Tavily | `tavily_search` | 1000/month | AI-optimized web search |
 | DuckDuckGo | `web_search` | Unlimited | Web search, news |
+| Web Scraper | `scrape_url` | Unlimited | Company website data |
 
 ---
 
