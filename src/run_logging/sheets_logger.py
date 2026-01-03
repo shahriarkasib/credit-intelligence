@@ -176,6 +176,36 @@ class SheetsLogger:
                 "errors", "warnings", "tools_used", "agents_used",
                 "started_at", "completed_at", "duration_ms",
                 "total_tokens", "total_cost", "llm_calls_count", "timestamp"
+            ],
+            # Task 4: Agent efficiency metrics
+            "agent_metrics": [
+                "run_id", "company_name", "timestamp",
+                # Core agent metrics (0-1 scores)
+                "intent_correctness", "plan_quality", "tool_choice_correctness",
+                "tool_completeness", "trajectory_match", "final_answer_quality",
+                # Execution metrics
+                "step_count", "tool_calls", "latency_ms",
+                # Overall score
+                "overall_score",
+                # Details (JSON)
+                "intent_details", "plan_details", "tool_details",
+                "trajectory_details", "answer_details"
+            ],
+            # Task 21: LLM-as-a-judge evaluations
+            "llm_judge_results": [
+                "run_id", "company_name", "timestamp", "model_used",
+                # Dimension scores (0-1)
+                "accuracy_score", "completeness_score", "consistency_score",
+                "actionability_score", "data_utilization_score", "overall_score",
+                # Reasoning
+                "accuracy_reasoning", "completeness_reasoning", "consistency_reasoning",
+                "actionability_reasoning", "data_utilization_reasoning", "overall_reasoning",
+                # Benchmark comparison
+                "benchmark_alignment", "benchmark_comparison",
+                # Suggestions
+                "suggestions",
+                # Metadata
+                "tokens_used", "evaluation_cost"
             ]
         }
 
@@ -809,6 +839,164 @@ class SheetsLogger:
                 logger.info(f"Logged run summary for: {company_name} (run: {run_id})")
             except Exception as e:
                 logger.error(f"Failed to log run summary to sheets: {e}")
+
+        _sheets_executor.submit(_write)
+
+    def log_agent_metrics(
+        self,
+        run_id: str,
+        company_name: str,
+        # Core agent metrics (0-1 scores)
+        intent_correctness: float = 0.0,
+        plan_quality: float = 0.0,
+        tool_choice_correctness: float = 0.0,
+        tool_completeness: float = 0.0,
+        trajectory_match: float = 0.0,
+        final_answer_quality: float = 0.0,
+        # Execution metrics
+        step_count: int = 0,
+        tool_calls: int = 0,
+        latency_ms: float = 0.0,
+        # Overall score
+        overall_score: float = 0.0,
+        # Details (dicts)
+        intent_details: Dict[str, Any] = None,
+        plan_details: Dict[str, Any] = None,
+        tool_details: Dict[str, Any] = None,
+        trajectory_details: Dict[str, Any] = None,
+        answer_details: Dict[str, Any] = None,
+    ):
+        """
+        Log agent efficiency metrics (Task 4 compliant).
+
+        Logs standard agentic metrics to agent_metrics sheet:
+        - intent_correctness: Did the agent understand the task?
+        - plan_quality: How good was the execution plan?
+        - tool_choice_correctness: Did agent choose correct tools? (precision)
+        - tool_completeness: Did agent use all needed tools? (recall)
+        - trajectory_match: Did agent follow expected execution path?
+        - final_answer_quality: Is the final output correct and complete?
+        - step_count, tool_calls, latency_ms: Execution metrics
+
+        Non-blocking (async write).
+        """
+        if not self.is_connected():
+            return
+
+        row = [
+            run_id,
+            company_name,
+            datetime.utcnow().isoformat(),
+            # Core metrics
+            round(intent_correctness, 4),
+            round(plan_quality, 4),
+            round(tool_choice_correctness, 4),
+            round(tool_completeness, 4),
+            round(trajectory_match, 4),
+            round(final_answer_quality, 4),
+            # Execution metrics
+            step_count,
+            tool_calls,
+            round(latency_ms, 2),
+            # Overall
+            round(overall_score, 4),
+            # Details as JSON
+            self._safe_str(intent_details or {}, max_length=5000),
+            self._safe_str(plan_details or {}, max_length=5000),
+            self._safe_str(tool_details or {}, max_length=5000),
+            self._safe_str(trajectory_details or {}, max_length=5000),
+            self._safe_str(answer_details or {}, max_length=5000),
+        ]
+
+        def _write():
+            try:
+                sheet = self._get_sheet("agent_metrics")
+                sheet.append_row(row)
+                logger.info(f"Logged agent metrics for: {company_name} (run: {run_id})")
+            except Exception as e:
+                logger.error(f"Failed to log agent metrics to sheets: {e}")
+
+        _sheets_executor.submit(_write)
+
+    def log_llm_judge_result(
+        self,
+        run_id: str,
+        company_name: str,
+        model_used: str,
+        # Dimension scores (0-1)
+        accuracy_score: float = 0.0,
+        completeness_score: float = 0.0,
+        consistency_score: float = 0.0,
+        actionability_score: float = 0.0,
+        data_utilization_score: float = 0.0,
+        overall_score: float = 0.0,
+        # Reasoning
+        accuracy_reasoning: str = "",
+        completeness_reasoning: str = "",
+        consistency_reasoning: str = "",
+        actionability_reasoning: str = "",
+        data_utilization_reasoning: str = "",
+        overall_reasoning: str = "",
+        # Benchmark comparison
+        benchmark_alignment: float = 0.0,
+        benchmark_comparison: str = "",
+        # Suggestions
+        suggestions: List[str] = None,
+        # Metadata
+        tokens_used: int = 0,
+        evaluation_cost: float = 0.0,
+    ):
+        """
+        Log LLM-as-a-judge evaluation result (Task 21 compliant).
+
+        Logs comprehensive LLM judge evaluation to llm_judge_results sheet:
+        - Dimension scores: accuracy, completeness, consistency, actionability, data_utilization
+        - Reasoning for each dimension
+        - Benchmark comparison (if provided)
+        - Suggestions for improvement
+        - Cost and token metadata
+
+        Non-blocking (async write).
+        """
+        if not self.is_connected():
+            return
+
+        row = [
+            run_id,
+            company_name,
+            datetime.utcnow().isoformat(),
+            model_used,
+            # Dimension scores
+            round(accuracy_score, 4),
+            round(completeness_score, 4),
+            round(consistency_score, 4),
+            round(actionability_score, 4),
+            round(data_utilization_score, 4),
+            round(overall_score, 4),
+            # Reasoning (truncated)
+            self._safe_str(accuracy_reasoning, max_length=2000),
+            self._safe_str(completeness_reasoning, max_length=2000),
+            self._safe_str(consistency_reasoning, max_length=2000),
+            self._safe_str(actionability_reasoning, max_length=2000),
+            self._safe_str(data_utilization_reasoning, max_length=2000),
+            self._safe_str(overall_reasoning, max_length=5000),
+            # Benchmark
+            round(benchmark_alignment, 4) if benchmark_alignment else 0,
+            self._safe_str(benchmark_comparison, max_length=5000),
+            # Suggestions
+            self._safe_str(suggestions or [], max_length=5000),
+            # Metadata
+            tokens_used,
+            round(evaluation_cost, 6),
+        ]
+
+        def _write():
+            try:
+                sheet = self._get_sheet("llm_judge_results")
+                sheet.append_row(row)
+                logger.info(f"Logged LLM judge result for: {company_name} (run: {run_id})")
+            except Exception as e:
+                logger.error(f"Failed to log LLM judge result to sheets: {e}")
 
         _sheets_executor.submit(_write)
 

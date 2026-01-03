@@ -603,6 +603,75 @@ class RunLogger:
 
         logger.info(f"Logged detailed run summary for {company_name} (run: {run_id})")
 
+    def log_agent_metrics(
+        self,
+        run_id: str,
+        company_name: str,
+        # Core agent metrics (0-1 scores)
+        intent_correctness: float = 0.0,
+        plan_quality: float = 0.0,
+        tool_choice_correctness: float = 0.0,
+        tool_completeness: float = 0.0,
+        trajectory_match: float = 0.0,
+        final_answer_quality: float = 0.0,
+        # Execution metrics
+        step_count: int = 0,
+        tool_calls: int = 0,
+        latency_ms: float = 0.0,
+        # Overall score
+        overall_score: float = 0.0,
+        # Details (dicts)
+        intent_details: Dict[str, Any] = None,
+        plan_details: Dict[str, Any] = None,
+        tool_details: Dict[str, Any] = None,
+        trajectory_details: Dict[str, Any] = None,
+        answer_details: Dict[str, Any] = None,
+    ):
+        """
+        Log agent efficiency metrics (Task 4 compliant).
+
+        Stores in agent_metrics collection with all fields:
+        - intent_correctness: Did the agent understand the task?
+        - plan_quality: How good was the execution plan?
+        - tool_choice_correctness: Did agent choose correct tools? (precision)
+        - tool_completeness: Did agent use all needed tools? (recall)
+        - trajectory_match: Did agent follow expected execution path?
+        - final_answer_quality: Is the final output correct and complete?
+        - step_count, tool_calls, latency_ms: Execution metrics
+        """
+        metrics_doc = {
+            "run_id": run_id,
+            "company_name": company_name,
+            # Core metrics
+            "intent_correctness": round(intent_correctness, 4),
+            "plan_quality": round(plan_quality, 4),
+            "tool_choice_correctness": round(tool_choice_correctness, 4),
+            "tool_completeness": round(tool_completeness, 4),
+            "trajectory_match": round(trajectory_match, 4),
+            "final_answer_quality": round(final_answer_quality, 4),
+            # Execution metrics
+            "step_count": step_count,
+            "tool_calls": tool_calls,
+            "latency_ms": round(latency_ms, 2),
+            # Overall
+            "overall_score": round(overall_score, 4),
+            # Details
+            "intent_details": intent_details or {},
+            "plan_details": plan_details or {},
+            "tool_details": tool_details or {},
+            "trajectory_details": trajectory_details or {},
+            "answer_details": answer_details or {},
+            "timestamp": datetime.utcnow(),
+        }
+
+        if self.is_connected():
+            self.db.agent_metrics.insert_one(metrics_doc)
+        elif run_id in self._local_runs:
+            self._local_runs[run_id]["agent_metrics"] = metrics_doc
+            self._save_local_run(run_id)
+
+        logger.info(f"Logged agent metrics for {company_name} (run: {run_id}, overall: {overall_score:.4f})")
+
     def get_llm_calls_detailed(self, run_id: str = None, limit: int = 100) -> List[Dict[str, Any]]:
         """Get detailed LLM calls, optionally filtered by run_id."""
         if not self.is_connected():

@@ -72,6 +72,34 @@ except ImportError:
     WorkflowEvaluator = None
     get_workflow_logger = None
 
+# Import agent efficiency evaluator (Task 4)
+try:
+    from evaluation.agent_efficiency_evaluator import (
+        AgentEfficiencyEvaluator,
+        evaluate_agent_run,
+        get_agent_evaluator,
+    )
+    AGENT_EVALUATOR_AVAILABLE = True
+except ImportError:
+    AGENT_EVALUATOR_AVAILABLE = False
+    AgentEfficiencyEvaluator = None
+    evaluate_agent_run = None
+    get_agent_evaluator = None
+
+# Import LLM-as-a-judge evaluator (Task 21)
+try:
+    from evaluation.llm_judge_evaluator import (
+        LLMJudgeEvaluator,
+        evaluate_with_llm_judge,
+        get_llm_judge,
+    )
+    LLM_JUDGE_AVAILABLE = True
+except ImportError:
+    LLM_JUDGE_AVAILABLE = False
+    LLMJudgeEvaluator = None
+    evaluate_with_llm_judge = None
+    get_llm_judge = None
+
 # Import LangGraph event logger
 try:
     from run_logging.langgraph_logger import (
@@ -1264,6 +1292,115 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                 total_cost=total_cost,
                 llm_calls_count=len([r for r in llm_results if r.get("success")]),
             )
+
+            # Task 4: Agent efficiency metrics evaluation
+            if AGENT_EVALUATOR_AVAILABLE and evaluate_agent_run:
+                try:
+                    agent_metrics = evaluate_agent_run(
+                        run_id=run_id,
+                        company_name=company_name,
+                        state=state,
+                        latency_ms=(time.time() - start_time) * 1000,
+                    )
+
+                    # Log agent metrics to workflow logger
+                    wf_logger.log_agent_metrics(
+                        run_id=run_id,
+                        company_name=company_name,
+                        intent_correctness=agent_metrics.intent_correctness,
+                        plan_quality=agent_metrics.plan_quality,
+                        tool_choice_correctness=agent_metrics.tool_choice_correctness,
+                        tool_completeness=agent_metrics.tool_completeness,
+                        trajectory_match=agent_metrics.trajectory_match,
+                        final_answer_quality=agent_metrics.final_answer_quality,
+                        step_count=agent_metrics.step_count,
+                        tool_calls=agent_metrics.tool_calls,
+                        latency_ms=agent_metrics.latency_ms,
+                        overall_score=agent_metrics.overall_score(),
+                        intent_details=agent_metrics.intent_details,
+                        plan_details=agent_metrics.plan_details,
+                        tool_details=agent_metrics.tool_details,
+                        trajectory_details=agent_metrics.trajectory_details,
+                        answer_details=agent_metrics.answer_details,
+                    )
+
+                    # Add agent metrics to evaluation result
+                    evaluation["agent_metrics"] = {
+                        "intent_correctness": agent_metrics.intent_correctness,
+                        "plan_quality": agent_metrics.plan_quality,
+                        "tool_choice_correctness": agent_metrics.tool_choice_correctness,
+                        "tool_completeness": agent_metrics.tool_completeness,
+                        "trajectory_match": agent_metrics.trajectory_match,
+                        "final_answer_quality": agent_metrics.final_answer_quality,
+                        "overall_agent_score": agent_metrics.overall_score(),
+                    }
+
+                    logger.info(f"Agent metrics - Intent: {agent_metrics.intent_correctness:.2f}, "
+                               f"Plan: {agent_metrics.plan_quality:.2f}, "
+                               f"Tool Choice: {agent_metrics.tool_choice_correctness:.2f}, "
+                               f"Tool Complete: {agent_metrics.tool_completeness:.2f}, "
+                               f"Trajectory: {agent_metrics.trajectory_match:.2f}, "
+                               f"Answer: {agent_metrics.final_answer_quality:.2f}, "
+                               f"Overall: {agent_metrics.overall_score():.4f}")
+
+                except Exception as agent_eval_error:
+                    logger.warning(f"Agent efficiency evaluation failed: {agent_eval_error}")
+
+            # Task 21: LLM-as-a-judge evaluation
+            if LLM_JUDGE_AVAILABLE and evaluate_with_llm_judge:
+                try:
+                    judge_result = evaluate_with_llm_judge(
+                        run_id=run_id,
+                        company_name=company_name,
+                        assessment=assessment,
+                        api_data=state.get("api_data", {}),
+                        benchmark=None,  # Can be populated with Coalition data if available
+                    )
+
+                    # Log LLM judge result to workflow logger
+                    wf_logger.log_llm_judge_result(
+                        run_id=run_id,
+                        company_name=company_name,
+                        model_used=judge_result.model_used,
+                        accuracy_score=judge_result.accuracy_score,
+                        completeness_score=judge_result.completeness_score,
+                        consistency_score=judge_result.consistency_score,
+                        actionability_score=judge_result.actionability_score,
+                        data_utilization_score=judge_result.data_utilization_score,
+                        overall_score=judge_result.overall_score,
+                        accuracy_reasoning=judge_result.accuracy_reasoning,
+                        completeness_reasoning=judge_result.completeness_reasoning,
+                        consistency_reasoning=judge_result.consistency_reasoning,
+                        actionability_reasoning=judge_result.actionability_reasoning,
+                        data_utilization_reasoning=judge_result.data_utilization_reasoning,
+                        overall_reasoning=judge_result.overall_reasoning,
+                        benchmark_alignment=judge_result.benchmark_alignment,
+                        benchmark_comparison=judge_result.benchmark_comparison,
+                        suggestions=judge_result.suggestions,
+                        tokens_used=judge_result.tokens_used,
+                        evaluation_cost=judge_result.evaluation_cost,
+                    )
+
+                    # Add LLM judge results to evaluation
+                    evaluation["llm_judge"] = {
+                        "accuracy_score": judge_result.accuracy_score,
+                        "completeness_score": judge_result.completeness_score,
+                        "consistency_score": judge_result.consistency_score,
+                        "actionability_score": judge_result.actionability_score,
+                        "data_utilization_score": judge_result.data_utilization_score,
+                        "overall_score": judge_result.overall_score,
+                        "suggestions": judge_result.suggestions,
+                    }
+
+                    logger.info(f"LLM Judge - Accuracy: {judge_result.accuracy_score:.2f}, "
+                               f"Completeness: {judge_result.completeness_score:.2f}, "
+                               f"Consistency: {judge_result.consistency_score:.2f}, "
+                               f"Actionability: {judge_result.actionability_score:.2f}, "
+                               f"Data Util: {judge_result.data_utilization_score:.2f}, "
+                               f"Overall: {judge_result.overall_score:.2f}")
+
+                except Exception as judge_error:
+                    logger.warning(f"LLM Judge evaluation failed: {judge_error}")
 
         return {
             "evaluation": evaluation,

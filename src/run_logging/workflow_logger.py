@@ -592,6 +592,148 @@ class WorkflowLogger:
 
         logger.info(f"[{run_id[:8]}] Run summary logged: {company_name} - {risk_level} (score: {credit_score})")
 
+    def log_agent_metrics(
+        self,
+        run_id: str,
+        company_name: str,
+        # Core agent metrics (0-1 scores)
+        intent_correctness: float = 0.0,
+        plan_quality: float = 0.0,
+        tool_choice_correctness: float = 0.0,
+        tool_completeness: float = 0.0,
+        trajectory_match: float = 0.0,
+        final_answer_quality: float = 0.0,
+        # Execution metrics
+        step_count: int = 0,
+        tool_calls: int = 0,
+        latency_ms: float = 0.0,
+        # Overall score
+        overall_score: float = 0.0,
+        # Details (dicts)
+        intent_details: Dict[str, Any] = None,
+        plan_details: Dict[str, Any] = None,
+        tool_details: Dict[str, Any] = None,
+        trajectory_details: Dict[str, Any] = None,
+        answer_details: Dict[str, Any] = None,
+    ):
+        """
+        Log agent efficiency metrics (Task 4 compliant).
+
+        Logs standard agentic metrics to MongoDB and Google Sheets:
+        - intent_correctness: Did the agent understand the task?
+        - plan_quality: How good was the execution plan?
+        - tool_choice_correctness: Did agent choose correct tools? (precision)
+        - tool_completeness: Did agent use all needed tools? (recall)
+        - trajectory_match: Did agent follow expected execution path?
+        - final_answer_quality: Is the final output correct and complete?
+        - step_count, tool_calls, latency_ms: Execution metrics
+        """
+        # Log to MongoDB
+        if self.run_logger.is_connected():
+            self.run_logger.log_agent_metrics(
+                run_id=run_id,
+                company_name=company_name,
+                intent_correctness=intent_correctness,
+                plan_quality=plan_quality,
+                tool_choice_correctness=tool_choice_correctness,
+                tool_completeness=tool_completeness,
+                trajectory_match=trajectory_match,
+                final_answer_quality=final_answer_quality,
+                step_count=step_count,
+                tool_calls=tool_calls,
+                latency_ms=latency_ms,
+                overall_score=overall_score,
+                intent_details=intent_details,
+                plan_details=plan_details,
+                tool_details=tool_details,
+                trajectory_details=trajectory_details,
+                answer_details=answer_details,
+            )
+
+        # Log to Google Sheets
+        if self.sheets_logger.is_connected():
+            self.sheets_logger.log_agent_metrics(
+                run_id=run_id,
+                company_name=company_name,
+                intent_correctness=intent_correctness,
+                plan_quality=plan_quality,
+                tool_choice_correctness=tool_choice_correctness,
+                tool_completeness=tool_completeness,
+                trajectory_match=trajectory_match,
+                final_answer_quality=final_answer_quality,
+                step_count=step_count,
+                tool_calls=tool_calls,
+                latency_ms=latency_ms,
+                overall_score=overall_score,
+                intent_details=intent_details,
+                plan_details=plan_details,
+                tool_details=tool_details,
+                trajectory_details=trajectory_details,
+                answer_details=answer_details,
+            )
+
+        logger.info(f"[{run_id[:8]}] Agent metrics logged: overall_score={overall_score:.4f}")
+
+    def log_llm_judge_result(
+        self,
+        run_id: str,
+        company_name: str,
+        model_used: str,
+        # Dimension scores (0-1)
+        accuracy_score: float = 0.0,
+        completeness_score: float = 0.0,
+        consistency_score: float = 0.0,
+        actionability_score: float = 0.0,
+        data_utilization_score: float = 0.0,
+        overall_score: float = 0.0,
+        # Reasoning
+        accuracy_reasoning: str = "",
+        completeness_reasoning: str = "",
+        consistency_reasoning: str = "",
+        actionability_reasoning: str = "",
+        data_utilization_reasoning: str = "",
+        overall_reasoning: str = "",
+        # Benchmark comparison
+        benchmark_alignment: float = 0.0,
+        benchmark_comparison: str = "",
+        # Suggestions
+        suggestions: List[str] = None,
+        # Metadata
+        tokens_used: int = 0,
+        evaluation_cost: float = 0.0,
+    ):
+        """
+        Log LLM-as-a-judge evaluation result (Task 21 compliant).
+
+        Logs to Google Sheets with all evaluation dimensions and reasoning.
+        """
+        # Log to Google Sheets
+        if self.sheets_logger.is_connected():
+            self.sheets_logger.log_llm_judge_result(
+                run_id=run_id,
+                company_name=company_name,
+                model_used=model_used,
+                accuracy_score=accuracy_score,
+                completeness_score=completeness_score,
+                consistency_score=consistency_score,
+                actionability_score=actionability_score,
+                data_utilization_score=data_utilization_score,
+                overall_score=overall_score,
+                accuracy_reasoning=accuracy_reasoning,
+                completeness_reasoning=completeness_reasoning,
+                consistency_reasoning=consistency_reasoning,
+                actionability_reasoning=actionability_reasoning,
+                data_utilization_reasoning=data_utilization_reasoning,
+                overall_reasoning=overall_reasoning,
+                benchmark_alignment=benchmark_alignment,
+                benchmark_comparison=benchmark_comparison,
+                suggestions=suggestions,
+                tokens_used=tokens_used,
+                evaluation_cost=evaluation_cost,
+            )
+
+        logger.info(f"[{run_id[:8]}] LLM Judge result logged: overall_score={overall_score:.4f}")
+
 
 # Singleton instance
 _workflow_logger: Optional[WorkflowLogger] = None
