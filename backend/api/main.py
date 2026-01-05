@@ -532,7 +532,16 @@ async def run_workflow_with_streaming(
         while True:
             try:
                 # Wait for next event with timeout
-                msg_type, data = result_queue.get(timeout=120)
+                # Use run_in_executor for blocking queue.get to not block the event loop
+                loop = asyncio.get_event_loop()
+                try:
+                    msg_type, data = await asyncio.wait_for(
+                        loop.run_in_executor(None, result_queue.get),
+                        timeout=120
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning("Timeout waiting for graph output")
+                    break
 
                 if msg_type == "done":
                     # Mark any remaining steps as completed
@@ -575,8 +584,8 @@ async def run_workflow_with_streaming(
                                 await update_step(step_idx, "completed", output_summary, None, output_data)
                                 completed_steps.add(step_idx)
 
-            except queue.Empty:
-                logger.warning("Timeout waiting for graph output")
+            except Exception as e:
+                logger.error(f"Error processing graph event: {e}")
                 break
 
         # Wait for thread to finish (if using threaded mode)

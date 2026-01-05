@@ -196,6 +196,12 @@ class SheetsLogger:
                 "duration_ms", "model", "tokens", "input_preview", "output_preview",
                 "error", "timestamp"
             ],
+            # NEW: LangGraph events v2 with node tracking
+            "langgraph_events_2": [
+                "run_id", "company_name", "node", "event_type", "event_name", "status",
+                "duration_ms", "model", "tokens", "input_preview", "output_preview",
+                "error", "timestamp"
+            ],
             # Task 17: Detailed LLM call logs (full Task 17 spec)
             "llm_calls_detailed": [
                 "run_id", "company_name", "llm_provider", "agent_name", "model",

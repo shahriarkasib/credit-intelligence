@@ -54,6 +54,9 @@ class LangGraphEvent:
     parent_ids: List[str] = field(default_factory=list)
     timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
 
+    # Current graph node (e.g., parse_input, validate_company, etc.)
+    node: str = ""
+
     # Event data
     input_data: Optional[str] = None
     output_data: Optional[str] = None
@@ -120,6 +123,10 @@ class LangGraphEventLogger:
         # Track event timing
         self._event_starts: Dict[str, float] = {}
 
+        # Track current graph node (for node column in langgraph_events_2)
+        self._current_node: str = ""
+        self._node_stack: List[str] = []  # Stack for nested nodes
+
         # Initialize loggers
         self._sheets_logger: Optional[Any] = None  # SheetsLogger when available
         self._mongodb: Optional[Any] = None  # CreditIntelligenceDB when available
@@ -182,16 +189,24 @@ class LangGraphEventLogger:
             if event_type in ("on_chain_stream", "on_chat_model_stream", "on_llm_stream"):
                 return  # Skip streaming events entirely
 
-            # Known workflow nodes to log (skip internal LangChain chains)
-            # Include common patterns for LangGraph node names
-            WORKFLOW_NODES = {
-                "LangGraph", "parse_input", "validate_company", "create_plan",
+            # Known workflow nodes (graph nodes we want to track)
+            GRAPH_NODES = {
+                "parse_input", "validate_company", "create_plan",
                 "fetch_api_data", "search_web", "synthesize", "save_to_database",
                 "evaluate", "evaluate_assessment", "should_continue_after_validation",
-                "human_review", "credit_intelligence_workflow",
+                "human_review",
+            }
+
+            # Known workflow nodes to log (skip internal LangChain chains)
+            WORKFLOW_NODES = GRAPH_NODES | {
+                "LangGraph", "credit_intelligence_workflow",
                 # Common LangGraph/LangChain patterns
                 "RunnableSequence", "RunnableLambda", "ChatGroq", "PromptTemplate",
             }
+
+            # Check if this is a graph node (for node tracking)
+            def is_graph_node(name: str) -> bool:
+                return name in GRAPH_NODES
 
             # Also log if event_name contains any workflow node name (handles prefixes/suffixes)
             def is_workflow_event(name: str) -> bool:
@@ -203,6 +218,18 @@ class LangGraphEventLogger:
                     if node in name.lower():
                         return True
                 return False
+
+            # Track node transitions for the "node" column
+            if event_type == "on_chain_start" and is_graph_node(event_name):
+                self._node_stack.append(event_name)
+                self._current_node = event_name
+            elif event_type == "on_chain_end" and is_graph_node(event_name):
+                if self._node_stack and self._node_stack[-1] == event_name:
+                    self._node_stack.pop()
+                    self._current_node = self._node_stack[-1] if self._node_stack else ""
+
+            # Set the current node on the event
+            lg_event.node = self._current_node
 
             # Handle different event types (both LangChain naming conventions)
             if event_type == "on_chain_start":
@@ -424,10 +451,14 @@ class LangGraphEventLogger:
             return
 
         try:
-            # Prepare all rows for batch write
-            rows = []
+            # Prepare rows for langgraph_events (original format)
+            rows_v1 = []
+            # Prepare rows for langgraph_events_2 (with node column)
+            rows_v2 = []
+
             for event in events:
-                row = [
+                # Original format (langgraph_events)
+                row_v1 = [
                     event.run_id,
                     event.company_name,
                     event.event_type,
@@ -441,14 +472,39 @@ class LangGraphEventLogger:
                     event.error or "",
                     event.timestamp,
                 ]
-                rows.append(row)
+                rows_v1.append(row_v1)
 
-            # Batch append all rows at once (single API call)
-            if rows:
+                # New format with node column (langgraph_events_2)
+                row_v2 = [
+                    event.run_id,
+                    event.company_name,
+                    event.node or "",  # NEW: node column
+                    event.event_type,
+                    event.event_name,
+                    event.status,
+                    event.duration_ms if event.duration_ms is not None else "",
+                    event.model or "",
+                    event.tokens if event.tokens is not None else "",
+                    (event.input_data[:500] if event.input_data else ""),
+                    (event.output_data[:500] if event.output_data else ""),
+                    event.error or "",
+                    event.timestamp,
+                ]
+                rows_v2.append(row_v2)
+
+            # Write to langgraph_events (original)
+            if rows_v1:
                 sheet = sheets_logger._get_sheet("langgraph_events")
                 if sheet:
-                    sheet.append_rows(rows)
-                    logger.debug(f"Batch wrote {len(rows)} LangGraph events to Sheets")
+                    sheet.append_rows(rows_v1)
+                    logger.debug(f"Batch wrote {len(rows_v1)} events to langgraph_events")
+
+            # Write to langgraph_events_2 (with node column)
+            if rows_v2:
+                sheet2 = sheets_logger._get_sheet("langgraph_events_2")
+                if sheet2:
+                    sheet2.append_rows(rows_v2)
+                    logger.debug(f"Batch wrote {len(rows_v2)} events to langgraph_events_2")
         except Exception as e:
             logger.warning(f"Failed to write LangGraph events to Sheets: {e}")
 
