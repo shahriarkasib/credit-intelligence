@@ -1,0 +1,11 @@
+{
+  "name": "credit-intelligence",
+  "version": "1.0.0",
+  "description": "AI-powered credit risk assessment platform",
+  "scripts": {
+    "heroku-postbuild": "cd frontend && npm install && npm run build"
+  },
+  "engines": {
+    "node": "20.x"
+  }
+}

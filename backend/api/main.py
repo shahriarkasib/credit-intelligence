@@ -17,9 +17,12 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from pathlib import Path
 
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
@@ -1201,6 +1204,57 @@ async def websocket_endpoint(websocket: WebSocket, run_id: str):
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
         manager.disconnect(websocket, run_id)
+
+
+# =============================================================================
+# STATIC FRONTEND SERVING
+# =============================================================================
+
+# Serve static frontend files (Next.js export)
+FRONTEND_DIR = Path(__file__).parent.parent.parent / "frontend" / "out"
+
+if FRONTEND_DIR.exists():
+    logger.info(f"Serving frontend from: {FRONTEND_DIR}")
+
+    # Mount static assets (_next folder)
+    next_static = FRONTEND_DIR / "_next"
+    if next_static.exists():
+        app.mount("/_next", StaticFiles(directory=str(next_static)), name="next-static")
+
+    # Serve other static files
+    @app.get("/favicon.ico")
+    async def favicon():
+        favicon_path = FRONTEND_DIR / "favicon.ico"
+        if favicon_path.exists():
+            return FileResponse(str(favicon_path))
+        raise HTTPException(status_code=404)
+
+    # Catch-all route for frontend pages (must be last!)
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str):
+        """Serve frontend static files."""
+        # Try exact path first
+        file_path = FRONTEND_DIR / full_path
+
+        # If path ends with / or has no extension, try index.html
+        if file_path.is_dir() or not full_path or '.' not in full_path.split('/')[-1]:
+            index_path = FRONTEND_DIR / full_path / "index.html"
+            if index_path.exists():
+                return FileResponse(str(index_path))
+            # Fallback to root index.html for SPA routing
+            root_index = FRONTEND_DIR / "index.html"
+            if root_index.exists():
+                return FileResponse(str(root_index))
+
+        # Serve file directly if it exists
+        if file_path.exists() and file_path.is_file():
+            return FileResponse(str(file_path))
+
+        # 404 for non-existent files
+        raise HTTPException(status_code=404, detail="Not found")
+else:
+    logger.warning(f"Frontend directory not found: {FRONTEND_DIR}")
+    logger.warning("Run 'npm run build' in frontend/ to build static files")
 
 
 # =============================================================================

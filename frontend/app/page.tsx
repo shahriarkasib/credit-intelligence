@@ -122,7 +122,21 @@ interface EvalSummary {
   synthesis?: any
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || ''
+
+// Helper to construct WebSocket URL (handles both relative and absolute API URLs)
+const getWebSocketUrl = (path: string): string => {
+  if (typeof window === 'undefined') return ''
+
+  if (API_URL) {
+    // Absolute URL provided - convert http(s) to ws(s)
+    return API_URL.replace(/^http/, 'ws') + path
+  } else {
+    // Same origin - use current host
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    return `${protocol}//${window.location.host}${path}`
+  }
+}
 
 // Tab types
 type TabType = 'single' | 'batch' | 'history'
@@ -290,7 +304,7 @@ export default function CreditIntelligenceStudio() {
 
   // Connect to WebSocket
   const connectWebSocket = useCallback((runId: string) => {
-    const wsUrl = API_URL.replace('http', 'ws') + `/ws/${runId}`
+    const wsUrl = getWebSocketUrl(`/ws/${runId}`)
     addLog('system', `Connecting to WebSocket: ${wsUrl}`)
 
     const ws = new WebSocket(wsUrl)

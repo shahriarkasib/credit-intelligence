@@ -35,8 +35,8 @@ interface TestResult {
   variables_used: Record<string, string>;
 }
 
-// API base URL - use environment variable or default
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+// API base URL - use environment variable or empty for same origin
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
 
 export default function PromptsPage() {
   const [prompts, setPrompts] = useState<Prompt[]>([]);
