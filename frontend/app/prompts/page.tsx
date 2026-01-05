@@ -387,95 +387,95 @@ export default function PromptsPage() {
                 <div className="p-4 border-b border-gray-800">
                   <button
                     onClick={() => setShowAdvanced(!showAdvanced)}
-                    className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors"
+                    className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-300 transition-colors"
                   >
                     {showAdvanced ? (
                       <ChevronUp className="w-4 h-4" />
                     ) : (
                       <ChevronDown className="w-4 h-4" />
                     )}
-                    Advanced Settings (User Template)
+                    Advanced Options
                   </button>
-                  <p className="text-xs text-gray-600 mt-1">
-                    The user template contains variable placeholders. Only modify if you know what you&apos;re doing.
-                  </p>
                 </div>
 
-                {/* User Template - Hidden by default */}
+                {/* Advanced Section - Hidden by default */}
                 {showAdvanced && (
-                  <div className="p-4 border-b border-gray-800 bg-yellow-900/10">
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="text-sm font-medium text-yellow-400">User Template (Advanced)</h3>
-                      <AlertCircle className="w-4 h-4 text-yellow-500" />
+                  <>
+                    {/* User Template */}
+                    <div className="p-4 border-b border-gray-800 bg-yellow-900/10">
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-sm font-medium text-yellow-400">User Template</h3>
+                        <AlertCircle className="w-4 h-4 text-yellow-500" />
+                      </div>
+                      <p className="text-xs text-yellow-600 mb-2">
+                        ⚠️ Contains {'{variable}'} placeholders. Modifying incorrectly may break the workflow.
+                      </p>
+                      <textarea
+                        value={editedPrompt.user_template}
+                        onChange={(e) => setEditedPrompt({ ...editedPrompt, user_template: e.target.value })}
+                        className="w-full h-48 bg-gray-800 border border-yellow-700 rounded-lg p-3 text-sm font-mono focus:outline-none focus:border-yellow-500 resize-y"
+                        placeholder="Enter user template..."
+                      />
                     </div>
-                    <p className="text-xs text-yellow-600 mb-2">
-                      ⚠️ Contains {'{variable}'} placeholders that are auto-filled at runtime. Modifying incorrectly may break the workflow.
-                    </p>
-                    <textarea
-                      value={editedPrompt.user_template}
-                      onChange={(e) => setEditedPrompt({ ...editedPrompt, user_template: e.target.value })}
-                      className="w-full h-48 bg-gray-800 border border-yellow-700 rounded-lg p-3 text-sm font-mono focus:outline-none focus:border-yellow-500 resize-y"
-                      placeholder="Enter user template..."
-                    />
-                  </div>
+
+                    {/* Test Section */}
+                    <div className="p-4 border-b border-gray-800">
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-sm font-medium text-gray-400">Test Prompt</h3>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setShowPreview(!showPreview)}
+                            className="flex items-center gap-2 px-3 py-1.5 text-sm bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+                          >
+                            <Eye className="w-4 h-4" />
+                            {showPreview ? 'Hide Preview' : 'Show Preview'}
+                          </button>
+                          <button
+                            onClick={handleTest}
+                            className="flex items-center gap-2 px-3 py-1.5 text-sm bg-green-600 hover:bg-green-500 rounded transition-colors"
+                          >
+                            <Play className="w-4 h-4" />
+                            Test
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Test Variables */}
+                      <div className="grid grid-cols-2 gap-3 mb-4">
+                        {editedPrompt.variables.map(variable => (
+                          <div key={variable}>
+                            <label className="text-xs text-gray-500 mb-1 block">{variable}</label>
+                            <input
+                              type="text"
+                              value={testVariables[variable] || ''}
+                              onChange={(e) => setTestVariables({ ...testVariables, [variable]: e.target.value })}
+                              className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                              placeholder={`Enter ${variable}...`}
+                            />
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Preview */}
+                      {showPreview && testResult && (
+                        <div className="space-y-3">
+                          <div className="bg-gray-800 rounded-lg p-3">
+                            <h4 className="text-xs font-medium text-blue-400 mb-2">System Prompt Preview</h4>
+                            <pre className="text-xs text-gray-300 whitespace-pre-wrap font-mono">
+                              {testResult.system_prompt}
+                            </pre>
+                          </div>
+                          <div className="bg-gray-800 rounded-lg p-3">
+                            <h4 className="text-xs font-medium text-green-400 mb-2">User Prompt Preview</h4>
+                            <pre className="text-xs text-gray-300 whitespace-pre-wrap font-mono">
+                              {testResult.user_prompt}
+                            </pre>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </>
                 )}
-
-                {/* Test Section */}
-                <div className="p-4">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-sm font-medium text-gray-400">Test Prompt</h3>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => setShowPreview(!showPreview)}
-                        className="flex items-center gap-2 px-3 py-1.5 text-sm bg-gray-700 hover:bg-gray-600 rounded transition-colors"
-                      >
-                        <Eye className="w-4 h-4" />
-                        {showPreview ? 'Hide Preview' : 'Show Preview'}
-                      </button>
-                      <button
-                        onClick={handleTest}
-                        className="flex items-center gap-2 px-3 py-1.5 text-sm bg-green-600 hover:bg-green-500 rounded transition-colors"
-                      >
-                        <Play className="w-4 h-4" />
-                        Test
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Test Variables */}
-                  <div className="grid grid-cols-2 gap-3 mb-4">
-                    {editedPrompt.variables.map(variable => (
-                      <div key={variable}>
-                        <label className="text-xs text-gray-500 mb-1 block">{variable}</label>
-                        <input
-                          type="text"
-                          value={testVariables[variable] || ''}
-                          onChange={(e) => setTestVariables({ ...testVariables, [variable]: e.target.value })}
-                          className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
-                          placeholder={`Enter ${variable}...`}
-                        />
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Preview */}
-                  {showPreview && testResult && (
-                    <div className="space-y-3">
-                      <div className="bg-gray-800 rounded-lg p-3">
-                        <h4 className="text-xs font-medium text-blue-400 mb-2">System Prompt Preview</h4>
-                        <pre className="text-xs text-gray-300 whitespace-pre-wrap font-mono">
-                          {testResult.system_prompt}
-                        </pre>
-                      </div>
-                      <div className="bg-gray-800 rounded-lg p-3">
-                        <h4 className="text-xs font-medium text-green-400 mb-2">User Prompt Preview</h4>
-                        <pre className="text-xs text-gray-300 whitespace-pre-wrap font-mono">
-                          {testResult.user_prompt}
-                        </pre>
-                      </div>
-                    </div>
-                  )}
-                </div>
               </div>
             ) : (
               <div className="bg-gray-900 rounded-lg border border-gray-800 p-12 text-center">
