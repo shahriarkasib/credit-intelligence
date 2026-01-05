@@ -223,13 +223,15 @@ class LangGraphEventLogger:
             if event_type == "on_chain_start" and is_graph_node(event_name):
                 self._node_stack.append(event_name)
                 self._current_node = event_name
-            elif event_type == "on_chain_end" and is_graph_node(event_name):
+
+            # Set the current node on the event BEFORE popping (so chain_end gets the node)
+            lg_event.node = self._current_node
+
+            # Pop node stack AFTER setting the event's node
+            if event_type == "on_chain_end" and is_graph_node(event_name):
                 if self._node_stack and self._node_stack[-1] == event_name:
                     self._node_stack.pop()
                     self._current_node = self._node_stack[-1] if self._node_stack else ""
-
-            # Set the current node on the event
-            lg_event.node = self._current_node
 
             # Handle different event types (both LangChain naming conventions)
             if event_type == "on_chain_start":
