@@ -20,10 +20,12 @@ from .agent_efficiency_evaluator import (
     get_agent_evaluator,
 )
 
-# Task 21: LLM-as-a-Judge Evaluator
+# Task 21: LLM-as-a-Judge Evaluator (Enhanced with Consistency & Cross-Model)
 from .llm_judge_evaluator import (
     LLMJudgeEvaluator,
     LLMJudgeResult,
+    ConsistencyEvalResult,
+    CrossModelEvalResult,
     evaluate_with_llm_judge,
     get_llm_judge,
 )
@@ -55,9 +57,11 @@ __all__ = [
     "AgentEfficiencyMetrics",
     "evaluate_agent_run",
     "get_agent_evaluator",
-    # Task 21: LLM Judge
+    # Task 21: LLM Judge (Enhanced)
     "LLMJudgeEvaluator",
     "LLMJudgeResult",
+    "ConsistencyEvalResult",
+    "CrossModelEvalResult",
     "evaluate_with_llm_judge",
     "get_llm_judge",
     # Task 3: Evaluation Brain

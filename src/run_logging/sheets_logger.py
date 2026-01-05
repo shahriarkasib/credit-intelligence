@@ -206,6 +206,35 @@ class SheetsLogger:
                 "suggestions",
                 # Metadata
                 "tokens_used", "evaluation_cost"
+            ],
+            # Task 21 Enhanced: Model consistency evaluation
+            "model_consistency": [
+                "eval_id", "company_name", "model_name", "num_runs", "timestamp",
+                # Core consistency metrics
+                "risk_level_consistency", "credit_score_mean", "credit_score_std",
+                "confidence_variance", "reasoning_similarity",
+                "risk_factors_overlap", "recommendations_overlap",
+                # Overall
+                "overall_consistency", "is_consistent", "consistency_grade",
+                # LLM Judge analysis
+                "llm_judge_analysis", "llm_judge_concerns",
+                # Run details
+                "run_details"
+            ],
+            # Task 21 Enhanced: Cross-model comparison
+            "cross_model_eval": [
+                "eval_id", "company_name", "models_compared", "num_models", "timestamp",
+                # Agreement metrics
+                "risk_level_agreement", "credit_score_mean", "credit_score_std",
+                "credit_score_range", "confidence_agreement",
+                # Best model
+                "best_model", "best_model_reasoning",
+                # Overall
+                "cross_model_agreement",
+                # LLM analysis
+                "llm_judge_analysis", "model_recommendations",
+                # Per-model results
+                "model_results", "pairwise_comparisons"
             ]
         }
 
@@ -997,6 +1026,145 @@ class SheetsLogger:
                 logger.info(f"Logged LLM judge result for: {company_name} (run: {run_id})")
             except Exception as e:
                 logger.error(f"Failed to log LLM judge result to sheets: {e}")
+
+        _sheets_executor.submit(_write)
+
+    def log_model_consistency(
+        self,
+        eval_id: str,
+        company_name: str,
+        model_name: str,
+        num_runs: int,
+        # Core consistency metrics
+        risk_level_consistency: float = 0.0,
+        credit_score_mean: float = 0.0,
+        credit_score_std: float = 0.0,
+        confidence_variance: float = 0.0,
+        reasoning_similarity: float = 0.0,
+        risk_factors_overlap: float = 0.0,
+        recommendations_overlap: float = 0.0,
+        # Overall
+        overall_consistency: float = 0.0,
+        is_consistent: bool = False,
+        consistency_grade: str = "",
+        # LLM Judge analysis
+        llm_judge_analysis: str = "",
+        llm_judge_concerns: List[str] = None,
+        # Run details
+        run_details: List[Dict[str, Any]] = None,
+    ):
+        """
+        Log model consistency evaluation result.
+
+        Measures how consistent a model is when run multiple times
+        on the same company.
+
+        Non-blocking (async write).
+        """
+        if not self.is_connected():
+            return
+
+        row = [
+            eval_id,
+            company_name,
+            model_name,
+            num_runs,
+            datetime.utcnow().isoformat(),
+            # Core metrics
+            round(risk_level_consistency, 4),
+            round(credit_score_mean, 2),
+            round(credit_score_std, 2),
+            round(confidence_variance, 4),
+            round(reasoning_similarity, 4),
+            round(risk_factors_overlap, 4),
+            round(recommendations_overlap, 4),
+            # Overall
+            round(overall_consistency, 4),
+            "Yes" if is_consistent else "No",
+            consistency_grade,
+            # LLM analysis
+            self._safe_str(llm_judge_analysis, max_length=5000),
+            self._safe_str(llm_judge_concerns or [], max_length=2000),
+            # Run details
+            self._safe_str(run_details or [], max_length=10000),
+        ]
+
+        def _write():
+            try:
+                sheet = self._get_sheet("model_consistency")
+                sheet.append_row(row)
+                logger.info(f"Logged model consistency for: {company_name} ({model_name})")
+            except Exception as e:
+                logger.error(f"Failed to log model consistency to sheets: {e}")
+
+        _sheets_executor.submit(_write)
+
+    def log_cross_model_eval(
+        self,
+        eval_id: str,
+        company_name: str,
+        models_compared: List[str],
+        num_models: int,
+        # Agreement metrics
+        risk_level_agreement: float = 0.0,
+        credit_score_mean: float = 0.0,
+        credit_score_std: float = 0.0,
+        credit_score_range: float = 0.0,
+        confidence_agreement: float = 0.0,
+        # Best model
+        best_model: str = "",
+        best_model_reasoning: str = "",
+        # Overall
+        cross_model_agreement: float = 0.0,
+        # LLM analysis
+        llm_judge_analysis: str = "",
+        model_recommendations: List[str] = None,
+        # Per-model results
+        model_results: Dict[str, Dict[str, Any]] = None,
+        pairwise_comparisons: List[Dict[str, Any]] = None,
+    ):
+        """
+        Log cross-model evaluation result.
+
+        Compares assessments from different models for the same company.
+
+        Non-blocking (async write).
+        """
+        if not self.is_connected():
+            return
+
+        row = [
+            eval_id,
+            company_name,
+            ", ".join(models_compared) if models_compared else "",
+            num_models,
+            datetime.utcnow().isoformat(),
+            # Agreement metrics
+            round(risk_level_agreement, 4),
+            round(credit_score_mean, 2),
+            round(credit_score_std, 2),
+            round(credit_score_range, 2),
+            round(confidence_agreement, 4),
+            # Best model
+            best_model,
+            self._safe_str(best_model_reasoning, max_length=2000),
+            # Overall
+            round(cross_model_agreement, 4),
+            # LLM analysis
+            self._safe_str(llm_judge_analysis, max_length=5000),
+            self._safe_str(model_recommendations or [], max_length=2000),
+            # Per-model results
+            self._safe_str(model_results or {}, max_length=10000),
+            self._safe_str(pairwise_comparisons or [], max_length=5000),
+        ]
+
+        def _write():
+            try:
+                sheet = self._get_sheet("cross_model_eval")
+                sheet.append_row(row)
+                logger.info(f"Logged cross-model eval for: {company_name} ({len(models_compared)} models)")
+            except Exception as e:
+                logger.error(f"Failed to log cross-model eval to sheets: {e}")
 
         _sheets_executor.submit(_write)
 
