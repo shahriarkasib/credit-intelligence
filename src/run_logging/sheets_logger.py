@@ -57,27 +57,64 @@ class SheetsLogger:
         self.spreadsheet = None
         self._sheets_cache: Dict[str, Any] = {}
 
-        if GSPREAD_AVAILABLE and self.credentials_path:
+        # Check for credentials (file or env var)
+        has_credentials = (
+            self.credentials_path or
+            os.getenv("GOOGLE_SHEETS_CREDENTIALS")
+        )
+        if GSPREAD_AVAILABLE and has_credentials:
             self._connect()
 
     def _connect(self):
-        """Connect to Google Sheets."""
-        try:
-            # Resolve credentials path relative to project root
-            creds_path = Path(self.credentials_path)
-            if not creds_path.is_absolute():
-                # Try relative to project root (parent of src)
-                project_root = Path(__file__).parent.parent.parent
-                creds_path = project_root / self.credentials_path
+        """Connect to Google Sheets.
 
-            if not creds_path.exists():
-                logger.warning(f"Google credentials file not found: {creds_path}")
+        Supports two credential methods:
+        1. File-based: GOOGLE_CREDENTIALS_PATH points to a JSON file
+        2. Environment variable: GOOGLE_SHEETS_CREDENTIALS contains base64-encoded JSON
+           (for Heroku and other cloud deployments)
+        """
+        try:
+            import base64
+
+            creds = None
+
+            # Method 1: Environment variable (base64-encoded JSON) - preferred for cloud
+            env_credentials = os.getenv("GOOGLE_SHEETS_CREDENTIALS")
+            if env_credentials:
+                try:
+                    # Decode base64 credentials
+                    creds_json = base64.b64decode(env_credentials).decode('utf-8')
+                    creds_dict = json.loads(creds_json)
+                    creds = Credentials.from_service_account_info(
+                        creds_dict,
+                        scopes=self.SCOPES
+                    )
+                    logger.info("Using Google credentials from environment variable")
+                except Exception as e:
+                    logger.warning(f"Failed to load credentials from env var: {e}")
+
+            # Method 2: File-based credentials (for local development)
+            if creds is None and self.credentials_path:
+                creds_path = Path(self.credentials_path)
+                if not creds_path.is_absolute():
+                    # Try relative to project root (parent of src)
+                    project_root = Path(__file__).parent.parent.parent
+                    creds_path = project_root / self.credentials_path
+
+                if not creds_path.exists():
+                    logger.warning(f"Google credentials file not found: {creds_path}")
+                    return
+
+                creds = Credentials.from_service_account_file(
+                    str(creds_path),
+                    scopes=self.SCOPES
+                )
+                logger.info("Using Google credentials from file")
+
+            if creds is None:
+                logger.warning("No Google credentials available")
                 return
 
-            creds = Credentials.from_service_account_file(
-                str(creds_path),
-                scopes=self.SCOPES
-            )
             self.client = gspread.authorize(creds)
 
             # Open or create spreadsheet

@@ -1,0 +1,45 @@
+# Heroku Slug Ignore - Exclude these from deployment
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Test files
+tests/
+*_test.py
+test_*.py
+
+# Development files
+.env
+.env.example
+.gitignore
+.vscode/
+.idea/
+
+# Node/Frontend (if deploying backend only)
+node_modules/
+frontend/node_modules/
+.next/
+
+# Cache and build artifacts
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+
+# Credentials (should be in env vars)
+*.json
+!package.json
+!package-lock.json
+!app.json
+
+# Logs
+*.log
+logs/
+
+# Local virtual environment
+venv/
+.venv/

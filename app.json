@@ -1,0 +1,71 @@
+{
+  "name": "Credit Intelligence",
+  "description": "AI-powered credit risk assessment platform using LangGraph and multi-model evaluation",
+  "repository": "https://github.com/your-repo/credit-intelligence",
+  "keywords": ["python", "langchain", "langgraph", "fastapi", "credit-risk", "ai"],
+  "env": {
+    "GROQ_API_KEY": {
+      "description": "Groq API key for LLM inference",
+      "required": true
+    },
+    "MONGODB_URI": {
+      "description": "MongoDB connection string for data storage",
+      "required": true
+    },
+    "LANGSMITH_API_KEY": {
+      "description": "LangSmith API key for tracing and evaluation",
+      "required": false
+    },
+    "LANGSMITH_PROJECT": {
+      "description": "LangSmith project name",
+      "value": "credit-intelligence",
+      "required": false
+    },
+    "LANGFUSE_PUBLIC_KEY": {
+      "description": "Langfuse public key for LLM observability",
+      "required": false
+    },
+    "LANGFUSE_SECRET_KEY": {
+      "description": "Langfuse secret key for LLM observability",
+      "required": false
+    },
+    "LANGFUSE_HOST": {
+      "description": "Langfuse host URL",
+      "value": "https://cloud.langfuse.com",
+      "required": false
+    },
+    "TAVILY_API_KEY": {
+      "description": "Tavily API key for web search",
+      "required": false
+    },
+    "PARALLEL_API_KEY": {
+      "description": "Parallel AI API key for company data",
+      "required": false
+    },
+    "GOOGLE_SHEETS_CREDENTIALS": {
+      "description": "Google Sheets service account credentials JSON (base64 encoded)",
+      "required": false
+    },
+    "GOOGLE_SHEETS_SPREADSHEET_ID": {
+      "description": "Google Sheets spreadsheet ID for logging",
+      "required": false
+    },
+    "PYTHONPATH": {
+      "description": "Python path for module imports",
+      "value": "/app",
+      "required": true
+    }
+  },
+  "formation": {
+    "web": {
+      "quantity": 1,
+      "size": "basic"
+    }
+  },
+  "buildpacks": [
+    {
+      "url": "heroku/python"
+    }
+  ],
+  "stack": "heroku-24"
+}

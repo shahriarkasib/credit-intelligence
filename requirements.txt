@@ -57,11 +57,12 @@ rich>=13.0.0
 tqdm>=4.66.0
 
 # =============================================================================
-# Optional: For web frontend (Vercel deployment)
+# Web Server (Required for Heroku/Production)
 # =============================================================================
-# fastapi>=0.109.0
-# uvicorn>=0.27.0
-# sse-starlette>=2.0.0
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+websockets>=12.0
+python-multipart>=0.0.6
 
 # =============================================================================
 # OpenTelemetry (Optional - for OTEL export)
