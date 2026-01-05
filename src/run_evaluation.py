@@ -16,11 +16,13 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 from agents.tool_supervisor import ToolSupervisor
-from run_logging import MetricsCollector, get_run_logger, get_sheets_logger
+from run_logging import MetricsCollector, get_run_logger, get_sheets_logger, get_workflow_logger
 from evaluation import (
     WorkflowEvaluator,
     ToolSelectionEvaluator,
     ConsistencyScorer,
+    EvaluationBrain,
+    get_evaluation_brain,
 )
 
 # Configure logging
@@ -41,11 +43,14 @@ class EvaluationRunner:
     3. Cross-model evaluation (different models)
     """
 
-    def __init__(self, model: str = "primary", log_to_mongodb: bool = True, log_to_sheets: bool = True):
+    def __init__(self, model: str = "primary", log_to_mongodb: bool = True, log_to_sheets: bool = True, run_llm_judge: bool = True):
         self.supervisor = ToolSupervisor(model=model)
         self.evaluator = WorkflowEvaluator()
+        self.evaluation_brain = get_evaluation_brain()
         self.run_logger = get_run_logger() if log_to_mongodb else None
         self.sheets_logger = get_sheets_logger() if log_to_sheets else None
+        self.workflow_logger = get_workflow_logger()
+        self.run_llm_judge = run_llm_judge
         self.results_dir = "data/evaluation_results"
         os.makedirs(self.results_dir, exist_ok=True)
 
@@ -79,7 +84,7 @@ class EvaluationRunner:
             result = self.supervisor.run_full_assessment(company_name, context)
             run_id = run_id or result.get("run_id")
 
-            # Evaluate the run
+            # Evaluate the run using basic evaluator
             evaluation = self.evaluator.evaluate_single_run(
                 run_id=run_id,
                 company_name=company_name,
@@ -91,6 +96,56 @@ class EvaluationRunner:
 
             # Add evaluation to result
             result["evaluation"] = evaluation.to_dict()
+
+            # Run comprehensive evaluation with LLM Judge if enabled
+            if self.run_llm_judge:
+                try:
+                    # Build state for EvaluationBrain
+                    state = {
+                        "company_info": result.get("tool_selection", {}).get("selection", {}).get("company_analysis", {}),
+                        "api_data": result.get("tool_results", {}).get("results", {}),
+                        "assessment": result.get("assessment", {}).get("assessment", {}),
+                    }
+
+                    # Run comprehensive evaluation
+                    comprehensive_eval = self.evaluation_brain.evaluate_run(
+                        run_id=run_id,
+                        company_name=company_name,
+                        state=state,
+                        run_llm_judge=True,
+                    )
+
+                    # Add comprehensive evaluation to result
+                    result["comprehensive_evaluation"] = comprehensive_eval.to_dict()
+
+                    # Log LLM Judge results to Google Sheets (always log, even if score is 0)
+                    if self.workflow_logger:
+                        self.workflow_logger.log_llm_judge_result(
+                            run_id=run_id,
+                            company_name=company_name,
+                            model_used="llama-3.3-70b-versatile",
+                            accuracy_score=comprehensive_eval.llm_accuracy,
+                            completeness_score=comprehensive_eval.llm_completeness,
+                            consistency_score=comprehensive_eval.llm_consistency,
+                            actionability_score=comprehensive_eval.llm_actionability,
+                            data_utilization_score=comprehensive_eval.llm_data_utilization,
+                            overall_score=comprehensive_eval.llm_judge_overall,
+                            accuracy_reasoning=comprehensive_eval.llm_judge_details.get("accuracy_reasoning", ""),
+                            completeness_reasoning=comprehensive_eval.llm_judge_details.get("completeness_reasoning", ""),
+                            consistency_reasoning=comprehensive_eval.llm_judge_details.get("consistency_reasoning", ""),
+                            actionability_reasoning=comprehensive_eval.llm_judge_details.get("actionability_reasoning", ""),
+                            data_utilization_reasoning=comprehensive_eval.llm_judge_details.get("data_utilization_reasoning", ""),
+                            overall_reasoning=comprehensive_eval.llm_judge_details.get("overall_reasoning", ""),
+                            suggestions=comprehensive_eval.llm_suggestions,
+                            tokens_used=comprehensive_eval.llm_judge_details.get("tokens_used", 0),
+                            evaluation_cost=comprehensive_eval.llm_judge_details.get("cost", 0),
+                        )
+
+                    logger.info(f"  LLM Judge Score: {comprehensive_eval.llm_judge_overall:.2f}")
+                    logger.info(f"  Overall Grade: {comprehensive_eval.overall_grade}")
+
+                except Exception as e:
+                    logger.warning(f"LLM Judge evaluation failed: {e}")
 
             # Log to all storage (MongoDB + Google Sheets)
             self._log_to_all(run_id, result, evaluation)
@@ -734,12 +789,18 @@ def main():
         action="store_true",
         help="Disable MongoDB logging",
     )
+    parser.add_argument(
+        "--no-llm-judge",
+        action="store_true",
+        help="Disable LLM-as-a-Judge evaluation (saves tokens)",
+    )
 
     args = parser.parse_args()
 
     runner = EvaluationRunner(
         model=args.model,
         log_to_mongodb=not args.no_mongodb,
+        run_llm_judge=not args.no_llm_judge,
     )
 
     if args.company:
