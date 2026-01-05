@@ -49,6 +49,7 @@ export default function PromptsPage() {
   const [testVariables, setTestVariables] = useState<Record<string, string>>({});
   const [testResult, setTestResult] = useState<TestResult | null>(null);
   const [showPreview, setShowPreview] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['input', 'planning', 'synthesis', 'analysis', 'validation']));
 
   // Fetch prompts on mount
@@ -382,19 +383,42 @@ export default function PromptsPage() {
                   />
                 </div>
 
-                {/* User Template */}
+                {/* Advanced Section Toggle */}
                 <div className="p-4 border-b border-gray-800">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-sm font-medium text-gray-400">User Template</h3>
-                    <Edit3 className="w-4 h-4 text-gray-500" />
-                  </div>
-                  <textarea
-                    value={editedPrompt.user_template}
-                    onChange={(e) => setEditedPrompt({ ...editedPrompt, user_template: e.target.value })}
-                    className="w-full h-48 bg-gray-800 border border-gray-700 rounded-lg p-3 text-sm font-mono focus:outline-none focus:border-blue-500 resize-y"
-                    placeholder="Enter user template..."
-                  />
+                  <button
+                    onClick={() => setShowAdvanced(!showAdvanced)}
+                    className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors"
+                  >
+                    {showAdvanced ? (
+                      <ChevronUp className="w-4 h-4" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4" />
+                    )}
+                    Advanced Settings (User Template)
+                  </button>
+                  <p className="text-xs text-gray-600 mt-1">
+                    The user template contains variable placeholders. Only modify if you know what you&apos;re doing.
+                  </p>
                 </div>
+
+                {/* User Template - Hidden by default */}
+                {showAdvanced && (
+                  <div className="p-4 border-b border-gray-800 bg-yellow-900/10">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-sm font-medium text-yellow-400">User Template (Advanced)</h3>
+                      <AlertCircle className="w-4 h-4 text-yellow-500" />
+                    </div>
+                    <p className="text-xs text-yellow-600 mb-2">
+                      ⚠️ Contains {'{variable}'} placeholders that are auto-filled at runtime. Modifying incorrectly may break the workflow.
+                    </p>
+                    <textarea
+                      value={editedPrompt.user_template}
+                      onChange={(e) => setEditedPrompt({ ...editedPrompt, user_template: e.target.value })}
+                      className="w-full h-48 bg-gray-800 border border-yellow-700 rounded-lg p-3 text-sm font-mono focus:outline-none focus:border-yellow-500 resize-y"
+                      placeholder="Enter user template..."
+                    />
+                  </div>
+                )}
 
                 {/* Test Section */}
                 <div className="p-4">
