@@ -196,9 +196,9 @@ class SheetsLogger:
                 "duration_ms", "model", "tokens", "input_preview", "output_preview",
                 "error", "timestamp"
             ],
-            # NEW: LangGraph events v2 with node tracking
-            "langgraph_events_2": [
-                "run_id", "company_name", "node", "event_type", "event_name", "status",
+            # LangGraph events v3 with node and node_type tracking
+            "langgraph_events_3": [
+                "run_id", "company_name", "node", "node_type", "event_type", "event_name", "status",
                 "duration_ms", "model", "tokens", "input_preview", "output_preview",
                 "error", "timestamp"
             ],

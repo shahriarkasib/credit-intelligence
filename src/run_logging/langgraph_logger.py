@@ -56,6 +56,8 @@ class LangGraphEvent:
 
     # Current graph node (e.g., parse_input, validate_company, etc.)
     node: str = ""
+    # Node type: "agent", "tool", "llm", or "chain"
+    node_type: str = ""
 
     # Event data
     input_data: Optional[str] = None
@@ -226,6 +228,22 @@ class LangGraphEventLogger:
 
             # Set the current node on the event BEFORE popping (so chain_end gets the node)
             lg_event.node = self._current_node
+
+            # Determine node_type based on event_type
+            if event_type in ("on_tool_start", "on_tool_end"):
+                lg_event.node_type = "tool"
+            elif event_type in ("on_chat_model_start", "on_chat_model_end", "on_llm_start", "on_llm_end"):
+                lg_event.node_type = "llm"
+            elif event_type in ("on_chain_start", "on_chain_end"):
+                # Check if this is a known agent node or just a chain
+                if is_graph_node(event_name):
+                    lg_event.node_type = "agent"
+                else:
+                    lg_event.node_type = "chain"
+            elif event_type in ("on_retriever_start", "on_retriever_end"):
+                lg_event.node_type = "tool"
+            else:
+                lg_event.node_type = "other"
 
             # Pop node stack AFTER setting the event's node
             if event_type == "on_chain_end" and is_graph_node(event_name):
@@ -455,8 +473,8 @@ class LangGraphEventLogger:
         try:
             # Prepare rows for langgraph_events (original format)
             rows_v1 = []
-            # Prepare rows for langgraph_events_2 (with node column)
-            rows_v2 = []
+            # Prepare rows for langgraph_events_3 (with node and node_type columns)
+            rows_v3 = []
 
             for event in events:
                 # Original format (langgraph_events)
@@ -476,11 +494,12 @@ class LangGraphEventLogger:
                 ]
                 rows_v1.append(row_v1)
 
-                # New format with node column (langgraph_events_2)
-                row_v2 = [
+                # New format with node and node_type columns (langgraph_events_3)
+                row_v3 = [
                     event.run_id,
                     event.company_name,
-                    event.node or "",  # NEW: node column
+                    event.node or "",  # node column
+                    event.node_type or "",  # node_type column (agent/tool/llm/chain)
                     event.event_type,
                     event.event_name,
                     event.status,
@@ -492,7 +511,7 @@ class LangGraphEventLogger:
                     event.error or "",
                     event.timestamp,
                 ]
-                rows_v2.append(row_v2)
+                rows_v3.append(row_v3)
 
             # Write to langgraph_events (original)
             if rows_v1:
@@ -501,12 +520,12 @@ class LangGraphEventLogger:
                     sheet.append_rows(rows_v1)
                     logger.debug(f"Batch wrote {len(rows_v1)} events to langgraph_events")
 
-            # Write to langgraph_events_2 (with node column)
-            if rows_v2:
-                sheet2 = sheets_logger._get_sheet("langgraph_events_2")
-                if sheet2:
-                    sheet2.append_rows(rows_v2)
-                    logger.debug(f"Batch wrote {len(rows_v2)} events to langgraph_events_2")
+            # Write to langgraph_events_3 (with node and node_type columns)
+            if rows_v3:
+                sheet3 = sheets_logger._get_sheet("langgraph_events_3")
+                if sheet3:
+                    sheet3.append_rows(rows_v3)
+                    logger.debug(f"Batch wrote {len(rows_v3)} events to langgraph_events_3")
         except Exception as e:
             logger.warning(f"Failed to write LangGraph events to Sheets: {e}")
 
