@@ -273,6 +273,10 @@ Respond with a JSON object:
         response = llm.invoke([HumanMessage(content=prompt)])
         execution_time = (time.time() - start_time) * 1000
 
+        # Debug: Log the raw response
+        response_content = response.content if hasattr(response, 'content') else str(response)
+        logger.debug(f"LLM raw response ({call_type}): {response_content[:500]}...")
+
         # Extract metrics from response metadata
         usage_metadata = getattr(response, 'usage_metadata', {}) or {}
         response_metadata = getattr(response, 'response_metadata', {}) or {}

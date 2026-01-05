@@ -104,7 +104,9 @@ Your assessment should be:
 - Data-driven and evidence-based
 - Balanced, considering both positive and negative factors
 - Clear about confidence levels and data gaps
-- Actionable with specific recommendations""",
+- Actionable with specific recommendations
+
+CRITICAL: You MUST respond with a valid JSON object only. No markdown, no explanations, no code blocks - just the raw JSON.""",
         "user_template": """## Company
 {company_name}
 
@@ -114,15 +116,25 @@ Your assessment should be:
 ## Collected Data
 {tool_results}
 
-## Instructions
-Provide a comprehensive credit risk assessment with:
-- overall_risk_level: LOW, MODERATE, HIGH, or CRITICAL
-- credit_score_estimate: 300-850
-- confidence_score: 0.0-1.0
-- risk_factors: List of key risks
-- positive_factors: List of strengths
-- recommendations: Actionable next steps
-- reasoning: Your detailed analysis""",
+## Required JSON Response
+You MUST respond with ONLY a JSON object in this exact format (no markdown, no code blocks):
+
+{{
+    "risk_level": "low" | "medium" | "high" | "critical",
+    "credit_score": <number 0-100>,
+    "confidence": <number 0.0-1.0>,
+    "reasoning": "<detailed explanation of your assessment>",
+    "risk_factors": ["<risk 1>", "<risk 2>", ...],
+    "positive_factors": ["<positive 1>", "<positive 2>", ...],
+    "recommendations": ["<recommendation 1>", "<recommendation 2>", ...],
+    "data_quality_assessment": {{
+        "completeness": <number 0.0-1.0>,
+        "reliability": <number 0.0-1.0>,
+        "gaps": ["<data gap 1>", "<data gap 2>", ...]
+    }}
+}}
+
+IMPORTANT: Return ONLY the JSON object. Do not include any text before or after the JSON.""",
     },
 
     "credit_analysis": {
