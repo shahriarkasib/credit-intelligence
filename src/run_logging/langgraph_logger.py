@@ -183,21 +183,35 @@ class LangGraphEventLogger:
                 return  # Skip streaming events entirely
 
             # Known workflow nodes to log (skip internal LangChain chains)
+            # Include common patterns for LangGraph node names
             WORKFLOW_NODES = {
                 "LangGraph", "parse_input", "validate_company", "create_plan",
                 "fetch_api_data", "search_web", "synthesize", "save_to_database",
-                "evaluate", "should_continue_after_validation", "human_review",
-                "credit_intelligence_workflow"
+                "evaluate", "evaluate_assessment", "should_continue_after_validation",
+                "human_review", "credit_intelligence_workflow",
+                # Common LangGraph/LangChain patterns
+                "RunnableSequence", "RunnableLambda", "ChatGroq", "PromptTemplate",
             }
+
+            # Also log if event_name contains any workflow node name (handles prefixes/suffixes)
+            def is_workflow_event(name: str) -> bool:
+                if name in WORKFLOW_NODES:
+                    return True
+                # Check if any workflow node is in the name
+                for node in ["parse_input", "validate", "create_plan", "fetch", "search",
+                             "synthesize", "save", "evaluate"]:
+                    if node in name.lower():
+                        return True
+                return False
 
             # Handle different event types (both LangChain naming conventions)
             if event_type == "on_chain_start":
                 # Only log known workflow nodes, skip internal chains
-                if event_name not in WORKFLOW_NODES:
+                if not is_workflow_event(event_name):
                     return
                 self._handle_chain_start(lg_event, data)
             elif event_type == "on_chain_end":
-                if event_name not in WORKFLOW_NODES:
+                if not is_workflow_event(event_name):
                     return
                 self._handle_chain_end(lg_event, data, run_id)
             # LLM events - handle both naming conventions
@@ -384,10 +398,12 @@ class LangGraphEventLogger:
     def flush(self) -> None:
         """Flush event buffer to storage."""
         if not self._event_buffer:
+            logger.debug("[LangGraphLogger] flush called but buffer is empty")
             return
 
         events_to_write = self._event_buffer.copy()
         self._event_buffer.clear()
+        logger.info(f"[LangGraphLogger] Flushing {len(events_to_write)} events (sheets={self.log_to_sheets}, mongodb={self.log_to_mongodb})")
 
         # Write to Google Sheets
         if self.log_to_sheets:
@@ -400,7 +416,11 @@ class LangGraphEventLogger:
     def _write_to_sheets(self, events: List[LangGraphEvent]) -> None:
         """Write events to Google Sheets using batch append."""
         sheets_logger = self._get_sheets_logger()
-        if not sheets_logger or not sheets_logger.is_connected():
+        if not sheets_logger:
+            logger.warning("[LangGraphLogger] No sheets_logger available")
+            return
+        if not sheets_logger.is_connected():
+            logger.warning("[LangGraphLogger] sheets_logger not connected")
             return
 
         try:
@@ -489,6 +509,7 @@ class LangGraphEventLogger:
 
     def log_graph_start(self, input_state: Dict[str, Any]) -> None:
         """Log graph execution start."""
+        logger.info(f"[LangGraphLogger] graph_start for {self.company_name}, run_id={self.run_id}")
         event = LangGraphEvent(
             run_id=self.run_id,
             company_name=self.company_name,
@@ -500,6 +521,7 @@ class LangGraphEventLogger:
         self._event_starts["graph"] = time.time()
         self._event_buffer.append(event)
         self.flush()
+        logger.info(f"[LangGraphLogger] graph_start flushed, sheets={self.log_to_sheets}")
 
     def log_graph_end(self, output_state: Dict[str, Any], error: Optional[str] = None) -> None:
         """Log graph execution end."""
