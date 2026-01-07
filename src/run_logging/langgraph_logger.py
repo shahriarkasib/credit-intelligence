@@ -58,6 +58,12 @@ class LangGraphEvent:
     node: str = ""
     # Node type: "agent", "tool", "llm", or "chain"
     node_type: str = ""
+    # Agent name (for tracking which agent is executing)
+    agent_name: str = ""
+    # Step number in workflow
+    step_number: int = 0
+    # LLM temperature (if applicable)
+    temperature: Optional[float] = None
 
     # Event data
     input_data: Optional[str] = None
@@ -112,11 +118,18 @@ class LangGraphEventLogger:
         company_name: str,
         log_to_sheets: bool = True,
         log_to_mongodb: bool = True,
+        agent_name: str = "",
+        temperature: float = None,
     ):
         self.run_id = run_id
         self.company_name = company_name
         self.log_to_sheets = log_to_sheets and SHEETS_AVAILABLE
         self.log_to_mongodb = log_to_mongodb and MONGODB_AVAILABLE
+
+        # Common tracking fields
+        self._agent_name = agent_name or "credit_intelligence_agent"
+        self._temperature = temperature
+        self._step_counter = 0  # Global step counter
 
         # Event buffer for batch logging
         self._event_buffer: List[LangGraphEvent] = []
@@ -176,7 +189,11 @@ class LangGraphEventLogger:
             metadata = event.get("metadata", {})
             data = event.get("data", {})
 
-            # Create event object
+            # Increment step counter for significant events
+            if event_type in ("on_chain_start", "on_tool_start", "on_chat_model_start", "on_llm_start"):
+                self._step_counter += 1
+
+            # Create event object with new common fields
             lg_event = LangGraphEvent(
                 run_id=self.run_id,
                 company_name=self.company_name,
@@ -185,6 +202,9 @@ class LangGraphEventLogger:
                 parent_ids=parent_ids,
                 tags=tags,
                 metadata=metadata,
+                agent_name=self._agent_name,
+                step_number=self._step_counter,
+                temperature=self._temperature,
             )
 
             # SKIP streaming events - they flood the logs (one per token)
@@ -436,8 +456,8 @@ class LangGraphEventLogger:
         event.status = "custom"
         event.input_data = self._truncate(json.dumps(data, default=str))
 
-    def _truncate(self, text: str, max_length: int = 2000) -> str:
-        """Truncate text to max length."""
+    def _truncate(self, text: str, max_length: int = 10000) -> str:
+        """Truncate text to max length (default 10000 to capture full plans)."""
         if len(text) > max_length:
             return text[:max_length] + "..."
         return text
@@ -471,61 +491,41 @@ class LangGraphEventLogger:
             return
 
         try:
-            # Prepare rows for langgraph_events (original format)
-            rows_v1 = []
-            # Prepare rows for langgraph_events_3 (with node and node_type columns)
-            rows_v3 = []
+            # Prepare rows for langgraph_events (with all common fields)
+            # Schema: run_id, company_name, node, node_type, agent_name, step_number,
+            #         event_type, event_name, model, temperature, tokens,
+            #         input_preview, output_preview, duration_ms, status, error, timestamp, generated_by
+            rows = []
 
             for event in events:
-                # Original format (langgraph_events)
-                row_v1 = [
-                    event.run_id,
-                    event.company_name,
-                    event.event_type,
-                    event.event_name,
-                    event.status,
-                    event.duration_ms if event.duration_ms is not None else "",
-                    event.model or "",
-                    event.tokens if event.tokens is not None else "",
-                    (event.input_data[:500] if event.input_data else ""),
-                    (event.output_data[:500] if event.output_data else ""),
-                    event.error or "",
-                    event.timestamp,
-                ]
-                rows_v1.append(row_v1)
-
-                # New format with node and node_type columns (langgraph_events_3)
-                row_v3 = [
+                row = [
                     event.run_id,
                     event.company_name,
                     event.node or "",  # node column
                     event.node_type or "",  # node_type column (agent/tool/llm/chain)
+                    event.agent_name or "",  # agent_name
+                    event.step_number,  # step_number
                     event.event_type,
                     event.event_name,
-                    event.status,
-                    event.duration_ms if event.duration_ms is not None else "",
                     event.model or "",
+                    event.temperature if event.temperature is not None else "",
                     event.tokens if event.tokens is not None else "",
                     (event.input_data[:500] if event.input_data else ""),
                     (event.output_data[:500] if event.output_data else ""),
+                    event.duration_ms if event.duration_ms is not None else "",
+                    event.status,
                     event.error or "",
                     event.timestamp,
+                    "FW",  # generated_by: Events from LangGraph framework
                 ]
-                rows_v3.append(row_v3)
+                rows.append(row)
 
-            # Write to langgraph_events (original)
-            if rows_v1:
+            # Write to langgraph_events
+            if rows:
                 sheet = sheets_logger._get_sheet("langgraph_events")
                 if sheet:
-                    sheet.append_rows(rows_v1)
-                    logger.debug(f"Batch wrote {len(rows_v1)} events to langgraph_events")
-
-            # Write to langgraph_events_3 (with node and node_type columns)
-            if rows_v3:
-                sheet3 = sheets_logger._get_sheet("langgraph_events_3")
-                if sheet3:
-                    sheet3.append_rows(rows_v3)
-                    logger.debug(f"Batch wrote {len(rows_v3)} events to langgraph_events_3")
+                    sheet.append_rows(rows)
+                    logger.debug(f"Batch wrote {len(rows)} events to langgraph_events")
         except Exception as e:
             logger.warning(f"Failed to write LangGraph events to Sheets: {e}")
 
@@ -583,6 +583,43 @@ class LangGraphEventLogger:
 
         # Always flush on node exit
         self.flush()
+
+    def log_tool_event(
+        self,
+        tool_name: str,
+        status: str,  # "started" or "completed"
+        node: str = "",
+        input_data: str = "",
+        output_data: str = "",
+        duration_ms: float = None,
+        error: str = None,
+    ) -> None:
+        """
+        Manually log a tool event (for tools not using LangChain's tool framework).
+
+        Use this to track tool calls in langgraph_events_3 when tools are called
+        directly rather than through a LangChain agent.
+        """
+        event_type = "on_tool_start" if status == "started" else "on_tool_end"
+
+        event = LangGraphEvent(
+            run_id=self.run_id,
+            company_name=self.company_name,
+            event_type=event_type,
+            event_name=tool_name,
+            node=node or self._current_node,
+            node_type="tool",
+            status=status,
+            input_data=self._truncate(input_data) if input_data else "",
+            output_data=self._truncate(output_data) if output_data else "",
+            duration_ms=duration_ms,
+            error=error,
+        )
+        self._event_buffer.append(event)
+
+        # Flush immediately for tool events to ensure they're captured
+        if status == "completed":
+            self.flush()
 
     def log_graph_start(self, input_state: Dict[str, Any]) -> None:
         """Log graph execution start."""
@@ -687,6 +724,8 @@ def get_langgraph_logger(
     company_name: str,
     log_to_sheets: bool = True,
     log_to_mongodb: bool = True,
+    agent_name: str = "",
+    temperature: float = None,
 ) -> LangGraphEventLogger:
     """
     Factory function to create a LangGraphEventLogger.
@@ -696,6 +735,8 @@ def get_langgraph_logger(
         company_name: Company being analyzed
         log_to_sheets: Whether to log to Sheets
         log_to_mongodb: Whether to log to MongoDB
+        agent_name: Name of the agent executing
+        temperature: LLM temperature setting
 
     Returns:
         LangGraphEventLogger instance
@@ -705,4 +746,6 @@ def get_langgraph_logger(
         company_name=company_name,
         log_to_sheets=log_to_sheets,
         log_to_mongodb=log_to_mongodb,
+        agent_name=agent_name,
+        temperature=temperature,
     )

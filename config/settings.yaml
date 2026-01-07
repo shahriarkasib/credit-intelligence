@@ -1,351 +1,340 @@
-# =============================================================================
-# Credit Intelligence - External Configuration
-# =============================================================================
-# This file contains all configurable settings for the Credit Intelligence system.
-# Changes to this file can be detected at runtime (hot-reload).
-#
-# Environment variables can be referenced using ${ENV_VAR_NAME} syntax.
-# =============================================================================
-
-# Application Metadata
 app:
-  name: "Credit Intelligence"
-  version: "1.0.0"
-  environment: "development"  # development, staging, production
-
-# =============================================================================
-# LLM Providers Configuration
-# =============================================================================
+  name: Credit Intelligence
+  version: 1.0.0
+  environment: development
 llm:
-  # Default provider to use
-  default_provider: "groq"
-
-  # Default model settings
+  default_provider: groq
   default_temperature: 0.1
   default_max_tokens: 2000
-
-  # Provider configurations
   providers:
     groq:
       enabled: true
-      api_key: "${GROQ_API_KEY}"
-      base_url: null  # Use default
-      models:
-        primary: "llama-3.3-70b-versatile"
-        fast: "llama-3.1-8b-instant"
-        balanced: "llama3-70b-8192"
-        small: "llama3-8b-8192"
-        mixtral: "mixtral-8x7b-32768"
-      default_model: "primary"
-
-    openai:
-      enabled: false
-      api_key: "${OPENAI_API_KEY}"
+      api_key: ${GROQ_API_KEY}
       base_url: null
       models:
-        primary: "gpt-4o"
-        fast: "gpt-4o-mini"
-        legacy: "gpt-4-turbo"
-      default_model: "primary"
-
+        primary: llama-3.3-70b-versatile
+        fast: llama-3.1-8b-instant
+        balanced: llama3-70b-8192
+        small: llama3-8b-8192
+        mixtral: mixtral-8x7b-32768
+      default_model: primary
+    openai:
+      enabled: true
+      api_key: ${OPENAI_API_KEY}
+      base_url: null
+      models:
+        primary: gpt-4o-mini
+        fast: gpt-4o-mini
+        legacy: gpt-4-turbo
+      default_model: primary
     anthropic:
       enabled: false
-      api_key: "${ANTHROPIC_API_KEY}"
+      api_key: ''
       base_url: null
       models:
-        primary: "claude-3-5-sonnet-20241022"
-        fast: "claude-3-haiku-20240307"
-      default_model: "primary"
-
-# =============================================================================
-# Prompts Configuration
-# =============================================================================
+        primary: claude-3-5-sonnet-20241022
+        fast: claude-3-haiku-20240307
+      default_model: primary
 prompts:
-  # Company Parser - Analyzes company names
   company_parser:
-    name: "Company Parser"
-    description: "Parses company name to identify type, ticker, and industry"
-    category: "input"
+    name: Company Parser
+    description: Parses company name to identify type, ticker, and industry
+    category: input
     variables:
-      - "company_name"
-    system_prompt: |
-      You are a financial data specialist. Your task is to analyze company names and identify key information about them.
-
-      Given a company name, determine:
-      1. Whether it's likely a public or private company
-      2. The probable stock ticker (if public)
-      3. The industry sector
-      4. Any parent company or subsidiaries
-      5. The primary jurisdiction/country
-
-      Respond in JSON format with the following structure:
-      {
-          "is_public_company": true/false,
-          "ticker": "TICKER" or null,
-          "industry": "Industry name",
-          "sector": "Sector name",
-          "jurisdiction": "Country/Region",
-          "parent_company": "Parent name" or null,
-          "confidence": 0.0-1.0
-      }
-    user_template: "Analyze this company: {company_name}"
-
-  # Tool Selection - Selects data collection tools
+    - company_name
+    system_prompt: "You are a financial data specialist. Your task is to analyze company\
+      \ names and identify key information about them.\n\nGiven a company name, determine:\n\
+      1. Whether it's likely a public or private company\n2. The probable stock ticker\
+      \ (if public)\n3. The industry sector\n4. Any parent company or subsidiaries\n\
+      5. The primary jurisdiction/country\n\nRespond in JSON format with the following\
+      \ structure:\n{\n    \"is_public_company\": true/false,\n    \"ticker\": \"\
+      TICKER\" or null,\n    \"industry\": \"Industry name\",\n    \"sector\": \"\
+      Sector name\",\n    \"jurisdiction\": \"Country/Region\",\n    \"parent_company\"\
+      : \"Parent name\" or null,\n    \"confidence\": 0.0-1.0\n}\n"
+    user_template: 'Analyze this company: {company_name}'
   tool_selection:
-    name: "Tool Selection"
-    description: "Selects appropriate data collection tools based on company type"
-    category: "planning"
+    name: Tool Selection
+    description: Selects appropriate data collection tools based on company type
+    category: planning
     variables:
-      - "company_name"
-      - "context"
-      - "tool_specs"
-    system_prompt: |
-      You are a credit intelligence agent selecting tools for credit risk assessment.
+    - company_name
+    - context
+    - tool_specs
+    system_prompt: 'You are a credit intelligence agent selecting tools for credit
+      risk assessment.
 
-      Your task is to analyze the company and select the most appropriate data collection tools.
+
+      Your task is to analyze the company and select the most appropriate data collection
+      tools.
+
 
       Consider:
+
       - Is this a public or private company?
+
       - What data sources are most relevant?
+
       - What is the optimal order of tool execution?
 
-      Select tools wisely - don't select tools that won't return useful data.
-    user_template: |
-      ## Company: {company_name}
+
+      Select tools wisely - don''t select tools that won''t return useful data.
+
+      '
+    user_template: '## Company: {company_name}
+
 
       ## Context
+
       {context}
 
+
       ## Available Tools
+
       {tool_specs}
 
+
       ## Instructions
-      Analyze the company and select the appropriate tools. Return your response as JSON with:
+
+      Analyze the company and select the appropriate tools. Return your response as
+      JSON with:
+
       - company_analysis: Your analysis of the company (is_likely_public, reasoning)
+
       - tools_to_use: List of tools with name, params, and reason
+
       - execution_order_reasoning: Why you chose this order
 
-  # Credit Synthesis - Creates final assessment
+      '
   credit_synthesis:
-    name: "Credit Synthesis"
-    description: "Synthesizes collected data into a final credit assessment"
-    category: "synthesis"
+    name: Credit Synthesis
+    description: Synthesizes collected data into a final credit assessment
+    category: synthesis
     variables:
-      - "company_name"
-      - "tool_reasoning"
-      - "tool_results"
-    system_prompt: |
-      You are a senior credit analyst. Analyze the collected data and provide a credit risk assessment.
+    - company_name
+    - tool_reasoning
+    - tool_results
+    system_prompt: 'You are a senior credit analyst. Analyze the collected data and
+      provide a credit risk assessment.
+
 
       Your assessment should be:
+
       - Data-driven and evidence-based
+
       - Balanced, considering both positive and negative factors
+
       - Clear about confidence levels and data gaps
+
       - Actionable with specific recommendations
-    user_template: |
-      ## Company
+
+      '
+    user_template: '## Company
+
       {company_name}
 
+
       ## Analysis Context
+
       {tool_reasoning}
 
+
       ## Collected Data
+
       {tool_results}
 
+
       ## Instructions
+
       Provide a comprehensive credit risk assessment with:
+
       - overall_risk_level: LOW, MODERATE, HIGH, or CRITICAL
+
       - credit_score_estimate: 300-850
+
       - confidence_score: 0.0-1.0
+
       - risk_factors: List of key risks
+
       - positive_factors: List of strengths
+
       - recommendations: Actionable next steps
+
       - reasoning: Your detailed analysis
 
-  # Credit Analysis - Full analysis from raw data
+      '
   credit_analysis:
-    name: "Credit Analysis"
-    description: "Full credit risk analysis from raw company data"
-    category: "analysis"
+    name: Credit Analysis
+    description: Full credit risk analysis from raw company data
+    category: analysis
     variables:
-      - "company_name"
-      - "company_data"
-    system_prompt: |
-      You are an expert credit analyst. Analyze the following company data and provide a credit risk assessment.
+    - company_name
+    - company_data
+    system_prompt: 'You are an expert credit analyst. Analyze the following company
+      data and provide a credit risk assessment.
+
 
       Be consistent, thorough, and base your assessment on the evidence provided.
-      If data is limited, clearly state your confidence level and what additional information would be helpful.
-    user_template: |
-      ## Company Information
+
+      If data is limited, clearly state your confidence level and what additional
+      information would be helpful.
+
+      '
+    user_template: '## Company Information
+
       Company: {company_name}
 
+
       ## Available Data
+
       {company_data}
+
 
       ## Required Output
+
       Provide a structured credit assessment with:
+
       1. Overall Risk Level (LOW/MODERATE/HIGH/CRITICAL)
+
       2. Credit Score Estimate (300-850)
+
       3. Confidence Score (0-100%)
+
       4. Key Risk Factors
+
       5. Positive Indicators
+
       6. Recommendations
+
       7. Data Gaps and Limitations
 
-  # Validation - Reviews assessments
+      '
   validation:
-    name: "Assessment Validation"
-    description: "Reviews and validates rule-based assessments"
-    category: "validation"
+    name: Assessment Validation
+    description: Reviews and validates rule-based assessments
+    category: validation
     variables:
-      - "assessment"
-      - "company_data"
-    system_prompt: |
-      You are a credit analyst reviewer. A rule-based system produced an assessment that you need to validate.
+    - assessment
+    - company_data
+    system_prompt: 'You are a credit analyst reviewer. A rule-based system produced
+      an assessment that you need to validate.
+
 
       Your task is to:
+
       1. Review the assessment against the raw data
+
       2. Identify any inconsistencies or errors
+
       3. Suggest corrections if needed
+
       4. Provide a confidence score for the assessment
-    user_template: |
-      ## Rule-Based Assessment
+
+      '
+    user_template: '## Rule-Based Assessment
+
       {assessment}
 
+
       ## Original Company Data
+
       {company_data}
 
+
       ## Validation Tasks
+
       1. Is the risk level appropriate given the data?
+
       2. Is the credit score estimate reasonable?
+
       3. Are all major risk factors captured?
+
       4. Are there any data points that contradict the assessment?
+
       5. What is your confidence in this assessment (0-100%)?
 
+
       Provide your validation as JSON with:
+
       - is_valid: true/false
+
       - corrections: list of suggested changes
+
       - confidence: your confidence score
+
       - reasoning: explanation of your review
 
-# =============================================================================
-# Credentials Configuration
-# =============================================================================
-# All sensitive credentials should be referenced via environment variables.
-# DO NOT put actual secrets in this file!
+      '
 credentials:
-  # Database credentials
   mongodb:
-    uri: "${MONGODB_URI}"
-    database: "credit_intelligence"
-
-  # Google Sheets
+    uri: mongodb+srv://shahriar:shahriar123%21%40@credit-intelligience.ptudrdy.mongodb.net/credit_intelligence?retryWrites=true&w=majority
+    database: credit_intelligence
   google_sheets:
-    credentials_path: "${GOOGLE_CREDENTIALS_PATH}"
-    spreadsheet_id: "${GOOGLE_SPREADSHEET_ID}"
-
-  # API Keys (referenced from environment)
+    credentials_path: credentials/google-service-account.json
+    spreadsheet_id: 1E8unWiaAEvxeCby_s_r2Y7g9iW4PznukuC1tpWG58s0
   api_keys:
-    groq: "${GROQ_API_KEY}"
-    openai: "${OPENAI_API_KEY}"
-    anthropic: "${ANTHROPIC_API_KEY}"
-    tavily: "${TAVILY_API_KEY}"
-    sec_edgar: "${SEC_EDGAR_API_KEY}"
-    finnhub: "${FINNHUB_API_KEY}"
-
-  # LangChain/LangSmith
+    groq: ${GROQ_API_KEY}
+    openai: ${OPENAI_API_KEY}
+    anthropic: ${ANTHROPIC_API_KEY}
+    tavily: ${TAVILY_API_KEY}
+    sec_edgar: ${SEC_EDGAR_API_KEY}
+    finnhub: ${FINNHUB_API_KEY}
   langchain:
-    api_key: "${LANGCHAIN_API_KEY}"
-    project: "${LANGCHAIN_PROJECT}"
+    api_key: ${LANGCHAIN_API_KEY}
+    project: credit-intelligence
     tracing_enabled: true
-
-# =============================================================================
-# Data Sources Configuration
-# =============================================================================
 data_sources:
   sec_edgar:
     enabled: true
-    base_url: "https://data.sec.gov"
+    base_url: https://data.sec.gov
     rate_limit_per_second: 10
-
   finnhub:
     enabled: true
-    base_url: "https://finnhub.io/api/v1"
-
+    base_url: https://finnhub.io/api/v1
   tavily:
     enabled: true
-    search_depth: "advanced"
+    search_depth: advanced
     max_results: 10
-
   web_search:
     enabled: true
-    provider: "tavily"  # or "serper", "google"
-
-# =============================================================================
-# Logging Configuration
-# =============================================================================
+    provider: tavily
 logging:
-  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
-
-  # Where to log
+  level: INFO
   destinations:
     console: true
     file: true
     mongodb: true
     google_sheets: true
-
-  # File logging
   file:
-    path: "logs/credit_intelligence.log"
+    path: logs/credit_intelligence.log
     max_size_mb: 100
     backup_count: 5
-
-  # What to log
   log_llm_calls: true
   log_tool_calls: true
   log_evaluations: true
   log_run_summaries: true
-
-# =============================================================================
-# Evaluation Configuration
-# =============================================================================
 evaluation:
   enabled: true
-
-  # Metrics to calculate
   metrics:
-    - "tool_selection_score"
-    - "data_quality_score"
-    - "synthesis_score"
-    - "overall_score"
-
-  # LLM-as-Judge settings
+  - tool_selection_score
+  - data_quality_score
+  - synthesis_score
+  - overall_score
   llm_judge:
     enabled: true
-    model: "primary"
+    model: primary
     temperature: 0.0
-
-  # Consistency evaluation
   consistency:
     enabled: true
     num_runs: 3
     same_model: true
-    cross_model: false
-
-# =============================================================================
-# Runtime Settings
-# =============================================================================
+    cross_model: true
+    cross_model_secondary: fast
 runtime:
-  # Hot-reload configuration changes
   hot_reload: true
   watch_interval_seconds: 5
-
-  # Caching
   cache:
     enabled: true
     ttl_seconds: 3600
-
-  # Rate limiting
   rate_limits:
     llm_calls_per_minute: 60
     api_calls_per_minute: 100

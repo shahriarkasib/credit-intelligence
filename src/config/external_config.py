@@ -159,6 +159,47 @@ class ConfigManager:
 
         return value
 
+    def _set_env_vars_from_config(self):
+        """Set environment variables from config for external integrations."""
+        try:
+            # Set LangChain/LangSmith API key
+            langchain_config = self._config.get("credentials", {}).get("langchain", {})
+            if langchain_config.get("api_key"):
+                os.environ["LANGCHAIN_API_KEY"] = langchain_config["api_key"]
+                if langchain_config.get("tracing_enabled", True):
+                    os.environ["LANGCHAIN_TRACING_V2"] = "true"
+                if langchain_config.get("project"):
+                    os.environ["LANGCHAIN_PROJECT"] = langchain_config["project"]
+                logger.info("Set LANGCHAIN_API_KEY from config")
+
+            # Set OpenAI API key
+            openai_key = self._config.get("credentials", {}).get("api_keys", {}).get("openai")
+            if not openai_key:
+                openai_key = self._config.get("llm", {}).get("providers", {}).get("openai", {}).get("api_key")
+            if openai_key:
+                os.environ["OPENAI_API_KEY"] = openai_key
+                logger.info("Set OPENAI_API_KEY from config")
+
+            # Set Groq API key
+            groq_key = self._config.get("credentials", {}).get("api_keys", {}).get("groq")
+            if not groq_key:
+                groq_key = self._config.get("llm", {}).get("providers", {}).get("groq", {}).get("api_key")
+            if groq_key:
+                os.environ["GROQ_API_KEY"] = groq_key
+                logger.info("Set GROQ_API_KEY from config")
+
+            # Re-initialize LangSmith now that LANGCHAIN_API_KEY is set
+            if os.getenv("LANGCHAIN_API_KEY"):
+                try:
+                    from config.langsmith_config import setup_langsmith
+                    project = langchain_config.get("project", "credit-intelligence")
+                    setup_langsmith(project_name=project, enabled=True)
+                except ImportError:
+                    pass
+
+        except Exception as e:
+            logger.warning(f"Failed to set env vars from config: {e}")
+
     def reload(self) -> bool:
         """
         Reload configuration from file.
@@ -188,6 +229,9 @@ class ConfigManager:
                 # Substitute environment variables
                 self._config = self._substitute_env_vars(raw_config)
                 self._last_modified = mtime
+
+                # Set environment variables from config (for LangSmith, OpenAI, etc.)
+                self._set_env_vars_from_config()
 
                 logger.info(f"Loaded config from: {self.config_path}")
 
@@ -462,6 +506,128 @@ class ConfigManager:
                 logger.error(f"Failed to save config: {e}")
                 return False
 
+    # =========================================================================
+    # SANITIZATION AND ENV FILE MANAGEMENT
+    # =========================================================================
+
+    def get_sanitized_config(self) -> Dict[str, Any]:
+        """
+        Get configuration with all secrets masked.
+
+        Returns config dict with sensitive values (API keys, passwords, URIs) masked
+        so they can be safely returned via API without exposing secrets.
+        """
+        with self._lock:
+            return self._mask_secrets(self._config.copy())
+
+    def _mask_secrets(self, obj: Any, key_name: str = "") -> Any:
+        """Recursively mask secret values in config."""
+        # Keys that indicate secret values
+        secret_patterns = [
+            'api_key', 'api-key', 'apikey',
+            'secret', 'password', 'passwd',
+            'token', 'uri', 'url', 'credentials',
+            'private_key', 'private-key'
+        ]
+
+        if isinstance(obj, str):
+            # Check if the parent key name suggests this is a secret
+            key_lower = key_name.lower()
+            is_secret_key = any(pattern in key_lower for pattern in secret_patterns)
+
+            # Also check if value looks like a secret (starts with common prefixes)
+            looks_like_secret = (
+                obj.startswith('sk-') or  # OpenAI
+                obj.startswith('gsk_') or  # Groq
+                obj.startswith('mongodb://') or
+                obj.startswith('mongodb+srv://') or
+                obj.startswith('postgresql://') or
+                obj.startswith('http') and 'key' in obj.lower() or
+                (is_secret_key and len(obj) > 8)
+            )
+
+            if is_secret_key or looks_like_secret:
+                return self._mask_value(obj)
+            return obj
+
+        elif isinstance(obj, dict):
+            return {k: self._mask_secrets(v, k) for k, v in obj.items()}
+
+        elif isinstance(obj, list):
+            return [self._mask_secrets(item, key_name) for item in obj]
+
+        return obj
+
+    def _mask_value(self, value: str) -> str:
+        """Mask a secret value for safe display."""
+        if not value:
+            return ""
+        if len(value) <= 8:
+            return "*" * len(value)
+        return value[:3] + "*" * min(len(value) - 6, 20) + value[-3:]
+
+    def update_env_file(self, key: str, value: str, env_path: str = None) -> bool:
+        """
+        Update a value in the .env file.
+
+        Args:
+            key: Environment variable name (e.g., GROQ_API_KEY)
+            value: New value to set
+            env_path: Path to .env file (defaults to project root .env)
+
+        Returns:
+            True if successfully updated
+        """
+        if env_path is None:
+            env_path = self.config_path.parent.parent / ".env"
+        else:
+            env_path = Path(env_path)
+
+        try:
+            lines = []
+            found = False
+
+            # Read existing file
+            if env_path.exists():
+                with open(env_path, 'r') as f:
+                    lines = f.readlines()
+
+            # Update or add the key
+            new_lines = []
+            for line in lines:
+                stripped = line.strip()
+                if stripped.startswith(f"{key}=") or stripped.startswith(f"{key} ="):
+                    new_lines.append(f"{key}={value}\n")
+                    found = True
+                else:
+                    new_lines.append(line)
+
+            if not found:
+                # Add new key
+                if new_lines and not new_lines[-1].endswith('\n'):
+                    new_lines.append('\n')
+                new_lines.append(f"{key}={value}\n")
+
+            # Write back atomically
+            temp_path = env_path.with_suffix('.env.tmp')
+            with open(temp_path, 'w') as f:
+                f.writelines(new_lines)
+            temp_path.replace(env_path)
+
+            # Update current environment
+            os.environ[key] = value
+
+            logger.info(f"Updated .env file: {key}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to update .env file: {e}")
+            return False
+
+    def get_env_file_path(self) -> Path:
+        """Get the path to the .env file."""
+        return self.config_path.parent.parent / ".env"
+
 
 # =============================================================================
 # SINGLETON AND CONVENIENCE FUNCTIONS
@@ -523,6 +689,76 @@ def reload_config() -> bool:
 def on_config_change(callback: Callable[[Dict], None]):
     """Register a callback for config changes."""
     get_config_manager().on_change(callback)
+
+
+def get_sanitized_config() -> Dict[str, Any]:
+    """Get configuration with all secrets masked (safe for API responses)."""
+    return get_config_manager().get_sanitized_config()
+
+
+def update_env_file(key: str, value: str) -> bool:
+    """Update a value in the .env file."""
+    return get_config_manager().update_env_file(key, value)
+
+
+def get_credential_status() -> Dict[str, Dict[str, Any]]:
+    """
+    Get status of all known credentials.
+
+    Returns dict mapping credential ID to status:
+    {
+        "groq": {"key": "GROQ_API_KEY", "is_set": True, "masked": "gsk****...****"},
+        "openai": {"key": "OPENAI_API_KEY", "is_set": False, "masked": None},
+        ...
+    }
+    """
+    # Known credential keys organized by category
+    credentials = {
+        # LLM Providers
+        "groq": "GROQ_API_KEY",
+        "openai": "OPENAI_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+        "google_ai": "GOOGLE_API_KEY",
+        # Data Sources
+        "finnhub": "FINNHUB_API_KEY",
+        "tavily": "TAVILY_API_KEY",
+        "courtlistener": "COURTLISTENER_API_KEY",
+        "opencorporates": "OPENCORPORATES_API_KEY",
+        "parallel_ai": "PARALLEL_API_KEY",
+        "sec_edgar": "SEC_EDGAR_USER_AGENT",
+        # Database
+        "mongodb": "MONGODB_URI",
+        "google_sheets_creds": "GOOGLE_CREDENTIALS_PATH",
+        "google_sheets_id": "GOOGLE_SPREADSHEET_ID",
+        # Observability
+        "langchain": "LANGCHAIN_API_KEY",
+        "langfuse_public": "LANGFUSE_PUBLIC_KEY",
+        "langfuse_secret": "LANGFUSE_SECRET_KEY",
+    }
+
+    manager = get_config_manager()
+    result = {}
+
+    for cred_id, env_key in credentials.items():
+        value = os.getenv(env_key, "")
+        result[cred_id] = {
+            "key": env_key,
+            "is_set": bool(value),
+            "masked": manager._mask_value(value) if value else None,
+            "length": len(value) if value else 0,
+        }
+
+    return result
+
+
+def get_credential_categories() -> Dict[str, List[str]]:
+    """Get credentials organized by category for UI display."""
+    return {
+        "LLM Providers": ["groq", "openai", "anthropic", "google_ai"],
+        "Data Sources": ["finnhub", "tavily", "courtlistener", "opencorporates", "parallel_ai", "sec_edgar"],
+        "Database": ["mongodb", "google_sheets_creds", "google_sheets_id"],
+        "Observability": ["langchain", "langfuse_public", "langfuse_secret"],
+    }
 
 
 # =============================================================================

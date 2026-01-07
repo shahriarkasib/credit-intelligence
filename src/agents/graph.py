@@ -100,6 +100,39 @@ except ImportError:
     evaluate_with_llm_judge = None
     get_llm_judge = None
 
+# Import unified agent evaluator (combines DeepEval + OpenEvals + Built-in)
+try:
+    from evaluation.unified_agent_evaluator import (
+        UnifiedAgentEvaluator,
+        evaluate_workflow,
+        get_unified_evaluator,
+        UnifiedEvaluationResult,
+    )
+    UNIFIED_EVALUATOR_AVAILABLE = True
+except ImportError:
+    UNIFIED_EVALUATOR_AVAILABLE = False
+    UnifiedAgentEvaluator = None
+    evaluate_workflow = None
+    get_unified_evaluator = None
+    UnifiedEvaluationResult = None
+
+# Import DeepEval evaluator (runs independently with Groq)
+try:
+    from evaluation.deepeval_evaluator import evaluate_with_deepeval
+    DEEPEVAL_EVALUATOR_AVAILABLE = True
+except ImportError:
+    DEEPEVAL_EVALUATOR_AVAILABLE = False
+    evaluate_with_deepeval = None
+
+# Import LangSmith integration for trace logging
+try:
+    from config.langsmith_integration import get_langsmith_integration, LangSmithIntegration
+    LANGSMITH_INTEGRATION_AVAILABLE = True
+except ImportError:
+    LANGSMITH_INTEGRATION_AVAILABLE = False
+    get_langsmith_integration = None
+    LangSmithIntegration = None
+
 # Import LangGraph event logger
 try:
     from run_logging.langgraph_logger import (
@@ -118,6 +151,18 @@ except ImportError:
 # Initialize workflow logger
 wf_logger = get_workflow_logger() if get_workflow_logger else None
 
+# Module-level LangGraph event logger (set per-run)
+_lg_event_logger: Optional[LangGraphEventLogger] = None
+
+def set_langgraph_event_logger(logger_instance: Optional[LangGraphEventLogger]) -> None:
+    """Set the module-level LangGraph event logger for tool event tracking."""
+    global _lg_event_logger
+    _lg_event_logger = logger_instance
+
+def get_current_event_logger() -> Optional[LangGraphEventLogger]:
+    """Get the current LangGraph event logger."""
+    return _lg_event_logger
+
 # Configure logging
 logger = logging.getLogger(__name__)
 
@@ -130,9 +175,12 @@ os.makedirs(RESULTS_DIR, exist_ok=True)
 # STATE DEFINITION
 # =============================================================================
 
-class CreditWorkflowInput(TypedDict):
-    """Simple input - just the company name."""
+class CreditWorkflowInput(TypedDict, total=False):
+    """Input for the workflow."""
     company_name: str
+    run_id: str  # Optional: passed from API for consistent run tracking
+    jurisdiction: str  # Optional
+    ticker: str  # Optional
 
 
 class CreditWorkflowOutput(TypedDict):
@@ -221,11 +269,12 @@ def parse_input(state: CreditWorkflowState) -> Dict[str, Any]:
 
     company_name = state["company_name"].strip()
 
-    # Start run in workflow logger and use its run_id
+    # Use run_id from state if provided (from API), otherwise generate one
+    run_id = state.get("run_id") or str(uuid.uuid4())
+
+    # Start run in workflow logger with the same run_id
     if wf_logger:
-        run_id = wf_logger.start_run(company_name, {"source": "langgraph"})
-    else:
-        run_id = str(uuid.uuid4())
+        wf_logger.start_run(company_name, {"source": "langgraph"}, run_id=run_id)
 
     logger.info(f"Starting run {run_id} for company: {company_name}")
 
@@ -300,7 +349,7 @@ def parse_input(state: CreditWorkflowState) -> Dict[str, Any]:
         "requires_review": requires_review,
     }
 
-    # Log step with LLM metrics (include LLM info in output_data)
+    # Log step with LLM metrics (include FULL company_info)
     if wf_logger:
         wf_logger.log_step(
             run_id=run_id,
@@ -308,15 +357,10 @@ def parse_input(state: CreditWorkflowState) -> Dict[str, Any]:
             step_name="parse_input",
             input_data={"company_name": company_name, "jurisdiction": state.get("jurisdiction")},
             output_data={
-                "is_public": is_known,
-                "ticker": ticker,
-                "confidence": confidence,
-                "parsed_by": parsed_by,
-                "reasoning": reasoning,
+                "full_company_info": company_info,  # Full parsed company info
+                "validation_message": validation_msg,
                 "requires_review": requires_review,
                 "llm_metrics": llm_metrics,
-                "llm_model": llm_metrics.get("model"),
-                "tokens_used": llm_metrics.get("total_tokens"),
             },
             execution_time_ms=(time.time() - start_time) * 1000,
             success=True,
@@ -383,6 +427,11 @@ def create_plan(state: CreditWorkflowState) -> Dict[str, Any]:
     run_id = state.get("run_id", "unknown")
     company_name = state.get("company_name", "")
 
+    # Log node entry for timing
+    event_logger = get_current_event_logger()
+    if event_logger:
+        event_logger.log_node_enter("create_plan", {"company_info": state.get("company_info", {})})
+
     task_plan = supervisor.create_task_plan(state["company_info"])
 
     # Show plan summary for human review
@@ -394,6 +443,8 @@ def create_plan(state: CreditWorkflowState) -> Dict[str, Any]:
         "validation_message": plan_summary,
     }
 
+    execution_time_ms = (time.time() - start_time) * 1000
+
     if wf_logger:
         wf_logger.log_step(
             run_id=run_id,
@@ -402,10 +453,17 @@ def create_plan(state: CreditWorkflowState) -> Dict[str, Any]:
             input_data={"company_info": state.get("company_info", {})},
             output_data={
                 "num_tasks": len(task_plan),
-                "tasks": [{"agent": t.get("agent"), "action": t.get("action")} for t in task_plan],
+                "full_task_plan": task_plan,  # Full plan with all details
             },
-            execution_time_ms=(time.time() - start_time) * 1000,
+            execution_time_ms=execution_time_ms,
             success=True,
+        )
+
+    # Log full plan to langgraph_events (event_logger was set at function start)
+    if event_logger:
+        event_logger.log_node_exit(
+            node_name="create_plan",
+            output_state={"full_plan": task_plan, "num_tasks": len(task_plan)},
         )
 
     return result
@@ -418,6 +476,22 @@ def fetch_api_data(state: CreditWorkflowState) -> Dict[str, Any]:
     run_id = state.get("run_id", "unknown")
     company_name = state.get("company_name", "")
     company_info = state["company_info"]
+
+    # Get event logger for tool tracking
+    event_logger = get_current_event_logger()
+
+    # Log tool starts
+    tools_to_fetch = ["sec_edgar", "finnhub", "court_listener"]
+    tool_start_times = {}
+    for tool_name in tools_to_fetch:
+        tool_start_times[tool_name] = time.time()
+        if event_logger:
+            event_logger.log_tool_event(
+                tool_name=f"fetch_{tool_name}",
+                status="started",
+                node="fetch_api_data",
+                input_data=json.dumps({"ticker": company_info.get("ticker"), "company": company_name}),
+            )
 
     try:
         api_result = api_agent.fetch_all_data(
@@ -433,7 +507,7 @@ def fetch_api_data(state: CreditWorkflowState) -> Dict[str, Any]:
             "status": "api_data_fetched",
         }
 
-        # Log main step
+        # Log main step with FULL data
         if wf_logger:
             api_data = api_result.to_dict()
             wf_logger.log_step(
@@ -442,11 +516,9 @@ def fetch_api_data(state: CreditWorkflowState) -> Dict[str, Any]:
                 step_name="fetch_api_data",
                 input_data={"ticker": company_info.get("ticker"), "jurisdiction": company_info.get("jurisdiction")},
                 output_data={
+                    "full_api_data": api_data,  # Full API data from all sources
                     "sources_fetched": list(api_data.keys()),
-                    "has_sec": bool(api_data.get("sec_edgar")),
-                    "has_finnhub": bool(api_data.get("finnhub")),
-                    "has_court": bool(api_data.get("court_listener")),
-                    "errors": len(api_result.errors),
+                    "errors": api_result.errors,
                 },
                 execution_time_ms=(time.time() - start_time) * 1000,
                 success=True,
@@ -460,6 +532,23 @@ def fetch_api_data(state: CreditWorkflowState) -> Dict[str, Any]:
                 elif isinstance(source_data, list):
                     records = len(source_data)
 
+                # Calculate tool duration if we tracked the start
+                tool_duration = None
+                if source_name in tool_start_times:
+                    tool_duration = (time.time() - tool_start_times[source_name]) * 1000
+
+                # Log tool completion to LangGraph events
+                if event_logger:
+                    event_logger.log_tool_event(
+                        tool_name=f"fetch_{source_name}",
+                        status="completed",
+                        node="fetch_api_data",
+                        input_data=json.dumps({"ticker": company_info.get("ticker"), "company": company_name}),
+                        output_data=json.dumps({"records": records, "success": bool(source_data)}, default=str),
+                        duration_ms=tool_duration,
+                        error=None if source_data else "No data returned",
+                    )
+
                 # Log as data source
                 wf_logger.log_data_source(
                     run_id=run_id,
@@ -468,7 +557,7 @@ def fetch_api_data(state: CreditWorkflowState) -> Dict[str, Any]:
                     success=bool(source_data),
                     records_found=records,
                     data_summary=source_data if source_data else {},  # Full data
-                    execution_time_ms=0,  # Individual timing not available
+                    execution_time_ms=tool_duration or 0,
                 )
 
                 # Log as tool call
@@ -478,7 +567,7 @@ def fetch_api_data(state: CreditWorkflowState) -> Dict[str, Any]:
                     tool_name=f"fetch_{source_name}",
                     tool_input={"ticker": company_info.get("ticker"), "company": company_name},
                     tool_output=source_data,
-                    execution_time_ms=0,
+                    execution_time_ms=tool_duration or 0,
                     success=bool(source_data),
                 )
 
@@ -513,6 +602,18 @@ def search_web(state: CreditWorkflowState) -> Dict[str, Any]:
     run_id = state.get("run_id", "unknown")
     company_name = state["company_info"]["company_name"]
 
+    # Get event logger for tool tracking
+    event_logger = get_current_event_logger()
+
+    # Log tool start
+    if event_logger:
+        event_logger.log_tool_event(
+            tool_name="web_search",
+            status="started",
+            node="search_web",
+            input_data=json.dumps({"company_name": company_name}),
+        )
+
     try:
         search_result = search_agent.search_company(company_name)
         result = {
@@ -521,18 +622,32 @@ def search_web(state: CreditWorkflowState) -> Dict[str, Any]:
             "status": "search_complete",
         }
 
+        search_data = search_result.to_dict()
+        tool_duration = (time.time() - start_time) * 1000
+        num_results = len(search_data.get("results", [])) if isinstance(search_data, dict) else 0
+
+        # Log tool completion
+        if event_logger:
+            event_logger.log_tool_event(
+                tool_name="web_search",
+                status="completed",
+                node="search_web",
+                input_data=json.dumps({"company_name": company_name}),
+                output_data=json.dumps({"num_results": num_results, "success": bool(search_data)}, default=str),
+                duration_ms=tool_duration,
+            )
+
         if wf_logger:
-            search_data = search_result.to_dict()
             wf_logger.log_step(
                 run_id=run_id,
                 company_name=company_name,
                 step_name="search_web",
                 input_data={"company_name": company_name},
                 output_data={
-                    "num_results": len(search_data.get("results", [])) if isinstance(search_data, dict) else 0,
-                    "has_data": bool(search_data),
+                    "full_search_data": search_data,  # Full search results
+                    "num_results": num_results,
                 },
-                execution_time_ms=(time.time() - start_time) * 1000,
+                execution_time_ms=tool_duration,
                 success=True,
             )
             # Log as data source
@@ -541,9 +656,9 @@ def search_web(state: CreditWorkflowState) -> Dict[str, Any]:
                 company_name=company_name,
                 source_name="web_search",
                 success=bool(search_data),
-                records_found=len(search_data.get("results", [])) if isinstance(search_data, dict) else 0,
+                records_found=num_results,
                 data_summary=search_data if search_data else {},  # Full data
-                execution_time_ms=(time.time() - start_time) * 1000,
+                execution_time_ms=tool_duration,
             )
 
         return result
@@ -608,22 +723,18 @@ def synthesize(state: CreditWorkflowState) -> Dict[str, Any]:
         )
         assessment_dict = assessment.to_dict()
 
-        # Log the primary synthesis step
+        # Log the primary synthesis step with FULL assessment
         if wf_logger:
             wf_logger.log_step(
                 run_id=run_id,
                 company_name=company_name,
                 step_name="synthesize",
                 input_data={
-                    "has_api_data": bool(state.get("api_data")),
-                    "has_search_data": bool(state.get("search_data")),
+                    "company_info": state.get("company_info", {}),
+                    "api_data_sources": list(state.get("api_data", {}).keys()),
                 },
                 output_data={
-                    "risk_level": assessment_dict.get("overall_risk_level"),
-                    "credit_score": assessment_dict.get("credit_score_estimate"),
-                    "confidence": assessment_dict.get("confidence_score"),
-                    "has_reasoning": bool(assessment_dict.get("llm_reasoning")),
-                    "num_recommendations": len(assessment_dict.get("recommendations", [])),
+                    "full_assessment": assessment_dict,  # Full assessment with all details
                 },
                 execution_time_ms=(time.time() - start_time) * 1000,
                 success=True,
@@ -1249,7 +1360,209 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                     credit_scores=[credit_score],
                 )
 
-            # Complete the run in workflow logger
+        # ============ CROSS-MODEL EVALUATION ============
+        # Run secondary assessment with different model and compare (OUTSIDE wf_logger block)
+        try:
+            from config.external_config import get_config_manager
+            config_manager = get_config_manager()
+            eval_config = config_manager.get("evaluation", {})
+            consistency_config = eval_config.get("consistency", {})
+
+            logger.info(f"Cross-model config check: cross_model={consistency_config.get('cross_model', False)}")
+
+            if consistency_config.get("cross_model", False):
+                logger.info("Running cross-model evaluation...")
+
+                # Get primary assessment
+                primary_risk = assessment.get("overall_risk_level", "unknown")
+                primary_score = assessment.get("credit_score_estimate", 0)
+                primary_confidence = assessment.get("confidence_score", 0)
+                primary_model = "llama-3.3-70b-versatile"  # Primary model
+
+                # Run secondary assessment with fast model
+                secondary_model_key = consistency_config.get("cross_model_secondary", "fast")
+                secondary_model = "llama-3.1-8b-instant"  # Fast model
+
+                # Create a quick secondary assessment using LLM analyst
+                try:
+                    from agents.llm_analyst import LLMAnalystAgent
+                    secondary_analyst = LLMAnalystAgent(model=secondary_model)
+
+                    # Get company_info from state
+                    company_info = state.get("company_info", {"name": company_name})
+                    search_data = state.get("search_data", {})
+
+                    # Run secondary analysis with same data but different model
+                    secondary_analysis = secondary_analyst.analyze_company(
+                        company_info=company_info,
+                        api_data=api_data,
+                        search_data=search_data,
+                    )
+
+                    # Extract result from LLMAnalysisResult
+                    if secondary_analysis.success:
+                        secondary_risk = secondary_analysis.risk_level or "unknown"
+                        secondary_score = secondary_analysis.credit_score_estimate or 0
+                        secondary_confidence = secondary_analysis.confidence or 0
+                    else:
+                        raise Exception(f"Secondary analysis failed: {secondary_analysis.error}")
+
+                    # Calculate cross-model agreement
+                    risk_agreement = 1.0 if primary_risk.lower() == secondary_risk.lower() else 0.0
+                    score_diff = abs(primary_score - secondary_score)
+                    score_agreement = max(0, 1.0 - score_diff / 100)
+                    cross_model_agreement = risk_agreement * 0.6 + score_agreement * 0.4
+
+                    # Determine best model (the one with higher confidence)
+                    if primary_confidence >= secondary_confidence:
+                        best_model = primary_model
+                        best_reasoning = "Primary model had higher confidence"
+                    else:
+                        best_model = secondary_model
+                        best_reasoning = "Secondary model had higher confidence"
+
+                    # Log to cross_model_eval sheet - use get_sheets_logger directly
+                    from run_logging.sheets_logger import get_sheets_logger
+                    sheets_logger = get_sheets_logger()
+                    if sheets_logger and sheets_logger.is_connected():
+                        sheets_logger.log_cross_model_eval(
+                            eval_id=run_id[:8],
+                            company_name=company_name,
+                            models_compared=[primary_model, secondary_model],
+                            num_models=2,
+                            risk_level_agreement=risk_agreement,
+                            credit_score_mean=(primary_score + secondary_score) / 2,
+                            credit_score_std=abs(primary_score - secondary_score) / 2,
+                            credit_score_range=abs(primary_score - secondary_score),
+                            best_model=best_model,
+                            best_model_reasoning=best_reasoning,
+                            cross_model_agreement=cross_model_agreement,
+                            llm_judge_analysis=f"Primary ({primary_model}): {primary_risk}/{primary_score}, Secondary ({secondary_model}): {secondary_risk}/{secondary_score}",
+                            model_recommendations=f"Use {best_model} for this company type",
+                            model_results={
+                                primary_model: {"risk_level": primary_risk, "credit_score": primary_score, "confidence": primary_confidence},
+                                secondary_model: {"risk_level": secondary_risk, "credit_score": secondary_score, "confidence": secondary_confidence},
+                            },
+                        )
+                        logger.info(f"Cross-model eval logged: agreement={cross_model_agreement:.2f}, best={best_model}")
+
+                except Exception as secondary_error:
+                    logger.warning(f"Secondary model analysis failed: {secondary_error}")
+
+        except Exception as cross_model_error:
+            logger.warning(f"Cross-model evaluation failed: {cross_model_error}")
+        # ============ END CROSS-MODEL EVALUATION ============
+
+        # ============ SAME-MODEL CONSISTENCY (MULTIPLE RUNS) ============
+        # Run additional LLM analyses with the same model to calculate consistency
+        try:
+            from config.external_config import get_config_manager
+            config_manager = get_config_manager()
+            eval_config = config_manager.get("evaluation", {})
+            consistency_config = eval_config.get("consistency", {})
+
+            if consistency_config.get("same_model", True):  # Enabled by default
+                num_runs = consistency_config.get("num_runs", 3)
+
+                # Only run if num_runs > 1 (we already have 1 run)
+                if num_runs > 1:
+                    logger.info(f"Running same-model consistency evaluation ({num_runs - 1} additional runs)...")
+
+                    from agents.llm_analyst import LLMAnalystAgent
+                    primary_model = "llama-3.3-70b-versatile"
+
+                    # Store all results including primary
+                    all_risk_levels = [assessment.get("overall_risk_level", "unknown")]
+                    all_credit_scores = [assessment.get("credit_score_estimate", 0)]
+                    all_confidences = [assessment.get("confidence_score", 0)]
+                    run_details = [{
+                        "run": 1,
+                        "risk_level": all_risk_levels[0],
+                        "credit_score": all_credit_scores[0],
+                        "confidence": all_confidences[0],
+                    }]
+
+                    # Run additional analyses
+                    for i in range(2, num_runs + 1):
+                        try:
+                            analyst = LLMAnalystAgent(model=primary_model)
+                            company_info = state.get("company_info", {"name": company_name})
+                            search_data = state.get("search_data", {})
+
+                            result = analyst.analyze_company(
+                                company_info=company_info,
+                                api_data=api_data,
+                                search_data=search_data,
+                            )
+
+                            if result.success:
+                                all_risk_levels.append(result.risk_level or "unknown")
+                                all_credit_scores.append(result.credit_score_estimate or 0)
+                                all_confidences.append(result.confidence or 0)
+                                run_details.append({
+                                    "run": i,
+                                    "risk_level": result.risk_level,
+                                    "credit_score": result.credit_score_estimate,
+                                    "confidence": result.confidence,
+                                })
+                        except Exception as run_error:
+                            logger.warning(f"Consistency run {i} failed: {run_error}")
+
+                    # Calculate consistency metrics
+                    if len(all_risk_levels) >= 2:
+                        import statistics
+
+                        # Risk level consistency (% agreement)
+                        most_common_risk = max(set(all_risk_levels), key=all_risk_levels.count)
+                        risk_level_consistency = all_risk_levels.count(most_common_risk) / len(all_risk_levels)
+
+                        # Credit score statistics
+                        credit_score_mean = statistics.mean(all_credit_scores)
+                        credit_score_std = statistics.stdev(all_credit_scores) if len(all_credit_scores) > 1 else 0
+
+                        # Confidence variance
+                        confidence_variance = statistics.variance(all_confidences) if len(all_confidences) > 1 else 0
+
+                        # Overall consistency
+                        overall_consistency = risk_level_consistency * 0.6 + max(0, 1 - credit_score_std / 100) * 0.4
+
+                        # Determine grade
+                        if overall_consistency >= 0.9:
+                            grade = "A"
+                        elif overall_consistency >= 0.75:
+                            grade = "B"
+                        elif overall_consistency >= 0.6:
+                            grade = "C"
+                        else:
+                            grade = "D"
+
+                        # Log to model_consistency sheet
+                        from run_logging.sheets_logger import get_sheets_logger
+                        sheets_logger = get_sheets_logger()
+                        if sheets_logger and sheets_logger.is_connected():
+                            sheets_logger.log_model_consistency(
+                                eval_id=run_id[:8],
+                                company_name=company_name,
+                                model_name=primary_model,
+                                num_runs=len(all_risk_levels),
+                                risk_level_consistency=risk_level_consistency,
+                                credit_score_mean=credit_score_mean,
+                                credit_score_std=credit_score_std,
+                                confidence_variance=confidence_variance,
+                                overall_consistency=overall_consistency,
+                                is_consistent=overall_consistency >= 0.75,
+                                consistency_grade=grade,
+                                llm_judge_analysis=f"Ran {len(all_risk_levels)} analyses. Risk levels: {all_risk_levels}. Scores: {all_credit_scores}.",
+                                run_details=run_details,
+                            )
+                            logger.info(f"Same-model consistency: {overall_consistency:.2f} (Grade {grade})")
+
+        except Exception as consistency_error:
+            logger.warning(f"Same-model consistency evaluation failed: {consistency_error}")
+        # ============ END SAME-MODEL CONSISTENCY ============
+
+        # Complete the run in workflow logger
+        if wf_logger:
             wf_logger.complete_run(
                 run_id=run_id,
                 final_result={
@@ -1401,6 +1714,128 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
 
                 except Exception as judge_error:
                     logger.warning(f"LLM Judge evaluation failed: {judge_error}")
+
+            # Unified evaluation (combines DeepEval + OpenEvals + Built-in)
+            if UNIFIED_EVALUATOR_AVAILABLE and evaluate_workflow:
+                try:
+                    unified_result = evaluate_workflow(
+                        run_id=run_id,
+                        company_name=company_name,
+                        state=state,
+                        llm_results=llm_results,
+                        llm_consistency_data=llm_consistency,
+                        latency_ms=(time.time() - start_time) * 1000,
+                    )
+
+                    # Add unified evaluation to result
+                    evaluation["unified_metrics"] = {
+                        "accuracy": {
+                            "faithfulness": unified_result.accuracy.faithfulness,
+                            "hallucination": unified_result.accuracy.hallucination,
+                            "answer_relevancy": unified_result.accuracy.answer_relevancy,
+                            "factual_accuracy": unified_result.accuracy.factual_accuracy,
+                            "final_answer_quality": unified_result.accuracy.final_answer_quality,
+                            "accuracy_score": unified_result.accuracy.accuracy_score,
+                        },
+                        "consistency": {
+                            "same_model": unified_result.consistency.same_model_consistency,
+                            "cross_model": unified_result.consistency.cross_model_consistency,
+                            "risk_agreement": unified_result.consistency.risk_level_agreement,
+                            "semantic_similarity": unified_result.consistency.semantic_similarity,
+                            "consistency_score": unified_result.consistency.consistency_score,
+                        },
+                        "agent_efficiency": {
+                            "intent_correctness": unified_result.agent_efficiency.intent_correctness,
+                            "plan_quality": unified_result.agent_efficiency.plan_quality,
+                            "tool_choice": unified_result.agent_efficiency.tool_choice_correctness,
+                            "tool_completeness": unified_result.agent_efficiency.tool_completeness,
+                            "trajectory_match": unified_result.agent_efficiency.trajectory_match,
+                            "final_answer": unified_result.agent_efficiency.final_answer_quality,
+                            "overall_score": unified_result.agent_efficiency.overall_score,
+                        },
+                        "overall_quality_score": unified_result.overall_quality_score,
+                        "libraries_used": unified_result.libraries_used,
+                    }
+
+                    # Log unified metrics to sheets
+                    if wf_logger:
+                        wf_logger.log_unified_metrics(
+                            run_id=run_id,
+                            company_name=company_name,
+                            # Accuracy
+                            faithfulness=unified_result.accuracy.faithfulness,
+                            hallucination=unified_result.accuracy.hallucination,
+                            answer_relevancy=unified_result.accuracy.answer_relevancy,
+                            factual_accuracy=unified_result.accuracy.factual_accuracy,
+                            final_answer_quality=unified_result.accuracy.final_answer_quality,
+                            accuracy_score=unified_result.accuracy.accuracy_score,
+                            # Consistency
+                            same_model_consistency=unified_result.consistency.same_model_consistency,
+                            cross_model_consistency=unified_result.consistency.cross_model_consistency,
+                            risk_level_agreement=unified_result.consistency.risk_level_agreement,
+                            semantic_similarity=unified_result.consistency.semantic_similarity,
+                            consistency_score=unified_result.consistency.consistency_score,
+                            # Agent efficiency
+                            intent_correctness=unified_result.agent_efficiency.intent_correctness,
+                            plan_quality=unified_result.agent_efficiency.plan_quality,
+                            tool_choice_correctness=unified_result.agent_efficiency.tool_choice_correctness,
+                            tool_completeness=unified_result.agent_efficiency.tool_completeness,
+                            trajectory_match=unified_result.agent_efficiency.trajectory_match,
+                            agent_final_answer=unified_result.agent_efficiency.final_answer_quality,
+                            agent_efficiency_score=unified_result.agent_efficiency.overall_score,
+                            # Overall
+                            overall_quality_score=unified_result.overall_quality_score,
+                            libraries_used=unified_result.libraries_used,
+                            evaluation_time_ms=unified_result.evaluation_time_ms,
+                        )
+
+                    logger.info(f"Unified Evaluation - Accuracy: {unified_result.accuracy.accuracy_score:.2f}, "
+                               f"Consistency: {unified_result.consistency.consistency_score:.2f}, "
+                               f"Agent: {unified_result.agent_efficiency.overall_score:.2f}, "
+                               f"Overall: {unified_result.overall_quality_score:.2f}")
+
+                except Exception as unified_error:
+                    logger.warning(f"Unified evaluation failed: {unified_error}")
+
+            # Run DeepEval separately (uses Groq, logs to deepeval_metrics sheet)
+            if DEEPEVAL_EVALUATOR_AVAILABLE and evaluate_with_deepeval:
+                try:
+                    deepeval_result = evaluate_with_deepeval(
+                        state=state,
+                        run_id=run_id,
+                        log_to_sheets=True,
+                        provider="groq",  # Use free Groq model
+                    )
+
+                    # Add DeepEval metrics to evaluation result
+                    evaluation["deepeval_metrics"] = {
+                        "answer_relevancy": deepeval_result.answer_relevancy,
+                        "faithfulness": deepeval_result.faithfulness,
+                        "hallucination": deepeval_result.hallucination,
+                        "contextual_relevancy": deepeval_result.contextual_relevancy,
+                        "bias": deepeval_result.bias,
+                        "overall_score": deepeval_result.overall_score,
+                    }
+
+                    logger.info(f"DeepEval - Relevancy: {deepeval_result.answer_relevancy:.2f}, "
+                               f"Faithfulness: {deepeval_result.faithfulness:.2f}, "
+                               f"Hallucination: {deepeval_result.hallucination:.2f}, "
+                               f"Overall: {deepeval_result.overall_score:.2f}")
+
+                except Exception as deepeval_error:
+                    logger.warning(f"DeepEval evaluation failed: {deepeval_error}")
+
+            # Fetch and log LangSmith traces for this run
+            if LANGSMITH_INTEGRATION_AVAILABLE and get_langsmith_integration:
+                try:
+                    langsmith_integration = get_langsmith_integration()
+                    if langsmith_integration.client:
+                        # Log current run trace (will fetch from LangSmith API)
+                        logged = langsmith_integration.fetch_and_log_traces(limit=5, hours_back=1)
+                        if logged > 0:
+                            logger.info(f"Logged {logged} LangSmith traces to sheets")
+                except Exception as langsmith_error:
+                    logger.debug(f"LangSmith trace logging skipped: {langsmith_error}")
 
         return {
             "evaluation": evaluation,

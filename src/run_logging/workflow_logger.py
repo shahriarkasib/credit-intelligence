@@ -27,12 +27,20 @@ class WorkflowLogger:
         self.run_logger = get_run_logger()
         self.sheets_logger = get_sheets_logger()
         self._step_counter: Dict[str, int] = {}  # run_id -> step count
+        self._llm_call_counter: Dict[str, int] = {}  # run_id -> llm call count
         self._run_info: Dict[str, Dict[str, Any]] = {}  # run_id -> run info
 
-    def start_run(self, company_name: str, context: Dict[str, Any] = None) -> str:
-        """Start a new run and return run_id."""
-        run_id = self.run_logger.start_run(company_name, context)
+    def start_run(self, company_name: str, context: Dict[str, Any] = None, run_id: str = None) -> str:
+        """Start a new run and return run_id.
+
+        Args:
+            company_name: Company being analyzed
+            context: Additional context
+            run_id: Optional run_id to use (if not provided, generates a new one)
+        """
+        run_id = self.run_logger.start_run(company_name, context, run_id=run_id)
         self._step_counter[run_id] = 0
+        self._llm_call_counter[run_id] = 0
         self._run_info[run_id] = {
             "company_name": company_name,
             "started_at": time.time(),
@@ -46,6 +54,13 @@ class WorkflowLogger:
         self._step_counter[run_id] += 1
         return self._step_counter[run_id]
 
+    def _increment_llm_calls(self, run_id: str) -> int:
+        """Increment and return LLM call counter."""
+        if run_id not in self._llm_call_counter:
+            self._llm_call_counter[run_id] = 0
+        self._llm_call_counter[run_id] += 1
+        return self._llm_call_counter[run_id]
+
     def log_step(
         self,
         run_id: str,
@@ -56,9 +71,17 @@ class WorkflowLogger:
         execution_time_ms: float,
         success: bool = True,
         error: str = None,
+        # Node tracking fields
+        node: str = "",
+        agent_name: str = "",
+        model: str = "",
+        temperature: float = None,
     ):
         """Log a workflow step to all storage."""
         step_number = self._get_step_number(run_id)
+
+        # Use step_name as node if not provided
+        effective_node = node or step_name
 
         # Log to MongoDB (full data - no truncation)
         if self.run_logger.is_connected():
@@ -78,6 +101,10 @@ class WorkflowLogger:
             self.sheets_logger.log_step(
                 run_id=run_id,
                 company_name=company_name,
+                node=effective_node,
+                agent_name=agent_name,
+                model=model,
+                temperature=temperature,
                 step_name=step_name,
                 step_number=step_number,
                 input_data=input_data,
@@ -103,8 +130,15 @@ class WorkflowLogger:
         input_cost: float = 0.0,
         output_cost: float = 0.0,
         total_cost: float = 0.0,
+        # Node tracking fields
+        node: str = "",
+        agent_name: str = "",
+        temperature: float = None,
     ):
         """Log an LLM API call with cost tracking to all storage."""
+        # Increment LLM call counter
+        self._increment_llm_calls(run_id)
+
         # Calculate cost if not provided
         if total_cost == 0 and (prompt_tokens > 0 or completion_tokens > 0):
             try:
@@ -139,6 +173,9 @@ class WorkflowLogger:
             self.sheets_logger.log_llm_call(
                 run_id=run_id,
                 company_name=company_name,
+                node=node or call_type,
+                agent_name=agent_name,
+                temperature=temperature,
                 call_type=call_type,
                 model=model,
                 prompt=prompt,
@@ -162,6 +199,11 @@ class WorkflowLogger:
         records_found: int,
         data_summary: Any,
         execution_time_ms: float,
+        # Node tracking fields
+        node: str = "fetch_api_data",
+        agent_name: str = "data_fetcher",
+        step_number: int = 0,
+        error: str = "",
     ):
         """Log a data source fetch to all storage."""
         # Log to MongoDB (full data - no truncation)
@@ -181,10 +223,14 @@ class WorkflowLogger:
                 run_id=run_id,
                 company_name=company_name,
                 source_name=source_name,
+                node=node,
+                agent_name=agent_name,
+                step_number=step_number,
                 success=success,
                 records_found=records_found,
                 data_summary=str(data_summary)[:50000] if data_summary else "No data",  # Increased limit
                 execution_time_ms=execution_time_ms,
+                error=error,
             )
 
         logger.debug(f"[{run_id[:8]}] Data source {source_name}: {records_found} records ({execution_time_ms:.0f}ms)")
@@ -199,14 +245,24 @@ class WorkflowLogger:
         execution_time_ms: float,
         success: bool = True,
         error: str = None,
+        # Node tracking fields
+        node: str = "",
+        agent_name: str = "",
+        step_number: int = 0,
     ):
         """Log a tool call to all storage."""
+        # Use tool_name as node if not provided
+        effective_node = node or tool_name
+
         # Log to Google Sheets
         if self.sheets_logger.is_connected():
             self.sheets_logger.log_tool_call(
                 run_id=run_id,
                 company_name=company_name,
                 tool_name=tool_name,
+                node=effective_node,
+                agent_name=agent_name,
+                step_number=step_number,
                 tool_input=tool_input,
                 tool_output=tool_output,
                 execution_time_ms=execution_time_ms,
@@ -226,6 +282,11 @@ class WorkflowLogger:
         recommendations: List[str],
         risk_factors: List[str],
         positive_factors: List[str],
+        # Node tracking fields
+        node: str = "synthesize",
+        agent_name: str = "llm_analyst",
+        model: str = "",
+        temperature: float = None,
     ):
         """Log assessment to all storage."""
         # Log to Google Sheets
@@ -233,6 +294,10 @@ class WorkflowLogger:
             self.sheets_logger.log_assessment(
                 run_id=run_id,
                 company_name=company_name,
+                node=node,
+                agent_name=agent_name,
+                model=model,
+                temperature=temperature,
                 risk_level=risk_level,
                 credit_score=credit_score,
                 confidence=confidence,
@@ -253,6 +318,10 @@ class WorkflowLogger:
         data_reasoning: str = "",
         synthesis_reasoning: str = "",
         details: Dict[str, Any] = None,
+        # Node tracking fields
+        node: str = "evaluate",
+        agent_name: str = "workflow_evaluator",
+        model: str = "",
     ):
         """Log evaluation with reasoning to all storage."""
         # Log to Google Sheets
@@ -260,6 +329,9 @@ class WorkflowLogger:
             self.sheets_logger.log_evaluation(
                 run_id=run_id,
                 company_name=company_name,
+                node=node,
+                agent_name=agent_name,
+                model=model,
                 tool_selection_score=tool_selection_score,
                 data_quality_score=data_quality_score,
                 synthesis_score=synthesis_score,
@@ -283,6 +355,11 @@ class WorkflowLogger:
         missing_tools: List[str] = None,
         extra_tools: List[str] = None,
         reasoning: str = "",
+        # Node tracking fields
+        node: str = "create_plan",
+        agent_name: str = "planner",
+        step_number: int = 0,
+        model: str = "",
     ):
         """Log tool selection with reasoning to all storage."""
         # Log to Google Sheets
@@ -290,6 +367,10 @@ class WorkflowLogger:
             self.sheets_logger.log_tool_selection(
                 run_id=run_id,
                 company_name=company_name,
+                node=node,
+                agent_name=agent_name,
+                step_number=step_number,
+                model=model,
                 selected_tools=selected_tools,
                 expected_tools=expected_tools,
                 precision=precision,
@@ -312,6 +393,10 @@ class WorkflowLogger:
         consistency_data: Dict[str, Any],
         risk_levels: List[str],
         credit_scores: List[int],
+        # Node tracking fields
+        node: str = "evaluate",
+        agent_name: str = "consistency_evaluator",
+        step_number: int = 0,
     ):
         """Log consistency evaluation to all storage."""
         # Log to MongoDB (model_name not yet supported in MongoDB schema)
@@ -334,6 +419,9 @@ class WorkflowLogger:
             self.sheets_logger.log_consistency_score(
                 run_id=run_id,
                 company_name=company_name,
+                node=node,
+                agent_name=agent_name,
+                step_number=step_number,
                 model_name=model_name,
                 evaluation_type=evaluation_type,
                 num_runs=num_runs,
@@ -361,14 +449,23 @@ class WorkflowLogger:
             if not tools_used and "api_data" in final_result:
                 tools_used = list(final_result["api_data"].keys())
 
+            # Get counters before cleanup
+            total_steps = self._step_counter.get(run_id, 0)
+            total_llm_calls = self._llm_call_counter.get(run_id, 0)
+
             self.sheets_logger.log_run(
                 run_id=run_id,
                 company_name=run_info["company_name"],
+                node="complete_run",
+                agent_name="credit_intelligence_workflow",
+                model=final_result.get("model", ""),
                 status="completed",
                 risk_level=final_result.get("risk_level", ""),
                 credit_score=final_result.get("credit_score", 0),
                 confidence=final_result.get("confidence", 0),
                 total_time_ms=total_time_ms,
+                total_steps=total_steps,
+                total_llm_calls=total_llm_calls,
                 tools_used=tools_used,
                 evaluation_score=final_result.get("evaluation_score", 0),
             )
@@ -376,6 +473,8 @@ class WorkflowLogger:
         # Cleanup
         if run_id in self._step_counter:
             del self._step_counter[run_id]
+        if run_id in self._llm_call_counter:
+            del self._llm_call_counter[run_id]
         if run_id in self._run_info:
             del self._run_info[run_id]
 
@@ -384,6 +483,8 @@ class WorkflowLogger:
         self.run_logger.fail_run(run_id, error)
         if run_id in self._step_counter:
             del self._step_counter[run_id]
+        if run_id in self._llm_call_counter:
+            del self._llm_call_counter[run_id]
 
     def _truncate_data(self, data: Dict[str, Any], max_str_len: int = 500) -> Dict[str, Any]:
         """Truncate string values in dict for storage."""
@@ -412,6 +513,11 @@ class WorkflowLogger:
         agent_name: str,
         model: str,
         prompt: str,
+        # Node tracking fields
+        node: str = "",
+        step_number: int = 0,
+        temperature: float = None,
+        # Original fields
         context: str = "",
         response: str = "",
         reasoning: str = "",
@@ -431,6 +537,12 @@ class WorkflowLogger:
         - prompt, context, response, reasoning
         - error, tokens, response_time_ms, costs
         """
+        # Increment LLM call counter
+        self._increment_llm_calls(run_id)
+
+        # Use agent_name as node if not provided
+        effective_node = node or agent_name
+
         # Calculate cost if not provided
         if total_cost == 0 and (prompt_tokens > 0 or completion_tokens > 0):
             try:
@@ -477,6 +589,9 @@ class WorkflowLogger:
                 agent_name=agent_name,
                 model=model,
                 prompt=prompt,
+                node=effective_node,
+                step_number=step_number,
+                temperature=temperature,
                 context=context,
                 response=response,
                 reasoning=reasoning,
@@ -496,6 +611,11 @@ class WorkflowLogger:
         run_id: str,
         company_name: str,
         status: str = "completed",
+        # Node tracking fields
+        node: str = "complete_run",
+        agent_name: str = "workflow_orchestrator",
+        model: str = "",
+        temperature: float = None,
         # Assessment
         risk_level: str = "",
         credit_score: int = 0,
@@ -514,6 +634,7 @@ class WorkflowLogger:
         warnings: List[str] = None,
         tools_used: List[str] = None,
         agents_used: List[str] = None,
+        total_steps: int = 0,
         # Timing
         started_at: str = "",
         completed_at: str = "",
@@ -568,6 +689,11 @@ class WorkflowLogger:
                 run_id=run_id,
                 company_name=company_name,
                 status=status,
+                node=node,
+                agent_name=agent_name,
+                model=model,
+                temperature=temperature,
+                total_steps=total_steps,
                 risk_level=risk_level,
                 credit_score=credit_score,
                 confidence=confidence,
@@ -615,6 +741,10 @@ class WorkflowLogger:
         tool_details: Dict[str, Any] = None,
         trajectory_details: Dict[str, Any] = None,
         answer_details: Dict[str, Any] = None,
+        # Node tracking fields
+        node: str = "evaluate",
+        agent_name: str = "agent_efficiency_evaluator",
+        model: str = "",
     ):
         """
         Log agent efficiency metrics (Task 4 compliant).
@@ -655,6 +785,33 @@ class WorkflowLogger:
             self.sheets_logger.log_agent_metrics(
                 run_id=run_id,
                 company_name=company_name,
+                node=node,
+                agent_name=agent_name,
+                model=model,
+                intent_correctness=intent_correctness,
+                plan_quality=plan_quality,
+                tool_choice_correctness=tool_choice_correctness,
+                tool_completeness=tool_completeness,
+                trajectory_match=trajectory_match,
+                final_answer_quality=final_answer_quality,
+                step_count=step_count,
+                tool_calls=tool_calls,
+                latency_ms=latency_ms,
+                overall_score=overall_score,
+                intent_details=intent_details,
+                plan_details=plan_details,
+                tool_details=tool_details,
+                trajectory_details=trajectory_details,
+                answer_details=answer_details,
+            )
+
+            # Also log to openevals_metrics sheet
+            self.sheets_logger.log_openevals_metrics(
+                run_id=run_id,
+                company_name=company_name,
+                model_used=model,
+                node=node,
+                agent_name=agent_name,
                 intent_correctness=intent_correctness,
                 plan_quality=plan_quality,
                 tool_choice_correctness=tool_choice_correctness,
@@ -674,11 +831,105 @@ class WorkflowLogger:
 
         logger.info(f"[{run_id[:8]}] Agent metrics logged: overall_score={overall_score:.4f}")
 
+    def log_unified_metrics(
+        self,
+        run_id: str,
+        company_name: str,
+        # Accuracy metrics
+        faithfulness: float = 0.0,
+        hallucination: float = 0.0,
+        answer_relevancy: float = 0.0,
+        factual_accuracy: float = 0.0,
+        final_answer_quality: float = 0.0,
+        accuracy_score: float = 0.0,
+        # Consistency metrics
+        same_model_consistency: float = 0.0,
+        cross_model_consistency: float = 0.0,
+        risk_level_agreement: float = 0.0,
+        semantic_similarity: float = 0.0,
+        consistency_score: float = 0.0,
+        # Agent efficiency metrics
+        intent_correctness: float = 0.0,
+        plan_quality: float = 0.0,
+        tool_choice_correctness: float = 0.0,
+        tool_completeness: float = 0.0,
+        trajectory_match: float = 0.0,
+        agent_final_answer: float = 0.0,
+        agent_efficiency_score: float = 0.0,
+        # Overall
+        overall_quality_score: float = 0.0,
+        libraries_used: List[str] = None,
+        evaluation_time_ms: float = 0.0,
+        # Node tracking fields
+        node: str = "evaluate",
+        agent_name: str = "unified_evaluator",
+        model: str = "",
+    ):
+        """
+        Log unified evaluation metrics (DeepEval + OpenEvals + Built-in).
+
+        Logs to Google Sheets (unified_metrics sheet).
+        """
+        # Log to Google Sheets
+        if self.sheets_logger.is_connected():
+            self.sheets_logger.log_unified_metrics(
+                run_id=run_id,
+                company_name=company_name,
+                node=node,
+                agent_name=agent_name,
+                model=model,
+                faithfulness=faithfulness,
+                hallucination=hallucination,
+                answer_relevancy=answer_relevancy,
+                factual_accuracy=factual_accuracy,
+                final_answer_quality=final_answer_quality,
+                accuracy_score=accuracy_score,
+                same_model_consistency=same_model_consistency,
+                cross_model_consistency=cross_model_consistency,
+                risk_level_agreement=risk_level_agreement,
+                semantic_similarity=semantic_similarity,
+                consistency_score=consistency_score,
+                intent_correctness=intent_correctness,
+                plan_quality=plan_quality,
+                tool_choice_correctness=tool_choice_correctness,
+                tool_completeness=tool_completeness,
+                trajectory_match=trajectory_match,
+                agent_final_answer=agent_final_answer,
+                agent_efficiency_score=agent_efficiency_score,
+                overall_quality_score=overall_quality_score,
+                libraries_used=libraries_used,
+                evaluation_time_ms=evaluation_time_ms,
+            )
+
+            # Also log DeepEval metrics if available (faithfulness, hallucination are from DeepEval)
+            if faithfulness > 0 or hallucination > 0 or answer_relevancy > 0:
+                self.sheets_logger.log_deepeval_metrics(
+                    run_id=run_id,
+                    company_name=company_name,
+                    model_used=model,
+                    node=node,
+                    agent_name=agent_name,
+                    answer_relevancy=answer_relevancy,
+                    faithfulness=faithfulness,
+                    hallucination=hallucination,
+                    overall_score=accuracy_score,
+                    evaluation_time_ms=evaluation_time_ms,
+                )
+
+        logger.info(f"[{run_id[:8]}] Unified metrics logged: accuracy={accuracy_score:.2f}, "
+                   f"consistency={consistency_score:.2f}, agent={agent_efficiency_score:.2f}, "
+                   f"overall={overall_quality_score:.2f}")
+
     def log_llm_judge_result(
         self,
         run_id: str,
         company_name: str,
         model_used: str,
+        # Node tracking fields
+        node: str = "evaluate",
+        agent_name: str = "llm_judge",
+        step_number: int = 0,
+        temperature: float = None,
         # Dimension scores (0-1)
         accuracy_score: float = 0.0,
         completeness_score: float = 0.0,
@@ -713,6 +964,10 @@ class WorkflowLogger:
                 run_id=run_id,
                 company_name=company_name,
                 model_used=model_used,
+                node=node,
+                agent_name=agent_name,
+                step_number=step_number,
+                temperature=temperature,
                 accuracy_score=accuracy_score,
                 completeness_score=completeness_score,
                 consistency_score=consistency_score,

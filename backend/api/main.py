@@ -78,6 +78,30 @@ except ImportError as e:
     LangGraphEventLogger = None
     get_langgraph_logger = None
 
+# Import set_langgraph_event_logger for manual tool event logging
+try:
+    from agents.graph import set_langgraph_event_logger
+    SET_LOGGER_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"set_langgraph_event_logger not available: {e}")
+    SET_LOGGER_AVAILABLE = False
+    set_langgraph_event_logger = None
+
+# Import external configuration manager
+try:
+    from config.external_config import (
+        get_config_manager,
+        get_sanitized_config,
+        get_credential_status,
+        get_credential_categories,
+        update_env_file,
+        reload_config,
+    )
+    CONFIG_MANAGER_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"External config manager not available: {e}")
+    CONFIG_MANAGER_AVAILABLE = False
+
 
 # =============================================================================
 # PYDANTIC MODELS
@@ -102,6 +126,40 @@ class PromptTestRequest(BaseModel):
     """Request to test a prompt with sample data."""
     prompt_id: str
     variables: Dict[str, str] = {}
+
+
+# Configuration management models
+class LLMProviderUpdate(BaseModel):
+    """Update for a single LLM provider."""
+    enabled: Optional[bool] = None
+    default_model: Optional[str] = None
+
+
+class LLMConfigUpdate(BaseModel):
+    """Update LLM configuration."""
+    default_provider: Optional[str] = None
+    default_temperature: Optional[float] = None
+    default_max_tokens: Optional[int] = None
+    providers: Optional[Dict[str, LLMProviderUpdate]] = None
+
+
+class DataSourceUpdate(BaseModel):
+    """Update for a single data source."""
+    enabled: Optional[bool] = None
+    settings: Optional[Dict[str, Any]] = None
+
+
+class CredentialUpdate(BaseModel):
+    """Update a single credential."""
+    value: str
+
+
+class RuntimeConfigUpdate(BaseModel):
+    """Update runtime settings."""
+    hot_reload: Optional[bool] = None
+    watch_interval_seconds: Optional[int] = None
+    cache_enabled: Optional[bool] = None
+    cache_ttl_seconds: Optional[int] = None
 
 
 class WorkflowStep(BaseModel):
@@ -313,7 +371,7 @@ async def run_workflow_with_streaming(
                 output_summary = f"Created {len(task_plan)} tasks"
                 output_data = {
                     "num_tasks": len(task_plan),
-                    "task_plan": task_plan[:5],  # First 5 tasks
+                    "task_plan": task_plan,  # Full task plan
                     "validation_message": source.get("validation_message", ""),
                 }
 
@@ -376,10 +434,10 @@ async def run_workflow_with_streaming(
                         "risk_level": risk,
                         "credit_score": score,
                         "confidence": confidence,
-                        "reasoning": reasoning[:500] if reasoning else "",
-                        "risk_factors": assessment.get("risk_factors", [])[:5],
-                        "positive_factors": assessment.get("positive_factors", [])[:5],
-                        "recommendations": assessment.get("recommendations", source.get("recommendations", []))[:5],
+                        "reasoning": reasoning if reasoning else "",
+                        "risk_factors": assessment.get("risk_factors", []),
+                        "positive_factors": assessment.get("positive_factors", []),
+                        "recommendations": assessment.get("recommendations", source.get("recommendations", [])),
                         "llm_consistency": {
                             "num_calls": llm_consistency.get("num_llm_calls", 0),
                             "same_model": llm_consistency.get("same_model_consistency", 0),
@@ -393,7 +451,7 @@ async def run_workflow_with_streaming(
                     output_data = {
                         "risk_level": source.get("risk_level", "unknown"),
                         "credit_score": source.get("credit_score", 0),
-                        "assessment_raw": str(assessment)[:500] if assessment else "No assessment"
+                        "assessment_raw": str(assessment) if assessment else "No assessment"
                     }
 
             elif node_name == "save_to_database":
@@ -454,6 +512,11 @@ async def run_workflow_with_streaming(
             )
             logger.info(f"LangGraph event logger initialized for run {run_id}")
 
+            # Set the event logger globally so graph nodes can log tool events
+            if SET_LOGGER_AVAILABLE and set_langgraph_event_logger:
+                set_langgraph_event_logger(event_logger)
+                logger.info("Event logger set globally for tool event logging")
+
         def run_graph_streaming():
             """Run graph with streaming and put results in queue."""
             try:
@@ -461,6 +524,7 @@ async def run_workflow_with_streaming(
                     'company_name': company_name,
                     'jurisdiction': jurisdiction,
                     'ticker': ticker,
+                    'run_id': run_id,  # Pass API run_id to graph
                 }):
                     # event is a dict with node_name -> output
                     result_queue.put(("step", event))
@@ -485,6 +549,7 @@ async def run_workflow_with_streaming(
                         'company_name': company_name,
                         'jurisdiction': jurisdiction,
                         'ticker': ticker,
+                        'run_id': run_id,  # Pass API run_id to graph
                     },
                     version="v2"
                 ):
@@ -615,6 +680,10 @@ async def run_workflow_with_streaming(
 
         logger.info(f"Workflow completed for {company_name}: {workflow_status.result}")
 
+        # Clear the global event logger
+        if SET_LOGGER_AVAILABLE and set_langgraph_event_logger:
+            set_langgraph_event_logger(None)
+
     except Exception as e:
         logger.error(f"Workflow failed: {e}")
         workflow_status.status = "failed"
@@ -634,6 +703,10 @@ async def run_workflow_with_streaming(
                 "status": workflow_status.model_dump()
             }
         })
+
+        # Clear the global event logger on error too
+        if SET_LOGGER_AVAILABLE and set_langgraph_event_logger:
+            set_langgraph_event_logger(None)
 
     return workflow_status
 
@@ -1163,6 +1236,313 @@ async def get_run_statistics():
     return {
         "statistics": stats,
         "source": "mongodb"
+    }
+
+
+# =============================================================================
+# CONFIGURATION MANAGEMENT ENDPOINTS
+# =============================================================================
+
+@app.get("/config")
+async def get_config():
+    """
+    Get full configuration (with secrets masked).
+
+    Returns sanitized configuration safe for display in UI.
+    """
+    if not CONFIG_MANAGER_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Configuration manager not available")
+
+    config = get_sanitized_config()
+    manager = get_config_manager()
+
+    return {
+        "config": config,
+        "config_path": str(manager.config_path),
+        "last_modified": datetime.fromtimestamp(manager._last_modified).isoformat() if manager._last_modified else None,
+        "hot_reload_enabled": manager._watching,
+    }
+
+
+@app.get("/config/llm")
+async def get_llm_config():
+    """
+    Get LLM provider configuration.
+
+    Returns providers, models, and default settings.
+    """
+    if not CONFIG_MANAGER_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Configuration manager not available")
+
+    manager = get_config_manager()
+    llm_config = manager.get_llm_config()
+
+    # Mask API keys in response
+    providers = {}
+    for name, config in llm_config.get("providers", {}).items():
+        providers[name] = {
+            "enabled": config.get("enabled", False),
+            "default_model": config.get("default_model", "primary"),
+            "models": config.get("models", {}),
+            "has_api_key": bool(config.get("api_key")),
+        }
+
+    return {
+        "default_provider": llm_config.get("default_provider", "groq"),
+        "default_temperature": llm_config.get("default_temperature", 0.1),
+        "default_max_tokens": llm_config.get("default_max_tokens", 2000),
+        "providers": providers,
+    }
+
+
+@app.put("/config/llm")
+async def update_llm_config(request: LLMConfigUpdate):
+    """
+    Update LLM configuration.
+
+    Updates are saved to settings.yaml and hot-reloaded.
+    """
+    if not CONFIG_MANAGER_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Configuration manager not available")
+
+    manager = get_config_manager()
+    updated = []
+
+    # Update default provider
+    if request.default_provider is not None:
+        manager.update_and_save("llm.default_provider", request.default_provider)
+        updated.append("default_provider")
+
+    # Update temperature
+    if request.default_temperature is not None:
+        manager.update_and_save("llm.default_temperature", request.default_temperature)
+        updated.append("default_temperature")
+
+    # Update max tokens
+    if request.default_max_tokens is not None:
+        manager.update_and_save("llm.default_max_tokens", request.default_max_tokens)
+        updated.append("default_max_tokens")
+
+    # Update provider settings
+    if request.providers:
+        for provider_name, provider_update in request.providers.items():
+            if provider_update.enabled is not None:
+                manager.update_and_save(f"llm.providers.{provider_name}.enabled", provider_update.enabled)
+                updated.append(f"providers.{provider_name}.enabled")
+            if provider_update.default_model is not None:
+                manager.update_and_save(f"llm.providers.{provider_name}.default_model", provider_update.default_model)
+                updated.append(f"providers.{provider_name}.default_model")
+
+    return {
+        "success": True,
+        "updated": updated,
+        "message": f"Updated {len(updated)} settings"
+    }
+
+
+@app.get("/config/data-sources")
+async def get_data_sources_config():
+    """
+    Get data sources configuration.
+    """
+    if not CONFIG_MANAGER_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Configuration manager not available")
+
+    manager = get_config_manager()
+    data_sources = manager.get_data_sources_config()
+
+    return {
+        "data_sources": data_sources
+    }
+
+
+@app.put("/config/data-sources/{source_id}")
+async def update_data_source(source_id: str, request: DataSourceUpdate):
+    """
+    Update a data source configuration.
+    """
+    if not CONFIG_MANAGER_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Configuration manager not available")
+
+    manager = get_config_manager()
+    updated = []
+
+    if request.enabled is not None:
+        manager.update_and_save(f"data_sources.{source_id}.enabled", request.enabled)
+        updated.append("enabled")
+
+    if request.settings:
+        for key, value in request.settings.items():
+            manager.update_and_save(f"data_sources.{source_id}.{key}", value)
+            updated.append(key)
+
+    return {
+        "success": True,
+        "source_id": source_id,
+        "updated": updated
+    }
+
+
+@app.get("/config/credentials")
+async def get_credentials_config():
+    """
+    Get credentials status (masked values, never actual secrets).
+
+    Returns which credentials are set and their masked values.
+    """
+    if not CONFIG_MANAGER_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Configuration manager not available")
+
+    credentials = get_credential_status()
+    categories = get_credential_categories()
+
+    return {
+        "credentials": credentials,
+        "categories": categories
+    }
+
+
+@app.put("/config/credentials/{credential_id}")
+async def update_credential(credential_id: str, request: CredentialUpdate):
+    """
+    Update a credential (writes to .env file).
+
+    The value is written to the .env file and the environment is updated.
+    The actual value is NEVER returned in the response.
+    """
+    if not CONFIG_MANAGER_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Configuration manager not available")
+
+    # Map credential ID to env var name
+    credential_map = {
+        "groq": "GROQ_API_KEY",
+        "openai": "OPENAI_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+        "google_ai": "GOOGLE_API_KEY",
+        "finnhub": "FINNHUB_API_KEY",
+        "tavily": "TAVILY_API_KEY",
+        "courtlistener": "COURTLISTENER_API_KEY",
+        "opencorporates": "OPENCORPORATES_API_KEY",
+        "parallel_ai": "PARALLEL_API_KEY",
+        "sec_edgar": "SEC_EDGAR_USER_AGENT",
+        "mongodb": "MONGODB_URI",
+        "google_sheets_creds": "GOOGLE_CREDENTIALS_PATH",
+        "google_sheets_id": "GOOGLE_SPREADSHEET_ID",
+        "langchain": "LANGCHAIN_API_KEY",
+        "langfuse_public": "LANGFUSE_PUBLIC_KEY",
+        "langfuse_secret": "LANGFUSE_SECRET_KEY",
+    }
+
+    if credential_id not in credential_map:
+        raise HTTPException(status_code=400, detail=f"Unknown credential: {credential_id}")
+
+    env_key = credential_map[credential_id]
+    success = update_env_file(env_key, request.value)
+
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to update credential")
+
+    # Get updated status (masked)
+    updated_status = get_credential_status().get(credential_id, {})
+
+    return {
+        "success": True,
+        "credential_id": credential_id,
+        "env_key": env_key,
+        "is_set": updated_status.get("is_set", False),
+        "masked": updated_status.get("masked"),
+    }
+
+
+@app.get("/config/runtime")
+async def get_runtime_config():
+    """
+    Get runtime configuration settings.
+    """
+    if not CONFIG_MANAGER_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Configuration manager not available")
+
+    manager = get_config_manager()
+    runtime = manager.get_runtime_config()
+
+    return {
+        "runtime": runtime,
+        "hot_reload_active": manager._watching,
+        "config_path": str(manager.config_path),
+    }
+
+
+@app.put("/config/runtime")
+async def update_runtime_config(request: RuntimeConfigUpdate):
+    """
+    Update runtime configuration settings.
+    """
+    if not CONFIG_MANAGER_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Configuration manager not available")
+
+    manager = get_config_manager()
+    updated = []
+
+    if request.hot_reload is not None:
+        manager.update_and_save("runtime.hot_reload", request.hot_reload)
+        updated.append("hot_reload")
+
+        # Apply change immediately
+        if request.hot_reload and not manager._watching:
+            manager.start_watching()
+        elif not request.hot_reload and manager._watching:
+            manager.stop_watching()
+
+    if request.watch_interval_seconds is not None:
+        manager.update_and_save("runtime.watch_interval_seconds", request.watch_interval_seconds)
+        updated.append("watch_interval_seconds")
+
+    if request.cache_enabled is not None:
+        manager.update_and_save("runtime.cache.enabled", request.cache_enabled)
+        updated.append("cache_enabled")
+
+    if request.cache_ttl_seconds is not None:
+        manager.update_and_save("runtime.cache.ttl_seconds", request.cache_ttl_seconds)
+        updated.append("cache_ttl_seconds")
+
+    return {
+        "success": True,
+        "updated": updated
+    }
+
+
+@app.post("/config/reload")
+async def force_reload_config():
+    """
+    Force reload configuration from file.
+    """
+    if not CONFIG_MANAGER_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Configuration manager not available")
+
+    success = reload_config()
+
+    return {
+        "success": success,
+        "message": "Configuration reloaded" if success else "No changes detected or reload failed"
+    }
+
+
+@app.get("/config/status")
+async def get_config_status():
+    """
+    Get configuration system status.
+    """
+    if not CONFIG_MANAGER_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Configuration manager not available")
+
+    manager = get_config_manager()
+
+    return {
+        "config_path": str(manager.config_path),
+        "config_exists": manager.config_path.exists(),
+        "last_modified": datetime.fromtimestamp(manager._last_modified).isoformat() if manager._last_modified else None,
+        "hot_reload_enabled": manager._watching,
+        "callbacks_registered": len(manager._callbacks),
     }
 
 

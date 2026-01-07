@@ -45,6 +45,14 @@ except ImportError as e:
     logger.warning(f"Some evaluators not available: {e}")
     EVALUATORS_AVAILABLE = False
 
+# Import sheets logger for logging to dedicated sheets
+try:
+    from run_logging.sheets_logger import get_sheets_logger
+    SHEETS_LOGGER_AVAILABLE = True
+except ImportError:
+    SHEETS_LOGGER_AVAILABLE = False
+    logger.warning("Sheets logger not available")
+
 
 @dataclass
 class ComprehensiveEvaluationResult:
@@ -226,6 +234,9 @@ class EvaluationBrain:
             # Add to history
             self.evaluation_history.append(result)
 
+            # 5. Log to dedicated sheets
+            self._log_to_dedicated_sheets(result, state)
+
             logger.info(
                 f"Comprehensive evaluation complete for {company_name}: "
                 f"overall={result.overall_score:.4f} grade={result.overall_grade}"
@@ -236,6 +247,56 @@ class EvaluationBrain:
             logger.error(f"Evaluation failed: {e}")
 
         return result
+
+    def _log_to_dedicated_sheets(
+        self,
+        result: ComprehensiveEvaluationResult,
+        state: Dict[str, Any],
+    ):
+        """Log evaluation results to dedicated DeepEval and OpenEvals sheets."""
+        if not SHEETS_LOGGER_AVAILABLE:
+            return
+
+        try:
+            sheets_logger = get_sheets_logger()
+
+            # Log OpenEvals/AgentEvals metrics
+            sheets_logger.log_openevals_metrics(
+                run_id=result.run_id,
+                company_name=result.company_name,
+                model_used=state.get("model", ""),
+                node="evaluate",
+                node_type="agent",
+                agent_name="evaluation_brain",
+                # Intent & Planning
+                intent_correctness=result.intent_correctness,
+                plan_quality=result.plan_quality,
+                # Tool usage
+                tool_choice_correctness=result.tool_choice_correctness,
+                tool_completeness=result.tool_completeness,
+                # Execution
+                trajectory_match=result.trajectory_match,
+                final_answer_quality=result.final_answer_quality,
+                # Execution stats
+                step_count=result.agent_details.get("step_count", 0),
+                tool_calls=result.agent_details.get("tool_calls", 0),
+                latency_ms=result.total_execution_time_ms,
+                # Overall
+                overall_score=result.agent_overall,
+                # Details
+                intent_details=result.agent_details.get("intent", {}),
+                plan_details=result.agent_details.get("plan", {}),
+                tool_details=result.agent_details.get("tool", {}),
+                trajectory_details=result.agent_details.get("trajectory", {}),
+                answer_details=result.agent_details.get("answer", {}),
+                evaluation_time_ms=result.total_execution_time_ms,
+                status="ok" if not result.errors else "error",
+            )
+
+            logger.debug(f"Logged OpenEvals metrics for run: {result.run_id}")
+
+        except Exception as e:
+            logger.warning(f"Failed to log to dedicated sheets: {e}")
 
     def _evaluate_workflow(
         self,

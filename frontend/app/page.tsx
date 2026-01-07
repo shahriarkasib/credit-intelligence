@@ -18,6 +18,7 @@ import {
   FileText,
   X,
   Settings,
+  SlidersHorizontal,
   List,
   BarChart3,
   Eye,
@@ -25,7 +26,9 @@ import {
   Plus,
   Trash2,
   Download,
-  ExternalLink
+  ExternalLink,
+  HelpCircle,
+  Info
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -124,6 +127,232 @@ interface EvalSummary {
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || ''
 
+// ==================== INFO TOOLTIPS & HELP CONTENT ====================
+
+// Simple tooltip component that shows on hover
+const InfoTooltip = ({ text, children }: { text: string; children?: React.ReactNode }) => {
+  const [show, setShow] = useState(false)
+
+  return (
+    <div className="relative inline-block">
+      <button
+        onMouseEnter={() => setShow(true)}
+        onMouseLeave={() => setShow(false)}
+        onClick={() => setShow(!show)}
+        className="ml-1 text-studio-muted hover:text-studio-accent transition-colors"
+        type="button"
+      >
+        {children || <HelpCircle className="w-4 h-4" />}
+      </button>
+      {show && (
+        <div className="absolute z-50 bottom-full left-1/2 transform -translate-x-1/2 mb-2 w-64 p-3 bg-black border border-studio-border rounded-lg shadow-lg text-xs text-white">
+          <div className="whitespace-pre-wrap">{text}</div>
+          <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 translate-y-1/2 rotate-45 w-2 h-2 bg-black border-r border-b border-studio-border" />
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Help modal with full documentation
+const HelpModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => {
+  if (!isOpen) return null
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={onClose}>
+      <div
+        className="bg-studio-bg border border-studio-border rounded-lg w-full max-w-3xl max-h-[80vh] overflow-auto m-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 bg-studio-bg border-b border-studio-border p-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            <HelpCircle className="w-5 h-5 text-studio-accent" />
+            Understanding Your Credit Analysis
+          </h2>
+          <button onClick={onClose} className="text-studio-muted hover:text-white p-1">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-6 text-sm">
+          {/* Result Metrics */}
+          <section>
+            <h3 className="text-studio-accent font-semibold mb-3 text-base">📊 Result Metrics</h3>
+
+            <div className="space-y-4">
+              <div className="p-3 bg-studio-panel rounded border border-studio-border">
+                <h4 className="font-medium text-green-400 mb-1">Risk Level</h4>
+                <p className="text-studio-muted">
+                  <strong>What it means:</strong> How risky is it to give credit to this company?
+                </p>
+                <ul className="mt-2 space-y-1 text-studio-muted">
+                  <li>• <span className="text-green-400">Low</span> = Very safe, company is financially healthy</li>
+                  <li>• <span className="text-yellow-400">Medium</span> = Some concerns, proceed with caution</li>
+                  <li>• <span className="text-orange-400">High</span> = Significant risk, may have financial troubles</li>
+                  <li>• <span className="text-red-400">Critical</span> = Very dangerous, high chance of default</li>
+                </ul>
+              </div>
+
+              <div className="p-3 bg-studio-panel rounded border border-studio-border">
+                <h4 className="font-medium text-blue-400 mb-1">Credit Score (0-1000)</h4>
+                <p className="text-studio-muted">
+                  <strong>What it means:</strong> A number rating the company's creditworthiness, like a personal credit score but for businesses.
+                </p>
+                <ul className="mt-2 space-y-1 text-studio-muted">
+                  <li>• <span className="text-green-400">800-1000</span> = Excellent - top tier company</li>
+                  <li>• <span className="text-green-400">650-799</span> = Good - reliable company</li>
+                  <li>• <span className="text-yellow-400">500-649</span> = Fair - some concerns</li>
+                  <li>• <span className="text-orange-400">350-499</span> = Poor - high risk</li>
+                  <li>• <span className="text-red-400">0-349</span> = Very Poor - likely to default</li>
+                </ul>
+              </div>
+
+              <div className="p-3 bg-studio-panel rounded border border-studio-border">
+                <h4 className="font-medium text-purple-400 mb-1">Confidence (%)</h4>
+                <p className="text-studio-muted">
+                  <strong>What it means:</strong> How sure is the AI about its assessment?
+                </p>
+                <ul className="mt-2 space-y-1 text-studio-muted">
+                  <li>• <span className="text-green-400">80-100%</span> = Very confident - lots of data available</li>
+                  <li>• <span className="text-yellow-400">60-79%</span> = Moderately confident - some data gaps</li>
+                  <li>• <span className="text-orange-400">40-59%</span> = Low confidence - limited data</li>
+                  <li>• <span className="text-red-400">0-39%</span> = Very uncertain - take results with caution</li>
+                </ul>
+              </div>
+
+              <div className="p-3 bg-studio-panel rounded border border-studio-border">
+                <h4 className="font-medium text-studio-accent mb-1">Eval Score (%)</h4>
+                <p className="text-studio-muted">
+                  <strong>What it means:</strong> How well did the AI perform the analysis? This measures the AI's work quality, NOT the company's quality.
+                </p>
+                <div className="mt-2 p-2 bg-yellow-900/20 border border-yellow-800 rounded">
+                  <p className="text-yellow-400 font-medium">⚠️ Why is Eval Score 0%?</p>
+                  <p className="text-studio-muted mt-1">
+                    This happens when the evaluation step hasn't run yet or there was no evaluation data saved. It does NOT mean the analysis is bad. The Result (Risk Level, Credit Score) is still valid.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Evaluation Metrics */}
+          <section>
+            <h3 className="text-studio-accent font-semibold mb-3 text-base">🎯 Evaluation Metrics (AI Performance)</h3>
+            <p className="text-studio-muted mb-4">
+              These scores measure how well the AI performed the analysis. Think of it like grading a student's homework - these grades are about the AI's work, not the company.
+            </p>
+
+            <div className="space-y-4">
+              <div className="p-3 bg-studio-panel rounded border border-studio-border">
+                <h4 className="font-medium text-blue-400 mb-1">Tool Selection Score</h4>
+                <p className="text-studio-muted">
+                  <strong>What it means:</strong> Did the AI use the right data sources for this company?
+                </p>
+                <div className="mt-2 bg-black/30 p-2 rounded">
+                  <p className="text-studio-muted text-xs mb-2"><strong>How it's calculated:</strong></p>
+                  <ul className="space-y-1 text-studio-muted text-xs">
+                    <li>• <span className="text-green-400">Precision</span>: Of the tools it used, how many were actually useful?</li>
+                    <li>• <span className="text-green-400">Recall</span>: Did it use all the tools it should have?</li>
+                    <li>• <span className="text-green-400">F1 Score</span>: The balance between Precision and Recall</li>
+                  </ul>
+                  <p className="text-studio-muted text-xs mt-2">
+                    Example: If analyzing a public company, it should use SEC filings. If it skipped that, recall goes down. If it used irrelevant sources, precision goes down.
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-3 bg-studio-panel rounded border border-studio-border">
+                <h4 className="font-medium text-purple-400 mb-1">Data Quality Score</h4>
+                <p className="text-studio-muted">
+                  <strong>What it means:</strong> How complete and useful was the data the AI gathered?
+                </p>
+                <div className="mt-2 bg-black/30 p-2 rounded">
+                  <p className="text-studio-muted text-xs mb-2"><strong>Factors considered:</strong></p>
+                  <ul className="space-y-1 text-studio-muted text-xs">
+                    <li>• <span className="text-green-400">Completeness</span>: Did it find financial data, news, legal info?</li>
+                    <li>• <span className="text-green-400">Sources Used</span>: How many different sources provided data?</li>
+                    <li>• <span className="text-green-400">Data Freshness</span>: Is the data recent and relevant?</li>
+                  </ul>
+                  <p className="text-studio-muted text-xs mt-2">
+                    Low score means: Missing important data, couldn't access some sources, or data is outdated.
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-3 bg-studio-panel rounded border border-studio-border">
+                <h4 className="font-medium text-green-400 mb-1">Synthesis Score</h4>
+                <p className="text-studio-muted">
+                  <strong>What it means:</strong> How well did the AI combine all the data into a final assessment?
+                </p>
+                <div className="mt-2 bg-black/30 p-2 rounded">
+                  <p className="text-studio-muted text-xs mb-2"><strong>Checks if the output has:</strong></p>
+                  <ul className="space-y-1 text-studio-muted text-xs">
+                    <li>• A clear risk level</li>
+                    <li>• A credit score with justification</li>
+                    <li>• Specific recommendations</li>
+                    <li>• Reasoning that matches the data</li>
+                  </ul>
+                  <p className="text-studio-muted text-xs mt-2">
+                    Low score means: The AI might have skipped some output fields or the reasoning doesn't fully explain the conclusion.
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-3 bg-studio-panel rounded border border-studio-border">
+                <h4 className="font-medium text-studio-accent mb-1">Overall Score</h4>
+                <p className="text-studio-muted">
+                  <strong>What it means:</strong> The average of Tool Selection, Data Quality, and Synthesis scores.
+                </p>
+                <ul className="mt-2 space-y-1 text-studio-muted">
+                  <li>• <span className="text-green-400">80-100%</span> = Excellent analysis - trust the results</li>
+                  <li>• <span className="text-yellow-400">60-79%</span> = Good analysis - minor issues</li>
+                  <li>• <span className="text-orange-400">40-59%</span> = Fair analysis - review manually</li>
+                  <li>• <span className="text-red-400">0-39%</span> = Poor analysis - may need to re-run or check manually</li>
+                </ul>
+              </div>
+            </div>
+          </section>
+
+          {/* FAQ */}
+          <section>
+            <h3 className="text-studio-accent font-semibold mb-3 text-base">❓ Common Questions</h3>
+
+            <div className="space-y-3">
+              <div className="p-3 bg-studio-panel rounded border border-studio-border">
+                <h4 className="font-medium text-white mb-1">Why is my Eval Score 0%?</h4>
+                <p className="text-studio-muted">
+                  The evaluation step may not have completed or saved. This is a technical issue and doesn't affect the actual credit analysis. Your Risk Level and Credit Score are still valid.
+                </p>
+              </div>
+
+              <div className="p-3 bg-studio-panel rounded border border-studio-border">
+                <h4 className="font-medium text-white mb-1">Why is Tool Selection low?</h4>
+                <p className="text-studio-muted">
+                  Either: (1) Some data sources were unavailable, (2) The company type didn't match available tools (e.g., private company with no SEC filings), or (3) The AI chose unnecessary tools.
+                </p>
+              </div>
+
+              <div className="p-3 bg-studio-panel rounded border border-studio-border">
+                <h4 className="font-medium text-white mb-1">Can I trust a low-confidence result?</h4>
+                <p className="text-studio-muted">
+                  Use it as a starting point, but verify with your own research. Low confidence usually means limited public data is available for that company.
+                </p>
+              </div>
+
+              <div className="p-3 bg-studio-panel rounded border border-studio-border">
+                <h4 className="font-medium text-white mb-1">What data sources are used?</h4>
+                <p className="text-studio-muted">
+                  SEC filings, Finnhub financial data, Tavily web search, CourtListener legal records, and more. Check the Traces tab to see exactly which sources were used.
+                </p>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // Helper to construct WebSocket URL (handles both relative and absolute API URLs)
 const getWebSocketUrl = (path: string): string => {
   if (typeof window === 'undefined') return ''
@@ -173,6 +402,9 @@ export default function CreditIntelligenceStudio() {
   const [backendEvaluation, setBackendEvaluation] = useState<BackendEvaluation | null>(null)
   const [tracesLoading, setTracesLoading] = useState(false)
   const [historicalRuns, setHistoricalRuns] = useState<RunHistory[]>([])
+
+  // Help modal state
+  const [showHelpModal, setShowHelpModal] = useState(false)
 
   const wsRef = useRef<WebSocket | null>(null)
   const logsEndRef = useRef<HTMLDivElement>(null)
@@ -569,6 +801,20 @@ export default function CreditIntelligenceStudio() {
               <Settings className="w-4 h-4" />
               Prompts
             </Link>
+            <Link
+              href="/settings"
+              className="flex items-center gap-2 px-3 py-1.5 text-sm bg-studio-panel hover:bg-studio-border rounded transition-colors"
+            >
+              <SlidersHorizontal className="w-4 h-4" />
+              Settings
+            </Link>
+            <button
+              onClick={() => setShowHelpModal(true)}
+              className="flex items-center gap-2 px-3 py-1.5 text-sm bg-yellow-600 hover:bg-yellow-700 rounded transition-colors"
+            >
+              <HelpCircle className="w-4 h-4" />
+              Help
+            </button>
             <div className="flex items-center gap-2 text-sm text-studio-muted">
               <span className={`w-2 h-2 rounded-full ${isRunning || batchRunning ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}`} />
               {isRunning || batchRunning ? 'Running' : 'Idle'}
@@ -736,12 +982,12 @@ export default function CreditIntelligenceStudio() {
                             )}
                             {step.output_data && Object.keys(step.output_data).length > 0 && (
                               <div className="space-y-1">
-                                {Object.entries(step.output_data).slice(0, 5).map(([key, value]) => (
+                                {Object.entries(step.output_data).map(([key, value]) => (
                                   <div key={key} className="text-xs">
                                     <span className="text-yellow-400 font-mono">{key}:</span>{' '}
-                                    <span className="text-green-300">
-                                      {typeof value === 'object' ? JSON.stringify(value).slice(0, 100) + '...' : String(value).slice(0, 100)}
-                                    </span>
+                                    <pre className="text-green-300 whitespace-pre-wrap break-all inline">
+                                      {typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}
+                                    </pre>
                                   </div>
                                 ))}
                               </div>
@@ -790,27 +1036,48 @@ export default function CreditIntelligenceStudio() {
                 {/* Result Tab */}
                 {detailTab === 'result' && workflow?.result && (
                   <div className="space-y-4">
-                    <h2 className="text-lg font-semibold flex items-center gap-2">
-                      <Building2 className="w-5 h-5" />
-                      Assessment: {workflow.company_name}
-                    </h2>
+                    <div className="flex items-center justify-between">
+                      <h2 className="text-lg font-semibold flex items-center gap-2">
+                        <Building2 className="w-5 h-5" />
+                        Assessment: {workflow.company_name}
+                      </h2>
+                      {workflow.run_id && (
+                        <div className="flex items-center gap-2 text-sm bg-studio-panel px-3 py-1.5 rounded border border-studio-border">
+                          <span className="text-studio-muted">Run ID:</span>
+                          <code className="text-studio-accent font-mono">{workflow.run_id}</code>
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(workflow.run_id)
+                            }}
+                            className="ml-1 px-2 py-0.5 bg-studio-accent/20 hover:bg-studio-accent/30 text-studio-accent rounded text-xs"
+                          >
+                            Copy
+                          </button>
+                        </div>
+                      )}
+                    </div>
 
                     <div className="grid grid-cols-4 gap-4">
                       <div className={`p-4 rounded-lg border ${getRiskColor(workflow.result.risk_level)}`}>
-                        <div className="text-sm text-studio-muted mb-1">Risk Level</div>
+                        <div className="text-sm text-studio-muted mb-1 flex items-center">
+                          Risk Level
+                          <InfoTooltip text="How risky is it to give credit to this company?\n\n• Low = Very safe\n• Medium = Some concerns\n• High = Significant risk\n• Critical = Very dangerous" />
+                        </div>
                         <div className="text-2xl font-bold capitalize">{workflow.result.risk_level}</div>
                       </div>
                       <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
-                        <div className="text-sm text-studio-muted mb-1">Credit Score</div>
+                        <div className="text-sm text-studio-muted mb-1 flex items-center">
+                          Credit Score
+                          <InfoTooltip text="Business credit score (0-1000).\n\n• 800-1000 = Excellent\n• 650-799 = Good\n• 500-649 = Fair\n• 350-499 = Poor\n• 0-349 = Very Poor" />
+                        </div>
                         <div className="text-2xl font-bold text-studio-accent">{workflow.result.credit_score}</div>
                       </div>
                       <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
-                        <div className="text-sm text-studio-muted mb-1">Confidence</div>
+                        <div className="text-sm text-studio-muted mb-1 flex items-center">
+                          Confidence
+                          <InfoTooltip text="How confident is the AI about this result?\n\n• 80-100% = Very confident\n• 60-79% = Moderate\n• 40-59% = Low\n• 0-39% = Very uncertain\n\nLow confidence = limited data available." />
+                        </div>
                         <div className="text-2xl font-bold">{(workflow.result.confidence * 100).toFixed(0)}%</div>
-                      </div>
-                      <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
-                        <div className="text-sm text-studio-muted mb-1">Eval Score</div>
-                        <div className="text-2xl font-bold">{(workflow.result.evaluation_score * 100).toFixed(0)}%</div>
                       </div>
                     </div>
 
@@ -856,25 +1123,37 @@ export default function CreditIntelligenceStudio() {
                         {/* Score Cards - use evalSummary or backendEvaluation */}
                         <div className="grid grid-cols-4 gap-4">
                           <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
-                            <div className="text-sm text-studio-muted mb-1">Tool Selection</div>
+                            <div className="text-sm text-studio-muted mb-1 flex items-center">
+                              Tool Selection
+                              <InfoTooltip text="Did the AI use the right data sources?\n\nCalculated using:\n• Precision: Were the tools useful?\n• Recall: Did it use all needed tools?\n• F1: Balance of both\n\nLow score = wrong or missing data sources" />
+                            </div>
                             <div className="text-2xl font-bold text-blue-400">
                               {formatScore(evalSummary?.tool_selection_score ?? backendEvaluation?.tool_selection_score)}
                             </div>
                           </div>
                           <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
-                            <div className="text-sm text-studio-muted mb-1">Data Quality</div>
+                            <div className="text-sm text-studio-muted mb-1 flex items-center">
+                              Data Quality
+                              <InfoTooltip text="Was the gathered data good enough?\n\nChecks:\n• Completeness of data\n• Number of sources used\n• Data freshness\n\nLow score = missing data or outdated info" />
+                            </div>
                             <div className="text-2xl font-bold text-purple-400">
                               {formatScore(evalSummary?.data_quality_score ?? backendEvaluation?.data_quality_score)}
                             </div>
                           </div>
                           <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
-                            <div className="text-sm text-studio-muted mb-1">Synthesis</div>
+                            <div className="text-sm text-studio-muted mb-1 flex items-center">
+                              Synthesis
+                              <InfoTooltip text="Did the AI create a good final report?\n\nChecks if output has:\n• Clear risk level\n• Justified credit score\n• Recommendations\n• Proper reasoning\n\nLow score = incomplete report" />
+                            </div>
                             <div className="text-2xl font-bold text-green-400">
                               {formatScore(evalSummary?.synthesis_score ?? backendEvaluation?.synthesis_score)}
                             </div>
                           </div>
                           <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
-                            <div className="text-sm text-studio-muted mb-1">Overall</div>
+                            <div className="text-sm text-studio-muted mb-1 flex items-center">
+                              Overall
+                              <InfoTooltip text="Average of all evaluation scores.\n\n• 80-100% = Excellent analysis\n• 60-79% = Good analysis\n• 40-59% = Fair - review manually\n• 0-39% = Poor - may need re-run" />
+                            </div>
                             <div className="text-2xl font-bold text-studio-accent">
                               {formatScore(evalSummary?.overall_score ?? backendEvaluation?.overall_score)}
                             </div>
@@ -885,15 +1164,18 @@ export default function CreditIntelligenceStudio() {
                         <div className="grid grid-cols-3 gap-4">
                           {(evalSummary?.tool_selection || backendEvaluation?.tool_selection) && (
                             <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
-                              <div className="text-sm font-medium mb-2 text-blue-400">Tool Selection Details</div>
+                              <div className="text-sm font-medium mb-2 text-blue-400 flex items-center">
+                                Tool Selection Details
+                                <InfoTooltip text="Shows how the score was calculated:\n\n• Precision: Of tools used, how many were useful?\n• Recall: Did it use all the tools it should?\n• F1: The balance between precision and recall" />
+                              </div>
                               <div className="text-xs space-y-1 text-studio-muted">
                                 {(() => {
                                   const ts = evalSummary?.tool_selection || backendEvaluation?.tool_selection || {}
                                   return (
                                     <>
-                                      <p><span className="text-green-400">Precision:</span> {((ts.precision || 0) * 100).toFixed(0)}%</p>
-                                      <p><span className="text-green-400">Recall:</span> {((ts.recall || 0) * 100).toFixed(0)}%</p>
-                                      <p><span className="text-green-400">F1:</span> {((ts.f1_score || 0) * 100).toFixed(0)}%</p>
+                                      <p><span className="text-green-400">Precision:</span> {((ts.precision || 0) * 100).toFixed(0)}% <span className="text-studio-muted">(useful tools / total used)</span></p>
+                                      <p><span className="text-green-400">Recall:</span> {((ts.recall || 0) * 100).toFixed(0)}% <span className="text-studio-muted">(used tools / needed tools)</span></p>
+                                      <p><span className="text-green-400">F1:</span> {((ts.f1_score || 0) * 100).toFixed(0)}% <span className="text-studio-muted">(balanced score)</span></p>
                                       {ts.reasoning && (
                                         <p className="mt-2 text-white">{ts.reasoning}</p>
                                       )}
@@ -905,14 +1187,17 @@ export default function CreditIntelligenceStudio() {
                           )}
                           {(evalSummary?.data_quality || backendEvaluation?.data_quality) && (
                             <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
-                              <div className="text-sm font-medium mb-2 text-purple-400">Data Quality Details</div>
+                              <div className="text-sm font-medium mb-2 text-purple-400 flex items-center">
+                                Data Quality Details
+                                <InfoTooltip text="Shows data gathering results:\n\n• Sources: Which data sources provided info\n• Completeness: % of expected data fields found\n\nMore sources + higher completeness = better score" />
+                              </div>
                               <div className="text-xs space-y-1 text-studio-muted">
                                 {(() => {
                                   const dq = evalSummary?.data_quality || backendEvaluation?.data_quality || {}
                                   return (
                                     <>
                                       <p><span className="text-green-400">Sources:</span> {dq.sources_used?.join(', ') || 'N/A'}</p>
-                                      <p><span className="text-green-400">Completeness:</span> {((dq.completeness || 0) * 100).toFixed(0)}%</p>
+                                      <p><span className="text-green-400">Completeness:</span> {((dq.completeness || 0) * 100).toFixed(0)}% <span className="text-studio-muted">(data fields found)</span></p>
                                       {dq.reasoning && (
                                         <p className="mt-2 text-white">{dq.reasoning}</p>
                                       )}
@@ -924,13 +1209,16 @@ export default function CreditIntelligenceStudio() {
                           )}
                           {(evalSummary?.synthesis || backendEvaluation?.synthesis) && (
                             <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
-                              <div className="text-sm font-medium mb-2 text-green-400">Synthesis Details</div>
+                              <div className="text-sm font-medium mb-2 text-green-400 flex items-center">
+                                Synthesis Details
+                                <InfoTooltip text="Shows final report quality:\n\n• Score: Overall synthesis quality\n• Fields: Which required output fields are present\n\nAll fields present = higher score" />
+                              </div>
                               <div className="text-xs space-y-1 text-studio-muted">
                                 {(() => {
                                   const syn = evalSummary?.synthesis || backendEvaluation?.synthesis || {}
                                   return (
                                     <>
-                                      <p><span className="text-green-400">Score:</span> {((syn.score || 0) * 100).toFixed(0)}%</p>
+                                      <p><span className="text-green-400">Score:</span> {((syn.score || 0) * 100).toFixed(0)}% <span className="text-studio-muted">(report quality)</span></p>
                                       <p><span className="text-green-400">Fields:</span> {syn.present_fields?.join(', ') || 'N/A'}</p>
                                       {syn.reasoning && (
                                         <p className="mt-2 text-white">{syn.reasoning}</p>
@@ -954,7 +1242,11 @@ export default function CreditIntelligenceStudio() {
                       </>
                     ) : (
                       <div className="text-center py-12 text-studio-muted">
-                        No evaluation data available. Run an analysis first.
+                        <AlertTriangle className="w-8 h-8 mx-auto mb-3 text-yellow-500" />
+                        <p className="font-medium text-white mb-2">No evaluation data available</p>
+                        <p className="text-sm max-w-md mx-auto">
+                          Run an analysis first. If Eval Score shows 0% after running, it means the evaluation step hasn't saved data yet - this is normal and doesn't affect your credit analysis results.
+                        </p>
                       </div>
                     )}
                   </div>
@@ -1141,7 +1433,7 @@ export default function CreditIntelligenceStudio() {
                               <td className="p-3 text-studio-muted">
                                 {step.duration_ms ? `${step.duration_ms.toFixed(0)}ms` : '-'}
                               </td>
-                              <td className="p-3 text-studio-muted text-xs truncate max-w-xs">
+                              <td className="p-3 text-studio-muted text-xs whitespace-pre-wrap break-all">
                                 {step.output_summary || (step.error ? `Error: ${step.error}` : '-')}
                               </td>
                             </tr>
@@ -1248,7 +1540,6 @@ export default function CreditIntelligenceStudio() {
                         <th className="text-left p-3 text-studio-muted">Risk</th>
                         <th className="text-left p-3 text-studio-muted">Score</th>
                         <th className="text-left p-3 text-studio-muted">Confidence</th>
-                        <th className="text-left p-3 text-studio-muted">Eval</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1270,7 +1561,6 @@ export default function CreditIntelligenceStudio() {
                           </td>
                           <td className="p-3">{result.result?.credit_score || 'N/A'}</td>
                           <td className="p-3">{result.result?.confidence ? `${(result.result.confidence * 100).toFixed(0)}%` : 'N/A'}</td>
-                          <td className="p-3">{result.result?.evaluation_score ? `${(result.result.evaluation_score * 100).toFixed(0)}%` : 'N/A'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1382,9 +1672,7 @@ export default function CreditIntelligenceStudio() {
                               </span>
                             </td>
                             <td className="p-3">{run.credit_score || 'N/A'}</td>
-                            <td className="p-3 text-studio-muted">
-                              {run.evaluation_score ? `${(run.evaluation_score * 100).toFixed(0)}%` : '-'}
-                            </td>
+                            <td className="p-3 text-studio-muted">-</td>
                             <td className="p-3 text-studio-muted">
                               {new Date(run.started_at).toLocaleString()}
                             </td>
@@ -1415,6 +1703,9 @@ export default function CreditIntelligenceStudio() {
           </div>
         )}
       </div>
+
+      {/* Help Modal */}
+      <HelpModal isOpen={showHelpModal} onClose={() => setShowHelpModal(false)} />
     </div>
   )
 }

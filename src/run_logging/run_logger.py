@@ -92,18 +92,19 @@ class RunLogger:
 
     # ==================== RUN LOGGING ====================
 
-    def start_run(self, company_name: str, context: Dict[str, Any] = None) -> str:
+    def start_run(self, company_name: str, context: Dict[str, Any] = None, run_id: str = None) -> str:
         """
         Start a new run and return run_id.
 
         Args:
             company_name: Company being analyzed
             context: Additional context
+            run_id: Optional run_id to use (if not provided, generates a new one)
 
         Returns:
             run_id: Unique run identifier
         """
-        run_id = str(uuid.uuid4())
+        run_id = run_id or str(uuid.uuid4())
 
         run_doc = {
             "run_id": run_id,
