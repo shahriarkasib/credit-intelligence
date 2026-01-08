@@ -746,11 +746,17 @@ app.add_middleware(
 
 @app.get("/")
 async def root():
-    """Health check endpoint."""
+    """Serve frontend or health check."""
+    # Try to serve frontend index.html first
+    frontend_index = Path(__file__).parent.parent.parent / "frontend" / "out" / "index.html"
+    if frontend_index.exists():
+        return FileResponse(str(frontend_index))
+    # Fallback to API health check
     return {
         "status": "healthy",
         "service": "Credit Intelligence API",
-        "version": "1.0.0"
+        "version": "1.0.0",
+        "note": "Frontend not built. Run 'cd frontend && npm run build' to enable UI."
     }
 
 
