@@ -52,7 +52,7 @@
     },
     "PYTHONPATH": {
       "description": "Python path for module imports",
-      "value": "/app",
+      "value": "/app/src",
       "required": true
     }
   },
