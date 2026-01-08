@@ -60,7 +60,7 @@ export default function PromptsPage() {
   const fetchPrompts = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE}/prompts`);
+      const response = await fetch(`${API_BASE}/api/prompts`);
       if (!response.ok) throw new Error('Failed to fetch prompts');
       const data = await response.json();
       setPrompts(data.prompts);
@@ -104,7 +104,7 @@ export default function PromptsPage() {
       setSaving(true);
       setError(null);
 
-      const response = await fetch(`${API_BASE}/prompts/${editedPrompt.id}`, {
+      const response = await fetch(`${API_BASE}/api/prompts/${editedPrompt.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -138,7 +138,7 @@ export default function PromptsPage() {
       setSaving(true);
       setError(null);
 
-      const response = await fetch(`${API_BASE}/prompts/${selectedPrompt.id}/reset`, {
+      const response = await fetch(`${API_BASE}/api/prompts/${selectedPrompt.id}/reset`, {
         method: 'POST',
       });
 
@@ -166,7 +166,7 @@ export default function PromptsPage() {
     try {
       setError(null);
 
-      const response = await fetch(`${API_BASE}/prompts/test`, {
+      const response = await fetch(`${API_BASE}/api/prompts/test`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

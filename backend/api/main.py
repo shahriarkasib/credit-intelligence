@@ -828,7 +828,7 @@ async def list_runs():
 # PROMPT MANAGEMENT ENDPOINTS
 # =============================================================================
 
-@app.get("/prompts")
+@app.get("/api/prompts")
 async def list_prompts():
     """Get all available prompts."""
     if not PROMPTS_AVAILABLE:
@@ -841,7 +841,7 @@ async def list_prompts():
     }
 
 
-@app.get("/prompts/categories")
+@app.get("/api/prompts/categories")
 async def list_prompt_categories():
     """Get prompts organized by category."""
     if not PROMPTS_AVAILABLE:
@@ -850,7 +850,7 @@ async def list_prompt_categories():
     return get_prompt_categories()
 
 
-@app.get("/prompts/{prompt_id}")
+@app.get("/api/prompts/{prompt_id}")
 async def get_prompt_by_id(prompt_id: str):
     """Get a specific prompt by ID."""
     if not PROMPTS_AVAILABLE:
@@ -863,7 +863,7 @@ async def get_prompt_by_id(prompt_id: str):
     return prompt
 
 
-@app.put("/prompts/{prompt_id}")
+@app.put("/api/prompts/{prompt_id}")
 async def update_prompt_by_id(prompt_id: str, request: PromptUpdateRequest):
     """Update a prompt with custom values."""
     if not PROMPTS_AVAILABLE:
@@ -880,7 +880,7 @@ async def update_prompt_by_id(prompt_id: str, request: PromptUpdateRequest):
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@app.post("/prompts/{prompt_id}/reset")
+@app.post("/api/prompts/{prompt_id}/reset")
 async def reset_prompt_by_id(prompt_id: str):
     """Reset a prompt to its default values."""
     if not PROMPTS_AVAILABLE:
@@ -896,7 +896,7 @@ async def reset_prompt_by_id(prompt_id: str):
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@app.post("/prompts/reset-all")
+@app.post("/api/prompts/reset-all")
 async def reset_all_prompts_endpoint():
     """Reset all prompts to their default values."""
     if not PROMPTS_AVAILABLE:
@@ -909,7 +909,7 @@ async def reset_all_prompts_endpoint():
     }
 
 
-@app.post("/prompts/test")
+@app.post("/api/prompts/test")
 async def test_prompt(request: PromptTestRequest):
     """
     Test a prompt with sample variables.
