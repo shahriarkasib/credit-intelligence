@@ -48,42 +48,53 @@ except ImportError:
     logger.warning("DeepEval not installed. Run: pip install deepeval")
 
 # Try to import LiteLLM for Groq support
+LITELLM_AVAILABLE = False
+DeepEvalBaseLLM = None  # Default to None
+
 try:
     from deepeval.models import DeepEvalBaseLLM
     import litellm
     LITELLM_AVAILABLE = True
 except ImportError:
-    logger.warning("LiteLLM not installed. Run: pip install litellm")
+    logger.warning("LiteLLM/DeepEval not installed. Run: pip install litellm deepeval")
 
 
-class GroqModel(DeepEvalBaseLLM):
-    """Custom Groq model for DeepEval using LiteLLM."""
+# Only define GroqModel if DeepEvalBaseLLM is available
+if DeepEvalBaseLLM is not None:
+    class GroqModel(DeepEvalBaseLLM):
+        """Custom Groq model for DeepEval using LiteLLM."""
 
-    def __init__(self, model: str = "groq/llama-3.3-70b-versatile"):
-        self.model_name = model
+        def __init__(self, model: str = "groq/llama-3.3-70b-versatile"):
+            self.model_name = model
 
-    def load_model(self):
-        return self.model_name
+        def load_model(self):
+            return self.model_name
 
-    def generate(self, prompt: str) -> str:
-        """Generate response using Groq via LiteLLM."""
-        try:
-            response = litellm.completion(
-                model=self.model_name,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.0,  # Deterministic for evaluation
-            )
-            return response.choices[0].message.content
-        except Exception as e:
-            logger.error(f"Groq generation failed: {e}")
-            return ""
+        def generate(self, prompt: str) -> str:
+            """Generate response using Groq via LiteLLM."""
+            try:
+                response = litellm.completion(
+                    model=self.model_name,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.0,  # Deterministic for evaluation
+                )
+                return response.choices[0].message.content
+            except Exception as e:
+                logger.error(f"Groq generation failed: {e}")
+                return ""
 
-    async def a_generate(self, prompt: str) -> str:
-        """Async generate - falls back to sync for now."""
-        return self.generate(prompt)
+        async def a_generate(self, prompt: str) -> str:
+            """Async generate - falls back to sync for now."""
+            return self.generate(prompt)
 
-    def get_model_name(self) -> str:
-        return self.model_name
+        def get_model_name(self) -> str:
+            return self.model_name
+else:
+    # Dummy class when DeepEval not available
+    class GroqModel:
+        """Placeholder when DeepEval not available."""
+        def __init__(self, model: str = ""):
+            pass
 
 
 @dataclass
