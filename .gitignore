@@ -46,7 +46,7 @@ credentials/
 # Frontend (Next.js)
 frontend/node_modules/
 frontend/.next/
-frontend/out/
+# frontend/out/ is NOT ignored - needed for Heroku deployment
 
 # Evaluation results
 data/evaluation_results/
