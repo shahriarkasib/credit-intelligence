@@ -70,6 +70,24 @@ prompts,category,Label,prompt,"Prompt category","input, planning, synthesis, eva
 prompts,system_prompt,Text,prompt,"System prompt text","Full system instructions",text,N/A
 prompts,user_prompt,Text,prompt,"User prompt text","Full user message with variables substituted",text,N/A
 prompts,variables_json,JSON,prompt,"Variables used","Variables substituted into prompt",json,N/A
+deepeval_metrics,answer_relevancy,DeepEval,semantic,"Answer relevance to query","DeepEval AnswerRelevancyMetric: Measures how relevant the answer is to the input query using semantic similarity",0-1,higher=better
+deepeval_metrics,faithfulness,DeepEval,semantic,"Grounded in context","DeepEval FaithfulnessMetric: Measures if claims in the answer are supported by the provided context",0-1,higher=better
+deepeval_metrics,hallucination,DeepEval,semantic,"Hallucination detection","DeepEval HallucinationMetric: Detects statements not grounded in provided context. Lower is better",0-1,lower=better
+deepeval_metrics,contextual_relevancy,DeepEval,semantic,"Context relevance","DeepEval ContextualRelevancyMetric: Measures how relevant the retrieved context is to the query",0-1,higher=better
+deepeval_metrics,bias,DeepEval,semantic,"Bias detection","DeepEval BiasMetric: Detects potential biases in the generated output. Lower is better",0-1,lower=better
+deepeval_metrics,overall_score,Formula,semantic,"Combined DeepEval score","Weighted average: (relevancy×0.25) + (faithfulness×0.25) + ((1-hallucination)×0.20) + (contextual×0.15) + ((1-bias)×0.15)",0-1,higher=better
+deepeval_metrics,eval_status,Formula,status,"DeepEval quality category","good if score>=0.8, average if >=0.6, bad if <0.6",good/average/bad,N/A
+deepeval_metrics,model_used,Label,judge,"Judge model for DeepEval","Groq model used (llama-3.3-70b-versatile)",text,N/A
+deepeval_metrics,evaluation_time_ms,Measured,performance,"DeepEval evaluation time","Time to run all DeepEval metrics",ms,lower=better
+openevals_metrics,correctness,OpenEvals,judge,"Output correctness","OpenEvals CORRECTNESS_PROMPT: Is the output correct given expected output? Requires reference answer",0-1,higher=better
+openevals_metrics,helpfulness,OpenEvals,judge,"Output helpfulness","OpenEvals HELPFULNESS_PROMPT: Is the output helpful for the user's query?",0-1,higher=better
+openevals_metrics,coherence,OpenEvals,judge,"Output coherence","Custom prompt: Is the output coherent, well-structured, and logical?",0-1,higher=better
+openevals_metrics,relevance,OpenEvals,judge,"Output relevance","Custom prompt: Is the assessment relevant to the input query and grounded in context?",0-1,higher=better
+openevals_metrics,overall_score,Formula,judge,"Combined OpenEvals score","With expected: (correctness×0.25) + (helpfulness×0.30) + (coherence×0.20) + (relevance×0.25). Without: (helpfulness×0.35) + (coherence×0.30) + (relevance×0.35)",0-1,higher=better
+openevals_metrics,eval_status,Formula,status,"OpenEvals quality category","good if score>=0.8, average if >=0.6, bad if <0.6",good/average/bad,N/A
+openevals_metrics,model_used,Label,judge,"Judge model for OpenEvals","OpenAI model used (gpt-4o-mini)",text,N/A
+openevals_metrics,has_expected_output,Boolean,judge,"Reference provided","Whether expected_output was provided for correctness evaluation",true/false,N/A
+openevals_metrics,evaluation_time_ms,Measured,performance,"OpenEvals evaluation time","Time to run all OpenEvals metrics",ms,lower=better
 cross_model_eval,models_compared,List,coalition,"Models compared","e.g., llama-3.3-70b-versatile, llama-3.1-8b-instant",list,N/A
 cross_model_eval,num_models,Count,coalition,"Number of models","Usually 2",integer,N/A
 cross_model_eval,risk_level_agreement,Formula,coalition,"All same risk?","1.0 if all models agree on risk level, else partial score based on majority",0-1,higher=better
@@ -123,6 +141,8 @@ log_tests,consistency_scores,Count,verification,"Rows in consistency_scores","Co
 log_tests,data_sources,Count,verification,"Rows in data_sources","Count of rows for this run_id",integer,N/A
 log_tests,plans,Count,verification,"Rows in plans","Count of rows for this run_id",integer,N/A
 log_tests,prompts,Count,verification,"Rows in prompts","Count of rows for this run_id",integer,N/A
+log_tests,deepeval_metrics,Count,verification,"Rows in deepeval_metrics","Count of rows for this run_id",integer,N/A
+log_tests,openevals_metrics,Count,verification,"Rows in openevals_metrics","Count of rows for this run_id",integer,N/A
 log_tests,cross_model_eval,Count,verification,"Rows in cross_model_eval","Count of rows for this run_id",integer,N/A
 log_tests,llm_judge_results,Count,verification,"Rows in llm_judge_results","Count of rows for this run_id",integer,N/A
 log_tests,agent_metrics,Count,verification,"Rows in agent_metrics","Count of rows for this run_id",integer,N/A

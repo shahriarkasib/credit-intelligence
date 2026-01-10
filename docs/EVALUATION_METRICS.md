@@ -1,4 +1,4 @@
-# Evaluation Metrics Documentation (Sheet-wise)
+# Evaluation Metrics Documentation
 
 ---
 
@@ -26,6 +26,31 @@ All logging uses these standardized agent names:
 | synthesize | `llm_analyst` | Credit synthesis |
 | save_to_database | `db_writer` | Database storage |
 | evaluate_assessment | `workflow_evaluator` | All evaluation tasks |
+
+---
+
+## Evaluation Frameworks
+
+The system uses **three evaluation frameworks** running in parallel:
+
+| Framework | Provider | Model | Cost | Purpose |
+|-----------|----------|-------|------|---------|
+| **Rule-Based** | Local | N/A | Free | Tool selection F1, data quality, synthesis |
+| **DeepEval** | Groq | llama-3.3-70b | Free | Hallucination, faithfulness, bias detection |
+| **OpenEvals** | OpenAI | gpt-4o-mini | ~$0.001/eval | Helpfulness, coherence, relevance |
+
+### DeepEval Metrics (Groq - Free)
+- **Answer Relevancy**: Is the assessment relevant to the query?
+- **Faithfulness**: Is the assessment grounded in context data?
+- **Hallucination**: Does it contain fabricated information? (lower=better)
+- **Contextual Relevancy**: Is the context data relevant?
+- **Bias**: Does the assessment show bias? (lower=better)
+
+### OpenEvals Metrics (OpenAI - LLM-as-Judge)
+- **Correctness**: Is output correct vs expected?
+- **Helpfulness**: Is output helpful for the user?
+- **Coherence**: Is output well-structured & logical?
+- **Relevance**: Is output relevant to the query?
 
 ---
 
@@ -69,7 +94,7 @@ Tool execution logs with hierarchy tracking.
 | `node_type` | Text | Node type | "tool" |
 | `agent_name` | Text | Executing agent | `api_agent` |
 | `step_number` | Int | Step in workflow | Sequential |
-| `tool_name` | Text | Tool executed | e.g., "sec_edgar" |
+| `tool_name` | Text | Tool executed | e.g., "fetch_sec_edgar" |
 | `tool_input` | JSON | Input parameters | Tool params |
 | `tool_output` | JSON | Output data | API response |
 | `parent_node` | Text | Parent node | For hierarchy |
@@ -124,13 +149,13 @@ Main evaluation scores for each run.
 | `agent_name` | Text | Agent | `workflow_evaluator` |
 | `step_number` | Int | Step number | Sequential |
 | `model` | Text | Model used | For LLM evals |
-| `tool_selection_score` | Rule | Tool F1 | `2×(P×R)/(P+R)` |
+| `tool_selection_score` | Rule | Tool F1 | `2*(P*R)/(P+R)` |
 | `tool_reasoning` | Text | Explanation | Why these tools |
 | `data_quality_score` | Rule | Completeness | % expected fields present |
 | `data_reasoning` | Text | Explanation | Data quality notes |
 | `synthesis_score` | Rule | Output quality | % required output fields |
 | `synthesis_reasoning` | Text | Explanation | Synthesis notes |
-| `overall_score` | Formula | Combined | `(tool×0.3)+(data×0.3)+(synthesis×0.4)` |
+| `overall_score` | Formula | Combined | `(tool*0.3)+(data*0.3)+(synthesis*0.4)` |
 | `eval_status` | Formula | Category | good/average/bad |
 | `duration_ms` | Measured | Duration | Evaluation time |
 | `status` | Text | Result | ok/error |
@@ -154,12 +179,12 @@ Detailed tool selection analysis.
 | `model` | Text | LLM model | e.g., "llama-3.3-70b-versatile" |
 | `selected_tools` | List | Tools chosen | From LLM selection |
 | `expected_tools` | Rule | Expected tools | Based on company type |
-| `correct_tools` | Rule | Intersection | `selected ∩ expected` |
+| `correct_tools` | Rule | Intersection | `selected intersection expected` |
 | `missing_tools` | Rule | Not used | `expected - selected` |
 | `extra_tools` | Rule | Unnecessary | `selected - expected` |
 | `precision` | Formula | Correctness | `correct / selected` |
 | `recall` | Formula | Completeness | `correct / expected` |
-| `f1_score` | Formula | Balanced | `2×(P×R)/(P+R)` |
+| `f1_score` | Formula | Balanced | `2*(P*R)/(P+R)` |
 | `reasoning` | Text | Explanation | Why tools selected |
 | `duration_ms` | Measured | Duration | Selection time |
 | `status` | Text | Result | ok/error |
@@ -191,8 +216,8 @@ All LLM API calls with full details and costs.
 | `prompt_tokens` | Measured | Input tokens | From LLM response |
 | `completion_tokens` | Measured | Output tokens | From LLM response |
 | `total_tokens` | Formula | Total | `prompt + completion` |
-| `input_cost` | Formula | Input USD | `tokens × rate` |
-| `output_cost` | Formula | Output USD | `tokens × rate` |
+| `input_cost` | Formula | Input USD | `tokens * rate` |
+| `output_cost` | Formula | Output USD | `tokens * rate` |
 | `total_cost` | Formula | Total USD | `input + output` |
 | `execution_time_ms` | Measured | Duration | API call time |
 | `status` | Text | Result | ok/error |
@@ -220,7 +245,7 @@ Same-model and cross-model consistency evaluation.
 | `risk_level_consistency` | Formula | Risk agreement | `count(mode) / total_runs` |
 | `score_consistency` | Formula | Score stability | `1 - (std / mean)` |
 | `score_std` | Formula | Std deviation | `std(credit_scores)` |
-| `overall_consistency` | Formula | Combined | `(risk×0.5) + (score×0.5)` |
+| `overall_consistency` | Formula | Combined | `(risk*0.5) + (score*0.5)` |
 | `eval_status` | Formula | Category | good/average/bad |
 | `risk_levels` | Data | All risks | e.g., "LOW, LOW, MODERATE" |
 | `credit_scores` | Data | All scores | e.g., "750, 745, 720" |
@@ -243,7 +268,7 @@ Data fetching results from APIs.
 | `node_type` | Text | Node type | "tool" |
 | `agent_name` | Text | Agent | `api_agent` |
 | `step_number` | Int | Step number | Sequential |
-| `source_name` | Text | Data source | e.g., "sec_edgar" |
+| `source_name` | Text | Data source | e.g., "fetch_sec_edgar" |
 | `records_found` | Count | Records | Count from API |
 | `data_summary` | JSON | Data preview | Full data (up to 50k) |
 | `execution_time_ms` | Measured | Duration | API call time |
@@ -325,7 +350,66 @@ All prompts used in runs.
 
 ---
 
-## Sheet 12: `cross_model_eval`
+## Sheet 12: `deepeval_metrics`
+
+DeepEval LLM-powered evaluation metrics (uses Groq - FREE).
+
+| Column | Type | Description | Calculation |
+|--------|------|-------------|-------------|
+| `run_id` | UUID | Run identifier | From state |
+| `company_name` | Text | Company | From state |
+| `node` | Text | Current node | "evaluate" |
+| `node_type` | Text | Node type | "agent" |
+| `agent_name` | Text | Agent | `workflow_evaluator` |
+| `model_used` | Text | Judge model | e.g., "groq/llama-3.3-70b-versatile" |
+| `answer_relevancy` | DeepEval | Query relevance | Is assessment relevant to query? 0-1 |
+| `faithfulness` | DeepEval | Context grounding | Is assessment grounded in data? 0-1 |
+| `hallucination` | DeepEval | Fabrication score | Contains hallucinations? 0-1 (lower=better) |
+| `contextual_relevancy` | DeepEval | Context quality | Is context data relevant? 0-1 |
+| `bias` | DeepEval | Bias detection | Shows bias? 0-1 (lower=better) |
+| `toxicity` | DeepEval | Toxicity | Contains toxic content? 0-1 (lower=better) |
+| `overall_score` | Formula | Combined | Weighted: `relevancy*0.25 + faith*0.30 + (1-halluc)*0.25 + context*0.10 + (1-bias)*0.10` |
+| `answer_relevancy_reason` | DeepEval | Explanation | Why this relevancy score |
+| `faithfulness_reason` | DeepEval | Explanation | Why this faithfulness score |
+| `hallucination_reason` | DeepEval | Explanation | Why this hallucination score |
+| `input_query` | Text | Query | Original query evaluated |
+| `context_summary` | Text | Context | Context data used |
+| `assessment_summary` | Text | Output | Assessment text evaluated |
+| `evaluation_model` | Text | Model | DeepEval model used |
+| `evaluation_time_ms` | Measured | Duration | DeepEval execution time |
+| `status` | Text | Result | ok/error |
+| `timestamp` | ISO | Log timestamp | When logged |
+| `generated_by` | Label | Data source | "DeepEval" |
+
+---
+
+## Sheet 13: `openevals_metrics`
+
+OpenEvals LLM-as-Judge evaluation metrics (uses OpenAI GPT-4o-mini).
+
+| Column | Type | Description | Calculation |
+|--------|------|-------------|-------------|
+| `run_id` | UUID | Run identifier | From state |
+| `company_name` | Text | Company | From state |
+| `node` | Text | Current node | "evaluate" |
+| `node_type` | Text | Node type | "agent" |
+| `agent_name` | Text | Agent | `workflow_evaluator` |
+| `model_used` | Text | Judge model | "gpt-4o-mini" |
+| `correctness` | OpenEvals | Correct output? | Is output correct vs expected? 0-1 |
+| `helpfulness` | OpenEvals | Helpful output? | Is output helpful for user? 0-1 |
+| `coherence` | OpenEvals | Well-structured? | Is output logical and organized? 0-1 |
+| `relevance` | OpenEvals | Query relevance | Is output relevant to query? 0-1 |
+| `overall_score` | Formula | Combined | Weighted: `help*0.35 + coher*0.30 + relev*0.35` |
+| `has_expected_output` | Bool | Expected avail? | Whether expected output was provided |
+| `context_length` | Int | Context size | Length of context data |
+| `evaluation_time_ms` | Measured | Duration | OpenEvals execution time |
+| `status` | Text | Result | ok/error |
+| `timestamp` | ISO | Log timestamp | When logged |
+| `generated_by` | Label | Data source | "OpenEvals" |
+
+---
+
+## Sheet 14: `cross_model_eval`
 
 Cross-model comparison results.
 
@@ -359,9 +443,9 @@ Cross-model comparison results.
 
 ---
 
-## Sheet 13: `llm_judge_results`
+## Sheet 15: `llm_judge_results`
 
-LLM-as-a-Judge evaluation results.
+LLM-as-a-Judge evaluation results (internal).
 
 | Column | Type | Description | LLM Prompt/Calculation |
 |--------|------|-------------|------------------------|
@@ -398,7 +482,7 @@ LLM-as-a-Judge evaluation results.
 
 ---
 
-## Sheet 14: `agent_metrics`
+## Sheet 16: `agent_metrics`
 
 Agent efficiency evaluation metrics.
 
@@ -411,11 +495,11 @@ Agent efficiency evaluation metrics.
 | `agent_name` | Text | Agent | `workflow_evaluator` |
 | `step_number` | Int | Step number | Sequential |
 | `model` | Text | Model | Model evaluated |
-| `intent_correctness` | Rule | Task understanding | `(name×0.4)+(type×0.3)+(conf×0.3)` |
-| `plan_quality` | Rule | Plan quality | `(size×0.3)+(data×0.35)+(analysis×0.35)` |
+| `intent_correctness` | Rule | Task understanding | `(name*0.4)+(type*0.3)+(conf*0.3)` |
+| `plan_quality` | Rule | Plan quality | `(size*0.3)+(data*0.35)+(analysis*0.35)` |
 | `tool_choice_correctness` | Rule | Precision | `correct / selected` |
 | `tool_completeness` | Rule | Recall | `used / expected` |
-| `trajectory_match` | Rule | Path following | `(jaccard×0.6)+(order×0.4)` |
+| `trajectory_match` | Rule | Path following | `(jaccard*0.6)+(order*0.4)` |
 | `final_answer_quality` | Rule | Output validity | Field presence + validity |
 | `step_count` | Measured | Steps taken | Count of steps |
 | `tool_calls` | Measured | Tool calls | Count of tool calls |
@@ -435,7 +519,7 @@ Agent efficiency evaluation metrics.
 
 ---
 
-## Sheet 15: `log_tests`
+## Sheet 17: `log_tests`
 
 Verification of sheet logging per run.
 
@@ -454,6 +538,8 @@ Verification of sheet logging per run.
 | `data_sources` | Count | Rows | Count for run_id |
 | `plans` | Count | Rows | Count for run_id |
 | `prompts` | Count | Rows | Count for run_id |
+| `deepeval_metrics` | Count | Rows | Count for run_id |
+| `openevals_metrics` | Count | Rows | Count for run_id |
 | `cross_model_eval` | Count | Rows | Count for run_id |
 | `llm_judge_results` | Count | Rows | Count for run_id |
 | `agent_metrics` | Count | Rows | Count for run_id |
@@ -475,33 +561,39 @@ Verification of sheet logging per run.
 | `Count` | Simple count | step_count, records_found |
 | `Data` | Raw data | risk_levels list |
 | `Label` | Category label | eval_status, generated_by |
+| `DeepEval` | DeepEval library metric | hallucination, faithfulness |
+| `OpenEvals` | OpenEvals library metric | helpfulness, coherence |
 
 ---
 
-## Summary: LLM vs Rule-Based by Sheet
+## Summary: Evaluation Sources by Sheet
 
-| Sheet | LLM Metrics | Rule/Formula Metrics |
-|-------|-------------|---------------------|
-| `runs` | 3 (risk, score, confidence) | 4 |
-| `assessments` | 5 (all assessment fields) | 0 |
-| `evaluations` | 0 | 5 |
-| `tool_selections` | 0 | 4 |
-| `llm_calls` | 0 | 3 (cost calculations) |
-| `consistency_scores` | 0 | 4 |
-| `cross_model_eval` | 4 (best_model, analysis) | 6 |
-| `llm_judge_results` | 11 (all judge scores) | 1 |
-| `agent_metrics` | 0 | 7 |
+| Sheet | Source | LLM Metrics | Rule/Formula |
+|-------|--------|-------------|--------------|
+| `runs` | Internal | 3 | 4 |
+| `assessments` | Internal | 5 | 0 |
+| `evaluations` | Rule-Based | 0 | 5 |
+| `tool_selections` | Rule-Based | 0 | 4 |
+| `llm_calls` | Measured | 0 | 3 |
+| `consistency_scores` | Rule-Based | 0 | 4 |
+| `deepeval_metrics` | DeepEval (Groq) | 6 | 1 |
+| `openevals_metrics` | OpenEvals (OpenAI) | 4 | 1 |
+| `cross_model_eval` | Internal | 4 | 6 |
+| `llm_judge_results` | Internal | 11 | 1 |
+| `agent_metrics` | Rule-Based | 0 | 7 |
 
 ---
 
 ## LLM Providers Used
 
-| Evaluation | Provider | Model |
-|------------|----------|-------|
-| Credit Analysis | Groq | llama-3.3-70b-versatile |
-| LLM Judge | Groq | llama-3.3-70b-versatile |
-| Secondary Model | Groq | llama-3.1-8b-instant |
-| Tool Selection | Groq | llama-3.3-70b-versatile |
+| Evaluation | Provider | Model | Cost |
+|------------|----------|-------|------|
+| Credit Analysis | Groq | llama-3.3-70b-versatile | Free |
+| Tool Selection | Groq | llama-3.3-70b-versatile | Free |
+| Internal LLM Judge | Groq | llama-3.3-70b-versatile | Free |
+| DeepEval | Groq | llama-3.3-70b-versatile | Free |
+| OpenEvals | OpenAI | gpt-4o-mini | ~$0.001/eval |
+| Secondary Model | Groq | llama-3.1-8b-instant | Free |
 
 ---
 
@@ -512,3 +604,5 @@ Verification of sheet logging per run.
 | `Us` | Data generated by our custom code |
 | `FW` | Data from Framework (LangGraph/LangChain) |
 | `Mixed` | Row logged by us, some values from Framework |
+| `DeepEval` | Data from DeepEval library |
+| `OpenEvals` | Data from OpenEvals library |

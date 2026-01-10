@@ -106,43 +106,103 @@ class ToolSelectionEvaluator:
     def __init__(self):
         self.evaluations: List[ToolSelectionResult] = []
 
-    def classify_company(self, company_name: str) -> str:
-        """Classify company type based on name."""
+    def classify_company(self, company_name: str, context: Dict[str, Any] = None) -> str:
+        """
+        Classify company type based on context and name.
+
+        Priority order (most reliable to least reliable):
+        1. Explicit context flags (is_public, is_private, jurisdiction)
+        2. Ticker symbol presence in context
+        3. Known company name matching (exact word boundaries)
+        4. Suffix indicators (as fallback only)
+
+        Args:
+            company_name: Name of the company
+            context: Optional context dict with is_public, ticker, jurisdiction, etc.
+
+        Returns:
+            Company type: "public_us", "public_non_us", "private", or "unknown"
+
+        Note: Threshold for known company matching uses exact word boundary matching
+        to avoid false positives (e.g., "meta" matching "metadata company").
+        """
+        context = context or {}
         name_lower = company_name.lower()
 
-        # Check known public US companies
-        for known in self.PUBLIC_US_COMPANIES:
-            if known in name_lower:
+        # Priority 1: Use explicit context signals (most reliable)
+        if context.get("is_public") is True:
+            jurisdiction = context.get("jurisdiction", "US").upper()
+            if jurisdiction == "US":
                 return "public_us"
-
-        # Check known non-US public companies
-        for known in self.PUBLIC_NON_US_COMPANIES:
-            if known in name_lower:
+            else:
                 return "public_non_us"
 
-        # Check for common indicators
-        if any(ind in name_lower for ind in ["inc", "corp", "ltd", "llc", "co."]):
-            # Could be public or private - need more investigation
+        if context.get("is_private") is True:
+            return "private"
+
+        # Priority 2: Ticker symbol indicates public company
+        if context.get("ticker"):
+            # Has ticker, likely public - check jurisdiction
+            jurisdiction = context.get("jurisdiction", "US").upper()
+            if jurisdiction == "US":
+                return "public_us"
+            else:
+                return "public_non_us"
+
+        # Priority 3: Check known companies with word boundary matching
+        # This prevents false positives like "meta" matching "metadata inc"
+        import re
+
+        for known in self.PUBLIC_US_COMPANIES:
+            # Use word boundary matching for reliability
+            # Match "apple" in "Apple Inc" but not "pineapple inc"
+            pattern = r'\b' + re.escape(known) + r'\b'
+            if re.search(pattern, name_lower):
+                return "public_us"
+
+        for known in self.PUBLIC_NON_US_COMPANIES:
+            pattern = r'\b' + re.escape(known) + r'\b'
+            if re.search(pattern, name_lower):
+                return "public_non_us"
+
+        # Priority 4: Check SEC EDGAR CIK presence in context
+        if context.get("cik") or context.get("has_sec_filings"):
+            return "public_us"
+
+        # Priority 5: Suffix indicators (least reliable - return "unknown" for safety)
+        # These suffixes are common for both public and private companies
+        # so we return "unknown" to trigger web search for determination
+        public_suffixes = ["inc", "inc.", "corp", "corp.", "corporation", "plc", "n.v."]
+        private_suffixes = ["llc", "l.l.c.", "llp", "gmbh", "pte", "pvt"]
+
+        if any(name_lower.endswith(f" {suffix}") for suffix in private_suffixes):
+            return "private"
+
+        if any(name_lower.endswith(f" {suffix}") for suffix in public_suffixes):
+            # Could be public or private - needs verification
             return "unknown"
 
-        return "private"
+        # Default: unknown for safety (will trigger web search)
+        return "unknown"
 
     def get_expected_tools(self, company_name: str, context: Dict[str, Any] = None) -> List[str]:
-        """Get expected tools for a company."""
+        """
+        Get expected tools for a company.
+
+        Uses classify_company() with context for robust classification,
+        then returns the appropriate tool set.
+
+        Args:
+            company_name: Name of the company
+            context: Optional context with is_public, ticker, jurisdiction, etc.
+
+        Returns:
+            List of expected tool names for this company type
+        """
         context = context or {}
 
-        # Check if context provides hints
-        if context.get("is_public"):
-            if context.get("jurisdiction", "US").upper() == "US":
-                return self.EXPECTED_TOOLS["public_us"]
-            else:
-                return self.EXPECTED_TOOLS["public_non_us"]
-
-        if context.get("is_private"):
-            return self.EXPECTED_TOOLS["private"]
-
-        # Classify based on company name
-        company_type = self.classify_company(company_name)
+        # Use the robust classify_company method with full context
+        company_type = self.classify_company(company_name, context)
         return self.EXPECTED_TOOLS.get(company_type, self.EXPECTED_TOOLS["unknown"])
 
     def evaluate(
@@ -159,10 +219,30 @@ class ToolSelectionEvaluator:
             company_name: Name of the company
             selected_tools: Tools the LLM chose
             selection_reasoning: LLM's reasoning for selection
-            context: Additional context
+            context: Additional context (is_public, ticker, jurisdiction, etc.)
 
         Returns:
             ToolSelectionResult with evaluation metrics
+
+        Evaluation Metrics:
+            - precision: Of selected tools, how many were appropriate? (0.0-1.0)
+            - recall: Of appropriate tools, how many were selected? (0.0-1.0)
+            - f1_score: Harmonic mean of precision and recall (0.0-1.0)
+
+        Thresholds for is_correct:
+            - recall >= 0.5: At least half of expected tools must be selected
+            - precision >= 0.5: At least half of selected tools must be correct
+
+            These thresholds allow flexibility (e.g., selecting extra tools for
+            thoroughness) while ensuring core tools aren't missed.
+
+            Examples:
+              - Expected: [SEC, Finnhub], Selected: [SEC, Finnhub, WebSearch]
+                precision=0.67, recall=1.0, is_correct=True (extra tool OK)
+              - Expected: [SEC, Finnhub], Selected: [SEC]
+                precision=1.0, recall=0.5, is_correct=True (borderline)
+              - Expected: [SEC, Finnhub], Selected: [WebSearch]
+                precision=0.0, recall=0.0, is_correct=False (wrong tools)
         """
         expected_tools = self.get_expected_tools(company_name, context)
 
@@ -200,7 +280,7 @@ class ToolSelectionEvaluator:
                 "true_positives": list(expected_set & selected_set),
                 "false_positives": list(selected_set - expected_set),
                 "false_negatives": list(expected_set - selected_set),
-                "company_type": self.classify_company(company_name),
+                "company_type": self.classify_company(company_name, context),
             },
         )
 
@@ -208,14 +288,45 @@ class ToolSelectionEvaluator:
         return result
 
     def _evaluate_reasoning(self, reasoning: Dict[str, Any]) -> float:
-        """Evaluate quality of tool selection reasoning."""
+        """
+        Evaluate quality of tool selection reasoning.
+
+        Scoring Criteria (max_score = 3.0, normalized to 0.0-1.0):
+
+        1. Company Analysis (1.0 points):
+           - Has company_analysis section in reasoning
+           - Bonus +0.5 if explicitly determines is_likely_public
+
+        2. Tool Justification (0.0-1.0 points):
+           - Each tool should have a "reason" field
+           - Score = tools_with_reasons / total_tools
+           - Encourages explaining why each tool was selected
+
+        3. Execution Order (0.5 points):
+           - Has execution_order_reasoning field
+           - Explains why tools should run in that order
+
+        Final score = min(1.0, total_points / 3.0)
+
+        Threshold Interpretation:
+            - 0.8-1.0: Excellent reasoning (full analysis + all tools justified)
+            - 0.5-0.8: Good reasoning (most criteria met)
+            - 0.3-0.5: Basic reasoning (minimal justification)
+            - 0.0-0.3: Poor reasoning (missing key elements)
+
+        Args:
+            reasoning: The tool selection reasoning dict from LLM
+
+        Returns:
+            Normalized score from 0.0 to 1.0
+        """
         if not reasoning:
             return 0.0
 
         score = 0.0
         max_score = 3.0
 
-        # Check if reasoning includes company analysis
+        # Criterion 1: Company analysis (1.0 + 0.5 bonus)
         company_analysis = reasoning.get("company_analysis", {})
         if company_analysis:
             score += 1.0
@@ -223,14 +334,14 @@ class ToolSelectionEvaluator:
             if "is_likely_public" in company_analysis:
                 score += 0.5
 
-        # Check if tools have reasons
+        # Criterion 2: Tool justification (0.0-1.0)
         tools_to_use = reasoning.get("tools_to_use", [])
         if tools_to_use:
             tools_with_reasons = sum(1 for t in tools_to_use if t.get("reason"))
             if tools_with_reasons > 0:
                 score += min(1.0, tools_with_reasons / len(tools_to_use))
 
-        # Check for execution order reasoning
+        # Criterion 3: Execution order reasoning (0.5)
         if reasoning.get("execution_order_reasoning"):
             score += 0.5
 
@@ -443,7 +554,28 @@ Return JSON:
             }
 
     def _quality_to_score(self, quality: str) -> float:
-        """Convert quality string to numeric score."""
+        """
+        Convert semantic quality label to numeric score.
+
+        Semantic to Numeric Mapping:
+            - "excellent" -> 1.0: Optimal selection, comprehensive reasoning
+            - "good"      -> 0.75: Correct selection with minor issues
+            - "acceptable"-> 0.5: Functional but could be improved
+            - "poor"      -> 0.25: Significant issues in selection
+
+        This mapping allows LLM-as-judge to provide qualitative assessments
+        that integrate with our quantitative evaluation metrics.
+
+        Threshold for is_correct (LLM evaluation):
+            quality in ["excellent", "good"] -> is_correct = True
+            quality in ["acceptable", "poor"] -> is_correct = False
+
+        Args:
+            quality: Semantic quality label from LLM evaluation
+
+        Returns:
+            Numeric score from 0.0 to 1.0
+        """
         return {
             "excellent": 1.0,
             "good": 0.75,

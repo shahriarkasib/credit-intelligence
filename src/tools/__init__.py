@@ -24,6 +24,14 @@ from .langchain_executor import (
     get_langchain_tool_executor,
 )
 
+# LangChain Tool Adapters (for AgentExecutor integration)
+from .langchain_adapters import (
+    wrap_tool_as_langchain,
+    get_langchain_tools,
+    get_structured_langchain_tools,
+    is_langchain_tools_available as is_adapters_available,
+)
+
 __all__ = [
     # Legacy tools
     "BaseTool",
@@ -46,4 +54,9 @@ __all__ = [
     "FinnhubToolInput",
     "CourtToolInput",
     "WebSearchToolInput",
+    # Adapters
+    "wrap_tool_as_langchain",
+    "get_langchain_tools",
+    "get_structured_langchain_tools",
+    "is_adapters_available",
 ]
