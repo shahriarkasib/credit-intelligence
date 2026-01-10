@@ -44,6 +44,22 @@ except ImportError:
     logger.warning("MongoDB not available for LangGraph logging")
 
 
+# Mapping from graph node names to agent names (consistent with ARCHITECTURE.md)
+NODE_TO_AGENT = {
+    "parse_input": "llm_parser",
+    "validate_company": "supervisor",
+    "create_plan": "tool_supervisor",
+    "fetch_api_data": "api_agent",
+    "search_web": "search_agent",
+    "synthesize": "llm_analyst",
+    "save_to_database": "db_writer",
+    "evaluate_assessment": "workflow_evaluator",
+    "evaluate": "workflow_evaluator",
+    "should_continue_after_validation": "supervisor",
+    "human_review": "supervisor",
+}
+
+
 @dataclass
 class LangGraphEvent:
     """Represents a single LangGraph event."""
@@ -248,6 +264,9 @@ class LangGraphEventLogger:
 
             # Set the current node on the event BEFORE popping (so chain_end gets the node)
             lg_event.node = self._current_node
+
+            # Set agent_name based on current node (using NODE_TO_AGENT mapping)
+            lg_event.agent_name = NODE_TO_AGENT.get(self._current_node, self._agent_name)
 
             # Determine node_type based on event_type
             if event_type in ("on_tool_start", "on_tool_end"):
