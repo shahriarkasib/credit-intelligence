@@ -1284,7 +1284,7 @@ def synthesize(state: CreditWorkflowState) -> Dict[str, Any]:
                 risk_factors=assessment_dict.get('risk_factors', []),
                 positive_factors=assessment_dict.get('positive_factors', []),
                 node="synthesize_final",
-                agent_name="consensus",
+                agent_name="llm_analyst",
                 model="multi-model",
                 step_number=step_number,
                 prompt="Final consensus from 6 LLM analyses",
@@ -1649,7 +1649,7 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
             # Log tool selection with reasoning
             # Determine if LLM-as-judge was used
             eval_model = "llm_judge" if llm_eval_metrics else "rule_based"
-            eval_agent = "llm_tool_selection_judge" if llm_eval_metrics else "tool_selection_evaluator"
+            eval_agent = "workflow_evaluator" if llm_eval_metrics else "workflow_evaluator"
 
             wf_logger.log_tool_selection(
                 run_id=run_id,
@@ -1688,7 +1688,7 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                     completion_tokens=llm_eval_metrics.get("completion_tokens", 0),
                     execution_time_ms=llm_eval_metrics.get("execution_time_ms", 0),
                     node="evaluate",
-                    agent_name="llm_tool_selection_judge",
+                    agent_name="workflow_evaluator",
                     step_number=7,
                     current_task="tool_selection_evaluation",
                     temperature=0.1,
@@ -1838,7 +1838,7 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                             # Node tracking fields
                             node="synthesize",
                             node_type="agent",
-                            agent_name="cross_model_evaluator",
+                            agent_name="workflow_evaluator",
                             step_number=6,  # synthesize is step 6
                             # Agreement metrics
                             risk_level_agreement=risk_agreement,
@@ -2009,7 +2009,7 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                                 model_name=primary_model,
                                 num_runs=len(all_risk_levels),
                                 node="evaluate",
-                                agent_name="consistency_evaluator",
+                                agent_name="workflow_evaluator",
                                 step_number=7,
                                 risk_level_consistency=risk_level_consistency,
                                 credit_score_mean=credit_score_mean,
