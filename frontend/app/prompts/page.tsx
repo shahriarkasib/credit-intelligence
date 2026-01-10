@@ -144,7 +144,7 @@ export default function PromptsPage() {
     const samples: Record<string, string> = {
       company_name: 'Apple Inc',
       context: '{"is_public": true, "industry": "Technology"}',
-      tool_specs: 'fetch_sec_data, fetch_market_data, web_search',
+      tool_specs: 'fetch_sec_edgar, fetch_finnhub, search_news',
       tool_reasoning: 'Public company with significant market presence',
       tool_results: '{"sec_data": {...}, "market_data": {...}}',
       company_data: '{"financials": {...}, "filings": [...]}',

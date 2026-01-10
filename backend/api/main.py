@@ -201,8 +201,9 @@ class RuntimeConfigUpdate(BaseModel):
 
 class WorkflowStep(BaseModel):
     """A single step in the workflow."""
-    step_id: str
-    name: str
+    step_id: str  # Node name (e.g., parse_input, synthesize)
+    name: str  # Display name (e.g., "Parsing Input")
+    agent_name: str  # Canonical agent name (e.g., llm_parser, llm_analyst)
     status: str  # pending, running, completed, failed
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
@@ -293,22 +294,24 @@ async def run_workflow_with_streaming(
     active_runs[run_id] = workflow_status
 
     # Define workflow steps (matching the LangGraph nodes)
+    # Format: (node_name, display_name, agent_name)
     step_definitions = [
-        ("parse_input", "Parsing Input"),
-        ("validate_company", "Validating Company"),
-        ("create_plan", "Creating Plan"),
-        ("fetch_api_data", "Fetching API Data"),
-        ("search_web", "Searching Web"),
-        ("synthesize", "Synthesizing Assessment"),
-        ("save_to_database", "Saving to Database"),
-        ("evaluate", "Evaluating Results"),
+        ("parse_input", "Parsing Input", "llm_parser"),
+        ("validate_company", "Validating Company", "supervisor"),
+        ("create_plan", "Creating Plan", "tool_supervisor"),
+        ("fetch_api_data", "Fetching API Data", "api_agent"),
+        ("search_web", "Searching Web", "search_agent"),
+        ("synthesize", "Synthesizing Assessment", "llm_analyst"),
+        ("save_to_database", "Saving to Database", "db_writer"),
+        ("evaluate", "Evaluating Results", "workflow_evaluator"),
     ]
 
     # Initialize all steps as pending
-    for step_id, step_name in step_definitions:
+    for step_id, step_name, agent_name in step_definitions:
         workflow_status.steps.append(WorkflowStep(
             step_id=step_id,
             name=step_name,
+            agent_name=agent_name,
             status="pending"
         ))
 

@@ -34,8 +34,9 @@ import Link from 'next/link'
 
 // Types
 interface WorkflowStep {
-  step_id: string
-  name: string
+  step_id: string  // Node name (e.g., parse_input, synthesize)
+  name: string  // Display name (e.g., "Parsing Input")
+  agent_name: string  // Canonical agent name (e.g., llm_parser, llm_analyst)
   status: 'pending' | 'running' | 'completed' | 'failed'
   started_at?: string
   completed_at?: string
@@ -951,7 +952,10 @@ export default function CreditIntelligenceStudio() {
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                               {getStepIcon(step.status)}
-                              <span className="text-sm font-medium">{step.name}</span>
+                              <div className="flex flex-col">
+                                <span className="text-sm font-medium">{step.name}</span>
+                                <span className="text-xs text-studio-muted font-mono">{step.agent_name}</span>
+                              </div>
                             </div>
                             <div className="flex items-center gap-2">
                               {step.duration_ms && (
@@ -1393,6 +1397,7 @@ export default function CreditIntelligenceStudio() {
                             }`}>
                               {getStepIcon(step.status)}
                               <span className="text-xs mt-2 text-center">{step.name}</span>
+                              <span className="text-[10px] text-studio-muted font-mono">{step.agent_name}</span>
                               {step.duration_ms && (
                                 <span className="text-xs text-studio-muted">{step.duration_ms.toFixed(0)}ms</span>
                               )}
@@ -1411,6 +1416,7 @@ export default function CreditIntelligenceStudio() {
                         <thead className="bg-studio-panel">
                           <tr>
                             <th className="text-left p-3 text-studio-muted">Step</th>
+                            <th className="text-left p-3 text-studio-muted">Agent</th>
                             <th className="text-left p-3 text-studio-muted">Status</th>
                             <th className="text-left p-3 text-studio-muted">Duration</th>
                             <th className="text-left p-3 text-studio-muted">Output</th>
@@ -1420,6 +1426,7 @@ export default function CreditIntelligenceStudio() {
                           {workflow.steps.map((step) => (
                             <tr key={step.step_id} className="border-t border-studio-border">
                               <td className="p-3 font-medium">{step.name}</td>
+                              <td className="p-3 font-mono text-xs text-studio-muted">{step.agent_name}</td>
                               <td className="p-3">
                                 <span className={`px-2 py-1 rounded text-xs ${
                                   step.status === 'completed' ? 'bg-green-900/50 text-green-400' :

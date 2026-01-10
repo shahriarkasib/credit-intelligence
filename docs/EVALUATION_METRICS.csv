@@ -3,30 +3,104 @@ runs,risk_level,LLM,assessment,"Final risk level","PROMPT: You are a senior cred
 runs,credit_score,LLM,assessment,"Credit score estimate","PROMPT: Provide credit_score_estimate: 300-850 based on financial health indicators",300-850,higher=better
 runs,confidence,LLM,assessment,"LLM self-assessed confidence","PROMPT: Provide confidence_score: 0.0-1.0 based on data completeness and reliability",0-1,higher=better
 runs,evaluation_score,Formula,overall,"Combined evaluation score","(tool_selection×0.3) + (data_quality×0.3) + (synthesis×0.4)",0-1,higher=better
+runs,total_time_ms,Measured,performance,"Total execution time","Measured from start to end of workflow",ms,lower=better
+runs,total_steps,Count,performance,"Steps executed","Count of workflow nodes executed",integer,N/A
+runs,total_llm_calls,Count,cost,"LLM API calls","Count from llm_calls sheet for this run_id",integer,N/A
+runs,tools_used,List,tool,"Tools executed","From task_plan action names",list,N/A
+tool_calls,execution_time_ms,Measured,performance,"Tool execution time","Time taken by tool API call",ms,lower=better
+tool_calls,status,Measured,quality,"Tool result status","ok if successful, fail if error",ok/fail,N/A
+tool_calls,call_depth,Measured,hierarchy,"Nesting level","0=top-level call, 1+=nested call",integer,N/A
 assessments,risk_level,LLM,assessment,"Risk classification","PROMPT: Based on company data determine risk_level. LOW (score 75-100), MEDIUM (50-74), HIGH (25-49), CRITICAL (0-24)",LOW/MODERATE/HIGH/CRITICAL,N/A
 assessments,credit_score,LLM,assessment,"Numerical credit score","PROMPT: Provide credit score 300-850. Consider financial stability, payment history, market position",300-850,higher=better
 assessments,confidence,LLM,assessment,"Assessment confidence","PROMPT: Rate confidence 0-1 based on data completeness. 1.0=complete data, 0.5=partial, 0.0=insufficient",0-1,higher=better
 assessments,reasoning,LLM,assessment,"Explanation text","PROMPT: Provide 2-3 sentence summary of your analysis explaining the risk level and score",text,N/A
 assessments,recommendations,LLM,assessment,"Action items","PROMPT: Provide actionable recommendations for credit decision",text,N/A
+assessments,duration_ms,Measured,performance,"LLM synthesis time","Time for credit synthesis LLM call",ms,lower=better
 evaluations,tool_selection_score,Rule,tool,"Tool selection F1 score","F1 = 2 × (precision × recall) / (precision + recall) where precision=correct/selected, recall=correct/expected",0-1,higher=better
 evaluations,data_quality_score,Rule,data,"Data completeness","% of expected data fields present in collected data",0-1,higher=better
 evaluations,synthesis_score,Rule,synthesis,"Output completeness","% of required output fields (risk_level, credit_score, confidence, reasoning) present and valid",0-1,higher=better
 evaluations,overall_score,Formula,overall,"Combined evaluation","(tool_selection×0.3) + (data_quality×0.3) + (synthesis×0.4)",0-1,higher=better
 evaluations,eval_status,Formula,status,"Quality category","good if score>=0.8, average if >=0.6, bad if <0.6",good/average/bad,N/A
+evaluations,tool_reasoning,Text,tool,"Tool selection explanation","Why these tools were selected",text,N/A
+evaluations,data_reasoning,Text,data,"Data quality explanation","Notes on data completeness",text,N/A
+evaluations,synthesis_reasoning,Text,synthesis,"Synthesis explanation","Notes on synthesis quality",text,N/A
+tool_selections,selected_tools,List,tool,"Tools agent chose","List from LLM tool selection",list,N/A
+tool_selections,expected_tools,Rule,tool,"Tools it should use","Public US: SEC Edgar, Finnhub, Web Search, Tavily. Private: Web Search, Court Listener, Tavily",list,N/A
+tool_selections,correct_tools,Rule,tool,"Intersection of selected and expected","selected ∩ expected",list,N/A
+tool_selections,missing_tools,Rule,tool,"Expected but not selected","expected - selected",list,N/A
+tool_selections,extra_tools,Rule,tool,"Selected but not expected","selected - expected",list,N/A
 tool_selections,precision,Formula,tool,"Tool correctness ratio","correct_tools / selected_tools",0-1,higher=better
 tool_selections,recall,Formula,tool,"Tool completeness ratio","correct_tools / expected_tools",0-1,higher=better
 tool_selections,f1_score,Formula,tool,"Balanced tool score","2 × (precision × recall) / (precision + recall)",0-1,higher=better
-tool_selections,selected_tools,Measured,tool,"Tools agent chose","List from execution trace",list,N/A
-tool_selections,expected_tools,Rule,tool,"Tools it should use","Public US: SEC Edgar, Finnhub, Web Search, Tavily. Private: Web Search, Court Listener, Tavily",list,N/A
+tool_selections,model,Text,tool,"LLM model used for selection","Model that made tool selection decision",text,N/A
+tool_selections,reasoning,Text,tool,"Selection reasoning","LLM explanation for tool choices",text,N/A
+llm_calls,call_type,Label,call,"Purpose of LLM call","company_parser, tool_selection, credit_synthesis, tool_selection_evaluation",text,N/A
 llm_calls,prompt_tokens,Measured,cost,"Input tokens","Token count from LLM response",integer,N/A
 llm_calls,completion_tokens,Measured,cost,"Output tokens","Token count from LLM response",integer,N/A
 llm_calls,total_tokens,Formula,cost,"Sum of tokens","prompt_tokens + completion_tokens",integer,N/A
-llm_calls,total_cost,Formula,cost,"Total USD cost","(prompt_tokens × input_rate) + (completion_tokens × output_rate)",USD,lower=better
+llm_calls,input_cost,Formula,cost,"Input cost USD","prompt_tokens × input_rate",USD,lower=better
+llm_calls,output_cost,Formula,cost,"Output cost USD","completion_tokens × output_rate",USD,lower=better
+llm_calls,total_cost,Formula,cost,"Total USD cost","input_cost + output_cost",USD,lower=better
+llm_calls,execution_time_ms,Measured,performance,"LLM API call duration","Time from request to response",ms,lower=better
+consistency_scores,model_name,Label,consistency,"Model evaluated","e.g., llama-3.3-70b-versatile",text,N/A
+consistency_scores,evaluation_type,Label,consistency,"Type of evaluation","same_model or cross_model",text,N/A
+consistency_scores,num_runs,Count,consistency,"Runs compared","Usually 3 for same_model, 2 for cross_model",integer,N/A
 consistency_scores,risk_level_consistency,Formula,consistency,"Risk agreement %","count(mode_risk_level) / total_runs",0-1,higher=better
 consistency_scores,score_consistency,Formula,consistency,"Score stability","1 - (std_dev / mean) of credit scores across runs",0-1,higher=better
 consistency_scores,score_std,Formula,consistency,"Score standard deviation","std(credit_scores) across multiple runs",0-550,lower=better
 consistency_scores,overall_consistency,Formula,consistency,"Combined consistency","(risk_level_consistency × 0.5) + (score_consistency × 0.5)",0-1,higher=better
 consistency_scores,eval_status,Formula,status,"Consistency category","good if >=0.8, average if >=0.6, bad if <0.6",good/average/bad,N/A
+consistency_scores,risk_levels,Data,consistency,"All risk levels from runs","e.g., LOW, LOW, MODERATE",list,N/A
+consistency_scores,credit_scores,Data,consistency,"All scores from runs","e.g., 750, 745, 720",list,N/A
+data_sources,source_name,Label,data,"Data source name","sec_edgar, finnhub, court_listener, tavily, web_search",text,N/A
+data_sources,records_found,Count,data,"Records retrieved","Count of records from API",integer,N/A
+data_sources,execution_time_ms,Measured,performance,"API call duration","Time for data source fetch",ms,lower=better
+data_sources,status,Measured,quality,"Fetch result status","ok if successful, fail if error",ok/fail,N/A
+langgraph_events,event_type,Label,workflow,"Event type","on_chain_start, on_chain_end, on_llm_start, on_llm_end, etc.",text,N/A
+langgraph_events,event_name,Label,workflow,"Event name","Identifier for the event",text,N/A
+langgraph_events,tokens,Measured,cost,"Token count","If LLM event, token count",integer,N/A
+langgraph_events,duration_ms,Measured,performance,"Event duration","Time for event execution",ms,N/A
+langgraph_events,status,Measured,quality,"Event status","ok or error",ok/error,N/A
+plans,num_tasks,Count,planning,"Task count","Number of tasks in plan",integer,N/A
+plans,plan_summary,Text,planning,"Plan description","Brief summary of plan created",text,N/A
+plans,full_plan,JSON,planning,"Complete plan","Full task plan as JSON",json,N/A
+prompts,prompt_id,Label,prompt,"Prompt identifier","company_parser, tool_selection, credit_synthesis, etc.",text,N/A
+prompts,prompt_name,Text,prompt,"Human-readable name","Display name for prompt",text,N/A
+prompts,category,Label,prompt,"Prompt category","input, planning, synthesis, evaluation, validation",text,N/A
+prompts,system_prompt,Text,prompt,"System prompt text","Full system instructions",text,N/A
+prompts,user_prompt,Text,prompt,"User prompt text","Full user message with variables substituted",text,N/A
+prompts,variables_json,JSON,prompt,"Variables used","Variables substituted into prompt",json,N/A
+cross_model_eval,models_compared,List,coalition,"Models compared","e.g., llama-3.3-70b-versatile, llama-3.1-8b-instant",list,N/A
+cross_model_eval,num_models,Count,coalition,"Number of models","Usually 2",integer,N/A
+cross_model_eval,risk_level_agreement,Formula,coalition,"All same risk?","1.0 if all models agree on risk level, else partial score based on majority",0-1,higher=better
+cross_model_eval,credit_score_mean,Formula,coalition,"Average score","mean(scores) across all models",300-850,N/A
+cross_model_eval,credit_score_std,Formula,coalition,"Score variation","std(scores) across all models",0-550,lower=better
+cross_model_eval,credit_score_range,Formula,coalition,"Score spread","max(scores) - min(scores)",0-550,lower=better
+cross_model_eval,confidence_agreement,Formula,coalition,"Confidence match","1 - normalized_variance of confidence scores",0-1,higher=better
+cross_model_eval,best_model,LLM-Judge,coalition,"Recommended model","PROMPT: Which model provides the best assessment? Consider quality, depth, data usage",text,N/A
+cross_model_eval,best_model_reasoning,LLM-Judge,coalition,"Why best","PROMPT: Explain why this model is best",text,N/A
+cross_model_eval,cross_model_agreement,Formula,coalition,"Overall agreement","Weighted average of risk_agreement, score_agreement, confidence_agreement",0-1,higher=better
+cross_model_eval,eval_status,Formula,status,"Agreement category","good if >=0.8, average if >=0.6, bad if <0.6",good/average/bad,N/A
+cross_model_eval,llm_judge_analysis,LLM-Judge,coalition,"Model comparison","PROMPT: Compare model outputs. Which has better reasoning?",text,N/A
+cross_model_eval,model_recommendations,LLM-Judge,coalition,"Production advice","PROMPT: Which model to use for production?",text,N/A
+llm_judge_results,model_used,Label,judge,"Judge model","LLM model performing evaluation",text,N/A
+llm_judge_results,accuracy_score,LLM-Judge,judge,"Risk reasonable?","PROMPT: Is the risk level and credit score reasonable given the available data? Score 0-1",0-1,higher=better
+llm_judge_results,completeness_score,LLM-Judge,judge,"All factors covered?","PROMPT: Does the assessment cover all relevant risk factors? Score 0-1",0-1,higher=better
+llm_judge_results,consistency_score,LLM-Judge,judge,"Logic coherent?","PROMPT: Is the reasoning consistent with the final risk level and score? Score 0-1",0-1,higher=better
+llm_judge_results,actionability_score,LLM-Judge,judge,"Clear actions?","PROMPT: Are the recommendations clear and actionable? Score 0-1",0-1,higher=better
+llm_judge_results,data_utilization_score,LLM-Judge,judge,"Data well used?","PROMPT: Was the available data effectively used in the analysis? Score 0-1",0-1,higher=better
+llm_judge_results,overall_score,Formula,judge,"Average score","(accuracy + completeness + consistency + actionability + data_utilization) / 5",0-1,higher=better
+llm_judge_results,eval_status,Formula,status,"Judge category","good if >=0.8, average if >=0.6, bad if <0.6",good/average/bad,N/A
+llm_judge_results,accuracy_reasoning,LLM-Judge,judge,"Accuracy explanation","LLM explains why it gave this accuracy score",text,N/A
+llm_judge_results,completeness_reasoning,LLM-Judge,judge,"Completeness explanation","LLM explains coverage of risk factors",text,N/A
+llm_judge_results,consistency_reasoning,LLM-Judge,judge,"Consistency explanation","LLM explains reasoning coherence",text,N/A
+llm_judge_results,actionability_reasoning,LLM-Judge,judge,"Actionability explanation","LLM explains recommendation quality",text,N/A
+llm_judge_results,data_utilization_reasoning,LLM-Judge,judge,"Data usage explanation","LLM explains how well data was used",text,N/A
+llm_judge_results,overall_reasoning,LLM-Judge,judge,"Overall analysis","LLM summary of assessment quality",text,N/A
+llm_judge_results,benchmark_alignment,LLM-Judge,judge,"Benchmark match","PROMPT: How well does this align with expected benchmark assessment? Score 0-1",0-1,higher=better
+llm_judge_results,suggestions,LLM-Judge,judge,"Improvement suggestions","PROMPT: What improvements would make this assessment better?",text,N/A
+llm_judge_results,tokens_used,Measured,cost,"Judge tokens","Token usage for judge evaluation",integer,N/A
+llm_judge_results,evaluation_cost,Formula,cost,"Judge cost USD","Cost of LLM judge evaluation",USD,lower=better
 agent_metrics,intent_correctness,Rule,agent,"Task understanding","(name_parsed × 0.4) + (type_identified × 0.3) + (parse_confidence × 0.3)",0-1,higher=better
 agent_metrics,plan_quality,Rule,agent,"Plan quality","(plan_size_ok × 0.3) + (has_data_gathering × 0.35) + (has_analysis × 0.35). Plan size ok if 3-10 steps",0-1,higher=better
 agent_metrics,tool_choice_correctness,Rule,agent,"Tool precision","correct_tools / selected_tools",0-1,higher=better
@@ -38,94 +112,19 @@ agent_metrics,tool_calls,Measured,agent,"Tool invocations","Count of tool calls 
 agent_metrics,latency_ms,Measured,agent,"Execution time","Total milliseconds for workflow",ms,lower=better
 agent_metrics,overall_score,Formula,agent,"Agent efficiency","(intent×0.15) + (plan×0.15) + (tool_prec×0.20) + (tool_rec×0.15) + (trajectory×0.15) + (answer×0.20)",0-1,higher=better
 agent_metrics,eval_status,Formula,status,"Efficiency category","good if >=0.8, average if >=0.6, bad if <0.6",good/average/bad,N/A
-unified_metrics,faithfulness,LLM-DeepEval,accuracy,"Grounded in context?","DEEPEVAL PROMPT: Is every claim in the answer supported by the provided context? Score 0-1 where 1=fully grounded",0-1,higher=better
-unified_metrics,hallucination,LLM-DeepEval,accuracy,"Made-up content?","DEEPEVAL PROMPT: Does the answer contain information not present in the context? Score 0-1 where 0=no hallucination",0-1,lower=better
-unified_metrics,answer_relevancy,LLM-DeepEval,accuracy,"Relevant to question?","DEEPEVAL PROMPT: Is this answer relevant to the question asked? Score 0-1 where 1=highly relevant",0-1,higher=better
-unified_metrics,factual_accuracy,LLM-OpenAI,accuracy,"Facts correct?","OPENAI PROMPT: Evaluate factual accuracy. 1.0=all facts accurate, 0.5=some verifiable, 0.0=contains errors. Return JSON {score, reason}",0-1,higher=better
-unified_metrics,final_answer_quality,Rule,accuracy,"Output valid?","(required_fields × 0.5) + (valid_risk × 0.15) + (valid_score × 0.15) + (confidence × 0.1) + (reasoning × 0.1)",0-1,higher=better
-unified_metrics,accuracy_score,Formula,accuracy,"Combined accuracy","(faithfulness×0.25) + ((1-hallucination)×0.20) + (factual_accuracy×0.20) + (answer_relevancy×0.15) + (final_answer×0.20)",0-1,higher=better
-unified_metrics,same_model_consistency,Formula,consistency,"Same LLM stability","From consistency_scores: (risk_consistency×0.5) + (score_consistency×0.5)",0-1,higher=better
-unified_metrics,cross_model_consistency,Formula,consistency,"Cross-LLM agreement","From cross_model_eval: (risk_agreement×0.5) + (score_agreement×0.5)",0-1,higher=better
-unified_metrics,risk_level_agreement,Formula,consistency,"Risk consensus","1.0 if all models/runs agree on risk level, else partial score",0-1,higher=better
-unified_metrics,semantic_similarity,ML-Embeddings,consistency,"Reasoning similarity","Cosine similarity of sentence embeddings (all-MiniLM-L6-v2) of reasoning texts",0-1,higher=better
-unified_metrics,consistency_score,Formula,consistency,"Combined consistency","(same_model×0.30) + (cross_model×0.30) + (risk_agreement×0.20) + (semantic×0.20)",0-1,higher=better
-unified_metrics,intent_correctness,Rule,agent,"Task understanding","From agent_metrics: (name×0.4) + (type×0.3) + (conf×0.3)",0-1,higher=better
-unified_metrics,plan_quality,Rule,agent,"Plan quality","From agent_metrics: (size×0.3) + (data×0.35) + (analysis×0.35)",0-1,higher=better
-unified_metrics,tool_choice_correctness,Rule,agent,"Tool precision","From agent_metrics: correct/selected",0-1,higher=better
-unified_metrics,tool_completeness,Rule,agent,"Tool recall","From agent_metrics: used/expected",0-1,higher=better
-unified_metrics,trajectory_match,Rule,agent,"Path following","From agent_metrics: (jaccard×0.6) + (order×0.4)",0-1,higher=better
-unified_metrics,agent_final_answer,Rule,agent,"Output quality","From agent_metrics: field checks",0-1,higher=better
-unified_metrics,agent_efficiency_score,Formula,agent,"Combined efficiency","(intent×0.15) + (plan×0.15) + (prec×0.20) + (rec×0.15) + (traj×0.15) + (answer×0.20)",0-1,higher=better
-unified_metrics,overall_quality_score,Formula,overall,"Master score","(accuracy_score×0.40) + (consistency_score×0.30) + (agent_efficiency_score×0.30)",0-1,higher=better
-unified_metrics,eval_status,Formula,status,"Quality category","good if >=0.8, average if >=0.6, bad if <0.6",good/average/bad,N/A
-llm_judge_results,accuracy_score,LLM-Judge,judge,"Risk reasonable?","PROMPT: Is the risk level and credit score reasonable given the available data? Score 0-100",0-100,higher=better
-llm_judge_results,completeness_score,LLM-Judge,judge,"All factors covered?","PROMPT: Does the assessment cover all relevant risk factors? Score 0-100",0-100,higher=better
-llm_judge_results,consistency_score,LLM-Judge,judge,"Logic coherent?","PROMPT: Is the reasoning consistent with the final risk level and score? Score 0-100",0-100,higher=better
-llm_judge_results,actionability_score,LLM-Judge,judge,"Clear actions?","PROMPT: Are the recommendations clear and actionable? Score 0-100",0-100,higher=better
-llm_judge_results,data_utilization_score,LLM-Judge,judge,"Data well used?","PROMPT: Was the available data effectively used in the analysis? Score 0-100",0-100,higher=better
-llm_judge_results,overall_score,Formula,judge,"Average score","(accuracy + completeness + consistency + actionability + data_utilization) / 5",0-100,higher=better
-llm_judge_results,eval_status,Formula,status,"Judge category","good if >=80, average if >=60, bad if <60",good/average/bad,N/A
-llm_judge_results,accuracy_reasoning,LLM-Judge,judge,"Accuracy explanation","LLM explains why it gave this accuracy score",text,N/A
-llm_judge_results,completeness_reasoning,LLM-Judge,judge,"Completeness explanation","LLM explains coverage of risk factors",text,N/A
-llm_judge_results,consistency_reasoning,LLM-Judge,judge,"Consistency explanation","LLM explains reasoning coherence",text,N/A
-llm_judge_results,actionability_reasoning,LLM-Judge,judge,"Actionability explanation","LLM explains recommendation quality",text,N/A
-llm_judge_results,data_utilization_reasoning,LLM-Judge,judge,"Data usage explanation","LLM explains how well data was used",text,N/A
-llm_judge_results,suggestions,LLM-Judge,judge,"Improvement suggestions","PROMPT: What improvements would make this assessment better?",text,N/A
-llm_judge_results,benchmark_alignment,LLM-Judge,judge,"Benchmark match","PROMPT: How well does this align with expected benchmark assessment? Score 0-100",0-100,higher=better
-model_consistency,risk_level_consistency,Formula,consistency,"Risk agreement","count(mode_risk_level) / total_runs",0-1,higher=better
-model_consistency,credit_score_mean,Formula,consistency,"Average score","mean(credit_scores) across runs",300-850,N/A
-model_consistency,credit_score_std,Formula,consistency,"Score variation","std(credit_scores) across runs",0-550,lower=better
-model_consistency,confidence_variance,Formula,consistency,"Confidence spread","variance(confidence_scores) across runs",0-1,lower=better
-model_consistency,reasoning_similarity,ML-Embeddings,consistency,"Text similarity","Cosine similarity of sentence embeddings of reasoning texts",0-1,higher=better
-model_consistency,risk_factors_overlap,Formula,consistency,"Factor agreement","Jaccard similarity of identified risk factors",0-1,higher=better
-model_consistency,recommendations_overlap,Formula,consistency,"Rec agreement","Jaccard similarity of recommendations",0-1,higher=better
-model_consistency,overall_consistency,Formula,consistency,"Combined","Weighted average of all consistency metrics",0-1,higher=better
-model_consistency,is_consistent,Rule,consistency,"Pass/Fail","Yes if overall_consistency >= 0.8",Yes/No,N/A
-model_consistency,consistency_grade,Rule,consistency,"Letter grade","A(90-100), B(75-89), C(60-74), D(40-59), F(<40)",A/B/C/D/F,N/A
-model_consistency,eval_status,Formula,status,"Consistency category","good if >=0.8, average if >=0.6, bad if <0.6",good/average/bad,N/A
-model_consistency,llm_judge_analysis,LLM-Judge,consistency,"LLM consistency analysis","PROMPT: Analyze consistency patterns. Are variations acceptable? What causes inconsistency?",text,N/A
-model_consistency,llm_judge_concerns,LLM-Judge,consistency,"Issues found","PROMPT: List any concerns about model consistency",text,N/A
-cross_model_eval,risk_level_agreement,Formula,coalition,"All same risk?","1.0 if all models agree on risk level, else partial score based on majority",0-1,higher=better
-cross_model_eval,credit_score_mean,Formula,coalition,"Average score","mean(scores) across all models",300-850,N/A
-cross_model_eval,credit_score_std,Formula,coalition,"Score variation","std(scores) across all models",0-550,lower=better
-cross_model_eval,credit_score_range,Formula,coalition,"Score spread","max(scores) - min(scores)",0-550,lower=better
-cross_model_eval,confidence_agreement,Formula,coalition,"Confidence match","1 - normalized_variance of confidence scores",0-1,higher=better
-cross_model_eval,best_model,LLM-Judge,coalition,"Recommended model","PROMPT: Which model provides the best assessment? Consider quality, depth, data usage",text,N/A
-cross_model_eval,best_model_reasoning,LLM-Judge,coalition,"Why best","PROMPT: Explain why this model is best. Consider reasoning quality, appropriate risk level, actionable recommendations",text,N/A
-cross_model_eval,cross_model_agreement,Formula,coalition,"Overall agreement","Weighted average of risk_agreement, score_agreement, confidence_agreement",0-1,higher=better
-cross_model_eval,eval_status,Formula,status,"Agreement category","good if >=0.8, average if >=0.6, bad if <0.6",good/average/bad,N/A
-cross_model_eval,llm_judge_analysis,LLM-Judge,coalition,"Model comparison","PROMPT: Compare model outputs. Which has better reasoning? More appropriate risk level? Better recommendations?",text,N/A
-cross_model_eval,model_recommendations,LLM-Judge,coalition,"Production advice","PROMPT: Which model to use for production? When to use each model?",text,N/A
-deepeval_metrics,answer_relevancy,LLM-DeepEval,deepeval,"Relevant answer?","DEEPEVAL: Is this answer relevant to the question? LLM evaluates relevance of credit assessment to company query",0-1,higher=better
-deepeval_metrics,faithfulness,LLM-DeepEval,deepeval,"Grounded in data?","DEEPEVAL: Is every claim in the assessment supported by the collected data context?",0-1,higher=better
-deepeval_metrics,hallucination,LLM-DeepEval,deepeval,"Made-up info?","DEEPEVAL: Does the assessment contain information not present in the collected data? Lower=better",0-1,lower=better
-deepeval_metrics,contextual_relevancy,LLM-DeepEval,deepeval,"Context useful?","DEEPEVAL: Is the collected data context relevant to making a credit assessment?",0-1,higher=better
-deepeval_metrics,bias,LLM-DeepEval,deepeval,"Shows bias?","DEEPEVAL: Does the assessment show unfair bias toward or against the company? Lower=better",0-1,lower=better
-deepeval_metrics,toxicity,LLM-DeepEval,deepeval,"Harmful content?","DEEPEVAL: Does the assessment contain harmful or inappropriate content? Lower=better",0-1,lower=better
-deepeval_metrics,overall_score,Formula,deepeval,"Combined score","(relevancy×0.25) + (faithfulness×0.30) + ((1-hallucination)×0.25) + (contextual×0.10) + ((1-bias)×0.10)",0-1,higher=better
-deepeval_metrics,eval_status,Formula,status,"DeepEval category","good if >=0.8, average if >=0.6, bad if <0.6",good/average/bad,N/A
-deepeval_metrics,answer_relevancy_reason,LLM-DeepEval,deepeval,"Relevancy explanation","DeepEval LLM explains relevancy score",text,N/A
-deepeval_metrics,faithfulness_reason,LLM-DeepEval,deepeval,"Faithfulness explanation","DeepEval LLM explains grounding score",text,N/A
-deepeval_metrics,hallucination_reason,LLM-DeepEval,deepeval,"Hallucination explanation","DeepEval LLM explains what was hallucinated",text,N/A
-deepeval_metrics,contextual_relevancy_reason,LLM-DeepEval,deepeval,"Context explanation","DeepEval LLM explains context relevance",text,N/A
-deepeval_metrics,bias_reason,LLM-DeepEval,deepeval,"Bias explanation","DeepEval LLM explains any detected bias",text,N/A
-openevals_metrics,intent_correctness,Rule,openevals,"Understood task?","(company_name_parsed×0.4) + (company_type_identified×0.3) + (parse_confidence>0.7×0.3)",0-1,higher=better
-openevals_metrics,plan_quality,Rule,openevals,"Good plan?","(plan_size_3to10×0.3) + (has_data_gathering_step×0.35) + (has_analysis_step×0.35)",0-1,higher=better
-openevals_metrics,tool_choice_correctness,Rule,openevals,"Right tools?","correct_tools / selected_tools (Precision)",0-1,higher=better
-openevals_metrics,tool_completeness,Rule,openevals,"All tools used?","used_tools / expected_tools (Recall)",0-1,higher=better
-openevals_metrics,trajectory_match,Rule,openevals,"Followed path?","(jaccard_similarity×0.6) + (order_preserved×0.4)",0-1,higher=better
-openevals_metrics,final_answer_quality,Rule,openevals,"Valid output?","(all_fields_present×0.5) + (valid_risk_level×0.15) + (valid_score_300-850×0.15) + (confidence_0-1×0.1) + (reasoning_length>50×0.1)",0-1,higher=better
-openevals_metrics,step_count,Measured,openevals,"Steps taken","Count of workflow steps",integer,N/A
-openevals_metrics,tool_calls,Measured,openevals,"Tool uses","Count of tool invocations",integer,N/A
-openevals_metrics,latency_ms,Measured,openevals,"Time taken","Total execution time in milliseconds",ms,lower=better
-openevals_metrics,overall_score,Formula,openevals,"Combined","(intent×0.15) + (plan×0.15) + (precision×0.20) + (recall×0.15) + (trajectory×0.15) + (answer×0.20)",0-1,higher=better
-openevals_metrics,eval_status,Formula,status,"OpenEvals category","good if >=0.8, average if >=0.6, bad if <0.6",good/average/bad,N/A
-run_summaries,risk_level,LLM,assessment,"Final risk","LLM synthesized risk level",LOW/MODERATE/HIGH/CRITICAL,N/A
-run_summaries,credit_score,LLM,assessment,"Final score","LLM estimated credit score",300-850,higher=better
-run_summaries,confidence,LLM,assessment,"LLM confidence","LLM self-assessed confidence",0-1,higher=better
-run_summaries,tool_selection_score,Rule,tool,"Tool F1","From evaluations sheet",0-1,higher=better
-run_summaries,data_quality_score,Rule,data,"Data completeness","From evaluations sheet",0-1,higher=better
-run_summaries,synthesis_score,Rule,synthesis,"Output completeness","From evaluations sheet",0-1,higher=better
-run_summaries,overall_score,Formula,overall,"Combined eval","Weighted average of all scores",0-1,higher=better
-run_summaries,total_tokens,Sum,cost,"All tokens","Sum of all LLM call tokens",integer,N/A
-run_summaries,total_cost,Sum,cost,"Total USD","Sum of all LLM costs",USD,lower=better
+log_tests,runs,Count,verification,"Rows in runs sheet","Count of rows for this run_id",integer,N/A
+log_tests,langgraph_events,Count,verification,"Rows in langgraph_events","Count of rows for this run_id",integer,N/A
+log_tests,llm_calls,Count,verification,"Rows in llm_calls","Count of rows for this run_id",integer,N/A
+log_tests,tool_calls,Count,verification,"Rows in tool_calls","Count of rows for this run_id",integer,N/A
+log_tests,assessments,Count,verification,"Rows in assessments","Count of rows for this run_id",integer,N/A
+log_tests,evaluations,Count,verification,"Rows in evaluations","Count of rows for this run_id",integer,N/A
+log_tests,tool_selections,Count,verification,"Rows in tool_selections","Count of rows for this run_id",integer,N/A
+log_tests,consistency_scores,Count,verification,"Rows in consistency_scores","Count of rows for this run_id",integer,N/A
+log_tests,data_sources,Count,verification,"Rows in data_sources","Count of rows for this run_id",integer,N/A
+log_tests,plans,Count,verification,"Rows in plans","Count of rows for this run_id",integer,N/A
+log_tests,prompts,Count,verification,"Rows in prompts","Count of rows for this run_id",integer,N/A
+log_tests,cross_model_eval,Count,verification,"Rows in cross_model_eval","Count of rows for this run_id",integer,N/A
+log_tests,llm_judge_results,Count,verification,"Rows in llm_judge_results","Count of rows for this run_id",integer,N/A
+log_tests,agent_metrics,Count,verification,"Rows in agent_metrics","Count of rows for this run_id",integer,N/A
+log_tests,total_sheets_logged,Count,verification,"Sheets with data","Count of sheets that have data for this run",integer,N/A
+log_tests,verification_status,Rule,verification,"Verification result","pass if >=5 sheets, partial if >0, fail if 0",pass/partial/fail,N/A

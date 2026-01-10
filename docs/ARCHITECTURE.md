@@ -6,33 +6,12 @@ Credit Intelligence is a multi-agent system for automated credit risk assessment
 
 ---
 
-## Agent Names Reference (Canonical)
+## Canonical Agent Names
 
 **IMPORTANT:** These are the exact `agent_name` values logged to Google Sheets.
 
-### Current State (Actual Values in Code)
-
-| Node | agent_name (in Sheets) | Status | Class Name |
-|------|------------------------|--------|------------|
-| parse_input | `llm_parser` | OK | LLMParser |
-| validate_company | `supervisor` | OK | SupervisorAgent |
-| create_plan | `tool_supervisor` | OK | ToolSupervisor |
-| fetch_api_data | `api_agent` | OK | APIAgent |
-| search_web | `search_agent` | OK | SearchAgent |
-| synthesize | `llm_analyst` | OK | LLMAnalystAgent |
-| synthesize (cross) | `cross_model_evaluator` | OK | - |
-| synthesize (consistency) | `consistency_evaluator` | OK | - |
-| save_to_database | `db_writer` | OK | MongoDB |
-| evaluate_assessment | `workflow_evaluator` | OK | WorkflowEvaluator |
-| evaluate_assessment | `agent_efficiency_evaluator` | OK | AgentEfficiencyEvaluator |
-| evaluate_assessment | `llm_judge` | OK | LLMJudgeEvaluator |
-| evaluate_assessment | `unified_evaluator` | OK | UnifiedAgentEvaluator |
-| evaluate_assessment | `llm_tool_selection_judge` | OK | - |
-
-### Recommended Standard Names
-
-| Node | agent_name (Standard) | Description |
-|------|----------------------|-------------|
+| Node | agent_name | Description |
+|------|------------|-------------|
 | parse_input | `llm_parser` | Parses company input |
 | validate_company | `supervisor` | Validates company |
 | create_plan | `tool_supervisor` | LLM tool selection |
@@ -40,9 +19,9 @@ Credit Intelligence is a multi-agent system for automated credit risk assessment
 | search_web | `search_agent` | Web search |
 | synthesize | `llm_analyst` | Credit synthesis |
 | save_to_database | `db_writer` | Database storage |
-| evaluate_assessment | `workflow_evaluator` | Overall evaluation |
+| evaluate_assessment | `workflow_evaluator` | All evaluation tasks |
 
-### LLM Call Types (logged as agent_name in llm_calls sheet)
+### LLM Call Types (logged in llm_calls sheet)
 
 | call_type | Description |
 |-----------|-------------|
@@ -70,51 +49,52 @@ WORKFLOW (LangGraph StateGraph)
 ├── NODES (Graph Steps)
 │   │
 │   ├── parse_input
-│   │   ├── Agent: LLMParser
+│   │   ├── Agent: llm_parser
 │   │   ├── LLM Call: company_parser prompt
 │   │   └── Output: company_info (ticker, jurisdiction, is_public)
 │   │
 │   ├── validate_company
-│   │   ├── Agent: SupervisorAgent
+│   │   ├── Agent: supervisor
 │   │   ├── Human-in-the-loop: optional approval
 │   │   └── Output: validation_status
 │   │
 │   ├── create_plan
-│   │   ├── Agent: ToolSupervisor
+│   │   ├── Agent: tool_supervisor
 │   │   ├── LLM Call: tool_selection prompt
 │   │   └── Output: task_plan (list of tools to execute)
 │   │
 │   ├── fetch_api_data
-│   │   ├── Agent: APIAgent
+│   │   ├── Agent: api_agent
 │   │   ├── Tools: SECTool, FinnhubTool, CourtTool
 │   │   ├── Data Sources: SEC EDGAR, Finnhub, CourtListener
 │   │   └── Output: api_data
 │   │
 │   ├── search_web
-│   │   ├── Agent: SearchAgent
+│   │   ├── Agent: search_agent
 │   │   ├── Tools: WebSearchTool, TavilySearch
 │   │   ├── Data Sources: Tavily API, Web Scraper
 │   │   └── Output: search_data
 │   │
 │   ├── synthesize
-│   │   ├── Agent: LLMAnalystAgent
+│   │   ├── Agent: llm_analyst
 │   │   ├── LLM Calls: credit_synthesis prompt (primary + secondary model)
 │   │   ├── Cross-Model Evaluation: compare results
 │   │   ├── Same-Model Consistency: multiple runs
 │   │   └── Output: assessment
 │   │
 │   ├── save_to_database
+│   │   ├── Agent: db_writer
 │   │   ├── Storage: MongoDB
 │   │   └── Output: stored run record
 │   │
 │   └── evaluate_assessment
-│       ├── Evaluators: Multiple evaluation frameworks
-│       ├── LLM Calls: LLM-as-Judge, DeepEval
+│       ├── Agent: workflow_evaluator (for ALL evaluation tasks)
+│       ├── Evaluators: Tool selection, Data quality, Synthesis, LLM Judge, Agent efficiency
 │       └── Output: evaluation scores
 │
 └── STATE (CreditWorkflowState)
     ├── Input: company_name, jurisdiction, ticker
-    ├── Intermediate: company_info, task_plan, api_data, search_data
+    ├── Intermediate: company_info, task_plan, api_data, search_data, tool_selection
     ├── Output: assessment, evaluation
     └── Metadata: errors, status, execution_time_ms
 ```
@@ -166,16 +146,15 @@ Each node is a function that transforms the workflow state.
 
 **Purpose:** Parse company name and extract metadata using LLM
 
-| Property | Type | Description |
-|----------|------|-------------|
-| `step_number` | 1 | Execution order |
-| `node` | "parse_input" | Node name in graph |
-| `agent_name` | **"llm_parser"** | Logged to sheets |
-| `agent_class` | LLMParser | Python class |
-| `prompt_id` | "company_parser" | Prompt used |
-| `llm_provider` | groq | Default provider |
-| `llm_model` | fast | llama-3.1-8b-instant |
-| `temperature` | 0.1 | Low for consistency |
+| Property | Value |
+|----------|-------|
+| step_number | 1 |
+| node | "parse_input" |
+| agent_name | **`llm_parser`** |
+| prompt_id | "company_parser" |
+| llm_provider | groq |
+| llm_model | fast (llama-3.1-8b-instant) |
+| temperature | 0.1 |
 
 **Output:**
 ```python
@@ -196,13 +175,12 @@ Each node is a function that transforms the workflow state.
 
 **Purpose:** Validate parsed company info, optional human approval
 
-| Property | Type | Description |
-|----------|------|-------------|
-| `step_number` | 2 | Execution order |
-| `node` | "validate_company" | Node name in graph |
-| `agent_name` | `""` (empty - NEEDS FIX to `"supervisor"`) | Logged to sheets |
-| `agent_class` | SupervisorAgent | Python class |
-| `human_in_loop` | optional | May require approval |
+| Property | Value |
+|----------|-------|
+| step_number | 2 |
+| node | "validate_company" |
+| agent_name | **`supervisor`** |
+| human_in_loop | optional |
 
 **Output:**
 ```python
@@ -217,16 +195,15 @@ Each node is a function that transforms the workflow state.
 
 **Purpose:** LLM decides which tools to use for data collection
 
-| Property | Type | Description |
-|----------|------|-------------|
-| `step_number` | 3 | Execution order |
-| `node` | "create_plan" | Node name in graph |
-| `agent_name` | **"tool_supervisor"** | Logged to sheets |
-| `agent_class` | ToolSupervisor | Python class |
-| `prompt_id` | "tool_selection" | Prompt used |
-| `llm_provider` | groq | Default provider |
-| `llm_model` | primary | llama-3.3-70b-versatile |
-| `temperature` | 0.1 | Low for consistency |
+| Property | Value |
+|----------|-------|
+| step_number | 3 |
+| node | "create_plan" |
+| agent_name | **`tool_supervisor`** |
+| prompt_id | "tool_selection" |
+| llm_provider | groq |
+| llm_model | primary (llama-3.3-70b-versatile) |
+| temperature | 0.1 |
 
 **Output:**
 ```python
@@ -242,7 +219,11 @@ Each node is a function that transforms the workflow state.
             "params": {"ticker": "AAPL"},
             "reason": "Get market data and financials"
         }
-    ]
+    ],
+    "tool_selection": {
+        "model": "llama-3.3-70b-versatile",
+        "reasoning": "Selected tools based on company type..."
+    }
 }
 ```
 
@@ -250,14 +231,13 @@ Each node is a function that transforms the workflow state.
 
 **Purpose:** Execute API tools to collect structured data
 
-| Property | Type | Description |
-|----------|------|-------------|
-| `step_number` | 4 | Execution order |
-| `node` | "fetch_api_data" | Node name in graph |
-| `agent_name` | **"api_agent"** | Logged to sheets |
-| `agent_class` | APIAgent | Python class |
-| `tools` | List[BaseTool] | SEC, Finnhub, Court tools |
-| `parallel` | bool | Execute tools in parallel |
+| Property | Value |
+|----------|-------|
+| step_number | 4 |
+| node | "fetch_api_data" |
+| agent_name | **`api_agent`** |
+| tools | SEC, Finnhub, Court tools |
+| parallel | true |
 
 **Tools Used:**
 - `SECTool` -> SEC EDGAR API
@@ -279,13 +259,12 @@ Each node is a function that transforms the workflow state.
 
 **Purpose:** Search web for additional company information
 
-| Property | Type | Description |
-|----------|------|-------------|
-| `step_number` | 5 | Execution order |
-| `node` | "search_web" | Node name in graph |
-| `agent_name` | `""` (empty - NEEDS FIX to `"search_agent"`) | Logged to sheets |
-| `agent_class` | SearchAgent | Python class |
-| `tools` | List[BaseTool] | WebSearch, Tavily |
+| Property | Value |
+|----------|-------|
+| step_number | 5 |
+| node | "search_web" |
+| agent_name | **`search_agent`** |
+| tools | WebSearch, Tavily |
 
 **Tools Used:**
 - `WebSearchTool` -> General web search
@@ -306,33 +285,23 @@ Each node is a function that transforms the workflow state.
 
 **Purpose:** LLM analyzes all data and produces credit assessment
 
-| Property | Type | Description |
-|----------|------|-------------|
-| `step_number` | 6 | Execution order |
-| `node` | "synthesize" | Node name in graph |
-| `agent_name` | **"llm_analyst"** | Logged to sheets (primary) |
-| `agent_class` | LLMAnalystAgent | Python class |
-| `prompt_id` | "credit_synthesis" | Prompt used |
-| `llm_provider` | groq | Default provider |
-| `llm_model` | primary | llama-3.3-70b-versatile |
-| `temperature` | 0.0 | Deterministic |
-| `cross_model` | bool | Compare with secondary model |
-| `consistency_runs` | int | Multiple runs for consistency |
-
-**Sub-processes and their agent_names:**
-| Sub-process | agent_name | Description |
-|-------------|------------|-------------|
-| Primary Analysis | `llm_analyst` | Main LLM call with collected data |
-| Secondary Analysis | `llm_analyst` | Different model for comparison |
-| Cross-Model Evaluation | `cross_model_evaluator` | Compare primary vs secondary |
-| Same-Model Consistency | `consistency_evaluator` | Run primary model 3 times |
+| Property | Value |
+|----------|-------|
+| step_number | 6 |
+| node | "synthesize" |
+| agent_name | **`llm_analyst`** |
+| prompt_id | "credit_synthesis" |
+| llm_provider | groq |
+| llm_model | primary (llama-3.3-70b-versatile) |
+| temperature | 0.0 |
+| cross_model | true (compares with secondary model) |
 
 **Output:**
 ```python
 {
     "assessment": {
         "overall_risk_level": "low" | "medium" | "high" | "critical",
-        "credit_score_estimate": 0-100,
+        "credit_score_estimate": 300-850,
         "confidence_score": 0.0-1.0,
         "reasoning": str,
         "risk_factors": [...],
@@ -346,37 +315,34 @@ Each node is a function that transforms the workflow state.
 
 **Purpose:** Persist run results to MongoDB
 
-| Property | Type | Description |
-|----------|------|-------------|
-| `step_number` | 7 | Execution order |
-| `node` | "save_to_database" | Node name in graph |
-| `agent_name` | `""` (empty - NEEDS FIX to `"db_writer"`) | Logged to sheets |
-| `storage` | MongoDB | Database backend |
-| `collection` | "runs" | MongoDB collection |
-
-**Stored Fields:**
-- Full state snapshot
-- Assessment results
-- Execution metrics
+| Property | Value |
+|----------|-------|
+| step_number | 7 |
+| node | "save_to_database" |
+| agent_name | **`db_writer`** |
+| storage | MongoDB |
+| collection | "runs" |
 
 #### 3.8 evaluate_assessment
 
 **Purpose:** Evaluate the quality of the assessment
 
-| Property | Type | Description |
-|----------|------|-------------|
-| `step_number` | 8 | Execution order |
-| `node` | "evaluate" | Node name in graph |
+| Property | Value |
+|----------|-------|
+| step_number | 8 |
+| node | "evaluate" |
+| agent_name | **`workflow_evaluator`** (for ALL evaluation tasks) |
 
-**Evaluators and their agent_names:**
-| Evaluator | agent_name | Description |
-|-----------|------------|-------------|
-| ToolSelectionEvaluator | `llm_tool_selection_judge` | Tool selection accuracy |
-| WorkflowEvaluator | `workflow_evaluator` | Data quality & synthesis |
-| AgentEfficiencyEvaluator | `agent_efficiency_evaluator` | Agent performance |
-| LLMJudgeEvaluator | `llm_judge` | LLM-as-Judge evaluation |
-| UnifiedAgentEvaluator | `unified_evaluator` | Combined evaluation |
-| DeepEvalEvaluator | `deepeval_evaluator` | DeepEval metrics |
+**Evaluation Types:**
+| Evaluation | Description |
+|------------|-------------|
+| Tool Selection | Precision, recall, F1 of selected tools |
+| Data Quality | Completeness of collected data |
+| Synthesis Quality | Quality of credit assessment |
+| LLM Judge | LLM evaluates assessment quality |
+| Agent Efficiency | Intent, plan, trajectory metrics |
+| Cross-Model | Compare primary vs secondary model |
+| Consistency | Same model across multiple runs |
 
 **Output:**
 ```python
@@ -387,8 +353,7 @@ Each node is a function that transforms the workflow state.
         "data_quality_score": 0.0-1.0,
         "synthesis_score": 0.0-1.0,
         "agent_metrics": {...},
-        "llm_judge": {...},
-        "deepeval_metrics": {...}
+        "llm_judge": {...}
     }
 }
 ```
@@ -397,7 +362,18 @@ Each node is a function that transforms the workflow state.
 
 ### 4. AGENTS
 
-#### 4.1 SupervisorAgent
+#### 4.1 LLMParser (llm_parser)
+
+**Location:** `src/agents/llm_parser.py`
+
+Parses company input using LLM.
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `model` | string | LLM model to use |
+| `prompt_id` | string | "company_parser" |
+
+#### 4.2 SupervisorAgent (supervisor)
 
 **Location:** `src/agents/supervisor.py`
 
@@ -407,14 +383,8 @@ Orchestrates the workflow and makes high-level decisions.
 |----------|------|-------------|
 | `config` | Dict | Configuration options |
 | `analysis_mode` | string | "rule_based" | "llm" | "hybrid" |
-| `llm_analyst` | LLMAnalystAgent | For LLM mode |
 
-**Methods:**
-- `parse_company()` - Extract company info
-- `assess_credit()` - Produce credit assessment
-- `synthesize()` - Combine all data
-
-#### 4.2 ToolSupervisor
+#### 4.3 ToolSupervisor (tool_supervisor)
 
 **Location:** `src/agents/tool_supervisor.py`
 
@@ -424,18 +394,12 @@ LLM-based tool selection agent.
 |----------|------|-------------|
 | `model` | string | LLM model to use |
 | `tool_executor` | ToolExecutor | Executes selected tools |
-| `decision_log` | List | History of decisions |
-
-**Methods:**
-- `select_tools()` - LLM decides which tools to use
-- `execute_plan()` - Execute the tool plan
-- `synthesize_assessment()` - Final LLM synthesis
 
 **LLM Calls:**
 1. Tool Selection (prompt: "tool_selection")
 2. Credit Synthesis (prompt: "credit_synthesis")
 
-#### 4.3 APIAgent
+#### 4.4 APIAgent (api_agent)
 
 **Location:** `src/agents/api_agent.py`
 
@@ -447,12 +411,7 @@ Fetches structured data from external APIs.
 | `finnhub` | FinnhubDataSource | Finnhub connector |
 | `court_listener` | CourtListenerDataSource | Court data connector |
 
-**Methods:**
-- `fetch_all_data()` - Fetch from all sources
-- `_fetch_parallel()` - Parallel execution
-- `_fetch_sequential()` - Sequential execution
-
-#### 4.4 SearchAgent
+#### 4.5 SearchAgent (search_agent)
 
 **Location:** `src/agents/search_agent.py`
 
@@ -464,11 +423,7 @@ Web search and content scraping.
 | `tavily` | TavilySearchDataSource | Tavily AI search |
 | `scraper` | WebScraper | Content scraper |
 
-**Methods:**
-- `search()` - Execute web search
-- `scrape_url()` - Scrape specific URL
-
-#### 4.5 LLMAnalystAgent
+#### 4.6 LLMAnalystAgent (llm_analyst)
 
 **Location:** `src/agents/llm_analyst.py`
 
@@ -478,12 +433,22 @@ LLM-powered credit analysis.
 |----------|------|-------------|
 | `model` | string | LLM model |
 | `temperature` | float | Sampling temperature |
-| `use_langchain` | bool | Use LangChain or raw API |
 
-**Methods:**
-- `analyze()` - Analyze company data
-- `_call_llm()` - Make LLM API call
-- `_parse_response()` - Parse LLM response
+#### 4.7 WorkflowEvaluator (workflow_evaluator)
+
+**Location:** `src/evaluation/workflow_evaluator.py`
+
+Handles ALL evaluation tasks with a single canonical agent name.
+
+| Evaluation | Description |
+|------------|-------------|
+| Tool Selection | Evaluates tool selection precision/recall |
+| Data Quality | Checks data completeness |
+| Synthesis | Evaluates assessment quality |
+| LLM Judge | LLM-as-a-judge evaluation |
+| Agent Metrics | Efficiency metrics |
+| Cross-Model | Compares multiple models |
+| Consistency | Same-model consistency |
 
 ---
 
@@ -493,84 +458,37 @@ LLM-powered credit analysis.
 
 Tools are executable units that fetch data from external sources.
 
-#### 5.1 BaseTool
+#### 5.1 SECTool (sec_edgar)
 
-**Location:** `src/tools/base_tool.py`
+| Property | Value |
+|----------|-------|
+| name | "sec_edgar" |
+| data_source | SECEdgarDataSource |
+| parameters | ticker (required), filing_type (optional) |
 
-| Property | Type | Description |
-|----------|------|-------------|
-| `name` | string | Tool identifier |
-| `description` | string | What the tool does |
-| `parameters` | Dict | Expected parameters |
+#### 5.2 FinnhubTool (finnhub)
 
-**Methods:**
-- `execute()` - Run the tool
-- `get_spec()` - Get tool specification
+| Property | Value |
+|----------|-------|
+| name | "finnhub" |
+| data_source | FinnhubDataSource |
+| parameters | ticker (required) |
 
-#### 5.2 SECTool
+#### 5.3 CourtListenerTool (court_listener)
 
-**Location:** `src/tools/sec_tool.py`
+| Property | Value |
+|----------|-------|
+| name | "court_listener" |
+| data_source | CourtListenerDataSource |
+| parameters | company_name (required) |
 
-| Property | Type | Description |
-|----------|------|-------------|
-| `name` | "sec_edgar" | Tool name |
-| `data_source` | SECEdgarDataSource | API connector |
+#### 5.4 WebSearchTool (web_search)
 
-**Parameters:**
-- `ticker` (required): Stock ticker symbol
-- `filing_type` (optional): 10-K, 10-Q, 8-K
-
-**API Call:**
-- Endpoint: SEC EDGAR API
-- Returns: Company filings, financials
-
-#### 5.3 FinnhubTool
-
-**Location:** `src/tools/finnhub_tool.py`
-
-| Property | Type | Description |
-|----------|------|-------------|
-| `name` | "finnhub" | Tool name |
-| `data_source` | FinnhubDataSource | API connector |
-| `api_key` | string | Finnhub API key |
-
-**Parameters:**
-- `ticker` (required): Stock ticker symbol
-
-**API Calls:**
-- Company profile
-- Stock quote
-- Financials
-- News
-
-#### 5.4 CourtListenerTool
-
-**Location:** `src/tools/court_tool.py`
-
-| Property | Type | Description |
-|----------|------|-------------|
-| `name` | "court_listener" | Tool name |
-| `data_source` | CourtListenerDataSource | API connector |
-
-**Parameters:**
-- `company_name` (required): Company to search
-
-**API Call:**
-- Endpoint: CourtListener API
-- Returns: Court cases, opinions
-
-#### 5.5 WebSearchTool
-
-**Location:** `src/tools/web_search_tool.py`
-
-| Property | Type | Description |
-|----------|------|-------------|
-| `name` | "web_search" | Tool name |
-| `data_source` | WebSearchDataSource | Search connector |
-
-**Parameters:**
-- `query` (required): Search query
-- `num_results` (optional): Number of results
+| Property | Value |
+|----------|-------|
+| name | "web_search" |
+| data_source | WebSearchDataSource |
+| parameters | query (required), num_results (optional) |
 
 ---
 
@@ -580,61 +498,13 @@ Tools are executable units that fetch data from external sources.
 
 Data sources are API connectors that handle authentication and data transformation.
 
-#### 6.1 SECEdgarDataSource
-
-| Property | Type | Description |
-|----------|------|-------------|
-| `base_url` | string | SEC EDGAR API URL |
-| `user_agent` | string | Required header |
-
-**Methods:**
-- `get_company_info()` - Get CIK and basic info
-- `get_filings()` - Get SEC filings
-- `get_financials()` - Extract financial data
-
-#### 6.2 FinnhubDataSource
-
-| Property | Type | Description |
-|----------|------|-------------|
-| `api_key` | string | Finnhub API key |
-| `base_url` | string | Finnhub API URL |
-
-**Methods:**
-- `get_profile()` - Company profile
-- `get_quote()` - Stock quote
-- `get_financials()` - Financial statements
-- `get_news()` - Company news
-
-#### 6.3 CourtListenerDataSource
-
-| Property | Type | Description |
-|----------|------|-------------|
-| `base_url` | string | CourtListener API URL |
-
-**Methods:**
-- `search_opinions()` - Search court opinions
-- `search_dockets()` - Search court dockets
-
-#### 6.4 TavilySearchDataSource
-
-| Property | Type | Description |
-|----------|------|-------------|
-| `api_key` | string | Tavily API key |
-
-**Methods:**
-- `search()` - AI-powered search
-- `company_search()` - Company-specific search
-
-#### 6.5 WebScraper
-
-| Property | Type | Description |
-|----------|------|-------------|
-| `timeout` | int | Request timeout |
-| `headers` | Dict | HTTP headers |
-
-**Methods:**
-- `scrape_url()` - Scrape single URL
-- `scrape_company_website()` - Scrape company site
+| Data Source | API | Methods |
+|-------------|-----|---------|
+| SECEdgarDataSource | SEC EDGAR | get_company_info, get_filings, get_financials |
+| FinnhubDataSource | Finnhub | get_profile, get_quote, get_financials, get_news |
+| CourtListenerDataSource | CourtListener | search_opinions, search_dockets |
+| TavilySearchDataSource | Tavily | search, company_search |
+| WebScraper | HTTP | scrape_url, scrape_company_website |
 
 ---
 
@@ -642,32 +512,18 @@ Data sources are API connectors that handle authentication and data transformati
 
 **Location:** Various agents
 
-LLM calls are API requests to language model providers.
+#### 7.1 Available Prompts
 
-#### 7.1 LLM Call Structure
+| Prompt ID | Category | Agent | Purpose |
+|-----------|----------|-------|---------|
+| `company_parser` | input | llm_parser | Parse company name |
+| `tool_selection` | planning | tool_supervisor | Select tools to use |
+| `tool_selection_evaluation` | evaluation | workflow_evaluator | Evaluate tool selection |
+| `credit_synthesis` | synthesis | llm_analyst | Produce credit assessment |
+| `credit_analysis` | analysis | llm_analyst | Full credit analysis |
+| `validation` | validation | supervisor | Validate assessment |
 
-| Property | Type | Description |
-|----------|------|-------------|
-| `prompt_id` | string | Prompt identifier |
-| `provider` | string | groq | openai | anthropic |
-| `model` | string | Model identifier |
-| `temperature` | float | 0.0 - 1.0 |
-| `max_tokens` | int | Maximum response tokens |
-| `system_prompt` | string | System instructions |
-| `user_prompt` | string | User message |
-
-#### 7.2 Available Prompts
-
-| Prompt ID | Category | Purpose |
-|-----------|----------|---------|
-| `company_parser` | input | Parse company name |
-| `tool_selection` | planning | Select tools to use |
-| `tool_selection_evaluation` | evaluation | Evaluate tool selection |
-| `credit_synthesis` | synthesis | Produce credit assessment |
-| `credit_analysis` | analysis | Full credit analysis |
-| `validation` | validation | Validate assessment |
-
-#### 7.3 LLM Providers & Models
+#### 7.2 LLM Providers & Models
 
 **Groq (Default):**
 | Alias | Model ID | Use Case |
@@ -676,13 +532,13 @@ LLM calls are API requests to language model providers.
 | fast | llama-3.1-8b-instant | Simple parsing |
 | balanced | llama3-70b-8192 | General use |
 
-**OpenAI:**
+**OpenAI (Optional):**
 | Alias | Model ID | Use Case |
 |-------|----------|----------|
 | primary | gpt-4o-mini | Complex reasoning |
 | fast | gpt-4o-mini | Quick tasks |
 
-**Anthropic:**
+**Anthropic (Optional):**
 | Alias | Model ID | Use Case |
 |-------|----------|----------|
 | primary | claude-3-5-sonnet-20241022 | Complex reasoning |
@@ -690,100 +546,40 @@ LLM calls are API requests to language model providers.
 
 ---
 
-### 8. EVALUATORS
-
-**Location:** `src/evaluation/`
-
-Evaluators measure the quality of workflow outputs.
-
-#### 8.1 ToolSelectionEvaluator
-
-| Metric | Range | Description |
-|--------|-------|-------------|
-| precision | 0-1 | Correct tools / Selected tools |
-| recall | 0-1 | Correct tools / Expected tools |
-| f1_score | 0-1 | Harmonic mean |
-
-#### 8.2 WorkflowEvaluator
-
-| Metric | Range | Description |
-|--------|-------|-------------|
-| tool_selection_score | 0-1 | Tool selection quality |
-| data_quality_score | 0-1 | Data completeness |
-| synthesis_score | 0-1 | Synthesis quality |
-| overall_score | 0-1 | Combined score |
-
-#### 8.3 AgentEfficiencyEvaluator
-
-| Metric | Range | Description |
-|--------|-------|-------------|
-| intent_correctness | 0-1 | Understood the task |
-| plan_quality | 0-1 | Plan was good |
-| tool_choice_correctness | 0-1 | Right tools chosen |
-| tool_completeness | 0-1 | All needed tools used |
-| trajectory_match | 0-1 | Execution matched plan |
-| final_answer_quality | 0-1 | Output quality |
-
-#### 8.4 LLMJudgeEvaluator
-
-| Metric | Range | Description |
-|--------|-------|-------------|
-| accuracy_score | 0-1 | Factual accuracy |
-| completeness_score | 0-1 | Information completeness |
-| consistency_score | 0-1 | Internal consistency |
-| actionability_score | 0-1 | Actionable recommendations |
-| data_utilization_score | 0-1 | Data usage quality |
-
-#### 8.5 DeepEvalEvaluator
-
-| Metric | Range | Description |
-|--------|-------|-------------|
-| answer_relevancy | 0-1 | Answer is relevant |
-| faithfulness | 0-1 | Grounded in context |
-| hallucination | 0-1 | Contains hallucinations (lower=better) |
-| contextual_relevancy | 0-1 | Context is relevant |
-| bias | 0-1 | Contains bias (lower=better) |
-
----
-
-### 9. LOGGING
+### 8. LOGGING
 
 **Location:** `src/run_logging/`
 
-#### 9.1 WorkflowLogger
-
-Central logger for all workflow events.
-
-**Methods:**
-- `start_run()` - Initialize run
-- `log_step()` - Log node execution
-- `log_llm_call()` - Log LLM API call
-- `log_tool_call()` - Log tool execution
-- `complete_run()` - Finalize run
-
-#### 9.2 SheetsLogger
+#### 8.1 SheetsLogger
 
 Logs to Google Sheets for analysis.
 
-**Sheets:**
+**15 Sheets:**
 | Sheet | Content |
 |-------|---------|
 | runs | Run summaries |
-| step_logs | Step-by-step execution |
+| langgraph_events | LangGraph execution events |
 | llm_calls | LLM API calls |
 | tool_calls | Tool executions |
 | assessments | Credit assessments |
 | evaluations | Evaluation results |
-| log_tests | Verification of logging |
-| ... | 22 sheets total |
+| tool_selections | Tool selection details |
+| consistency_scores | Model consistency |
+| data_sources | Data fetch results |
+| plans | Task plans |
+| prompts | Prompts used |
+| cross_model_eval | Cross-model comparison |
+| llm_judge_results | LLM judge evaluation |
+| agent_metrics | Agent efficiency metrics |
+| log_tests | Verification |
 
 ---
 
-### 10. STORAGE
+### 9. STORAGE
 
 **Location:** `src/storage/`
 
-#### 10.1 MongoDB
+#### MongoDB
 
 | Collection | Content |
 |------------|---------|
@@ -800,7 +596,7 @@ INPUT: company_name
     │
     ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ 1. PARSE_INPUT                                                  │
+│ 1. PARSE_INPUT (agent_name: llm_parser)                         │
 │    ├── LLM Call: company_parser                                 │
 │    │   ├── Provider: groq                                       │
 │    │   ├── Model: fast (llama-3.1-8b-instant)                  │
@@ -810,7 +606,7 @@ INPUT: company_name
     │
     ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ 2. VALIDATE_COMPANY                                             │
+│ 2. VALIDATE_COMPANY (agent_name: supervisor)                    │
 │    ├── Check: company_info validity                             │
 │    ├── Optional: Human approval                                 │
 │    └── Decision: continue or stop                               │
@@ -818,17 +614,17 @@ INPUT: company_name
     │
     ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ 3. CREATE_PLAN                                                  │
+│ 3. CREATE_PLAN (agent_name: tool_supervisor)                    │
 │    ├── LLM Call: tool_selection                                 │
 │    │   ├── Provider: groq                                       │
 │    │   ├── Model: primary (llama-3.3-70b-versatile)            │
 │    │   └── Output: task_plan [{tool, params, reason}, ...]     │
-│    └── Decision: which tools to execute                         │
+│    └── Stores: tool_selection in state for evaluation           │
 └─────────────────────────────────────────────────────────────────┘
     │
     ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ 4. FETCH_API_DATA                                               │
+│ 4. FETCH_API_DATA (agent_name: api_agent)                       │
 │    ├── Tool Execution (parallel):                               │
 │    │   ├── SECTool → SEC EDGAR API → filings, financials       │
 │    │   ├── FinnhubTool → Finnhub API → profile, quote, news    │
@@ -838,7 +634,7 @@ INPUT: company_name
     │
     ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ 5. SEARCH_WEB                                                   │
+│ 5. SEARCH_WEB (agent_name: search_agent)                        │
 │    ├── Tool Execution:                                          │
 │    │   ├── WebSearchTool → web search results                  │
 │    │   ├── TavilySearch → AI-powered search                    │
@@ -848,7 +644,7 @@ INPUT: company_name
     │
     ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ 6. SYNTHESIZE                                                   │
+│ 6. SYNTHESIZE (agent_name: llm_analyst)                         │
 │    ├── Primary LLM Call: credit_synthesis                       │
 │    │   ├── Provider: groq                                       │
 │    │   ├── Model: primary (llama-3.3-70b-versatile)            │
@@ -856,31 +652,28 @@ INPUT: company_name
 │    │   └── Input: api_data + search_data                        │
 │    │                                                            │
 │    ├── Secondary LLM Call (cross-model):                        │
-│    │   ├── Different model for comparison                       │
+│    │   ├── Model: llama-3.1-8b-instant                         │
 │    │   └── Cross-model evaluation logged                        │
-│    │                                                            │
-│    ├── Consistency Runs (same-model):                           │
-│    │   ├── Run primary model 3x                                 │
-│    │   └── Calculate consistency metrics                        │
 │    │                                                            │
 │    └── Output: assessment {risk_level, credit_score, ...}      │
 └─────────────────────────────────────────────────────────────────┘
     │
     ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ 7. SAVE_TO_DATABASE                                             │
+│ 7. SAVE_TO_DATABASE (agent_name: db_writer)                     │
 │    └── MongoDB: store full run record                           │
 └─────────────────────────────────────────────────────────────────┘
     │
     ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ 8. EVALUATE_ASSESSMENT                                          │
-│    ├── ToolSelectionEvaluator → precision, recall, f1          │
-│    ├── WorkflowEvaluator → data_quality, synthesis_score       │
-│    ├── AgentEfficiencyEvaluator → intent, plan, trajectory     │
-│    ├── LLMJudgeEvaluator → accuracy, completeness, consistency │
-│    ├── UnifiedAgentEvaluator → combined metrics                │
-│    ├── DeepEvalEvaluator → faithfulness, hallucination         │
+│ 8. EVALUATE_ASSESSMENT (agent_name: workflow_evaluator)         │
+│    ├── Tool Selection Eval → precision, recall, f1             │
+│    ├── Data Quality Eval → completeness score                  │
+│    ├── Synthesis Eval → output quality score                   │
+│    ├── Agent Efficiency → intent, plan, trajectory             │
+│    ├── LLM Judge → accuracy, completeness, consistency         │
+│    ├── Cross-Model Eval → compare 2 models                     │
+│    ├── Consistency Eval → same model stability                 │
 │    └── LogVerification → verify all sheets logged              │
 └─────────────────────────────────────────────────────────────────┘
     │
@@ -931,12 +724,12 @@ Each prompt can specify:
 src/
 ├── agents/
 │   ├── graph.py           # LangGraph workflow
-│   ├── supervisor.py      # SupervisorAgent
-│   ├── tool_supervisor.py # ToolSupervisor (LLM tool selection)
-│   ├── api_agent.py       # APIAgent
-│   ├── search_agent.py    # SearchAgent
-│   ├── llm_analyst.py     # LLMAnalystAgent
-│   └── llm_parser.py      # LLM company parser
+│   ├── supervisor.py      # SupervisorAgent (supervisor)
+│   ├── tool_supervisor.py # ToolSupervisor (tool_supervisor)
+│   ├── api_agent.py       # APIAgent (api_agent)
+│   ├── search_agent.py    # SearchAgent (search_agent)
+│   ├── llm_analyst.py     # LLMAnalystAgent (llm_analyst)
+│   └── llm_parser.py      # LLM company parser (llm_parser)
 │
 ├── tools/
 │   ├── base_tool.py       # BaseTool class
@@ -961,20 +754,15 @@ src/
 │   └── external_config.py # YAML config loader
 │
 ├── evaluation/
-│   ├── tool_selection_evaluator.py
-│   ├── workflow_evaluator.py
-│   ├── agent_efficiency_evaluator.py
-│   ├── llm_judge_evaluator.py
-│   ├── unified_agent_evaluator.py
-│   └── deepeval_evaluator.py
+│   └── workflow_evaluator.py # All evaluation (workflow_evaluator)
 │
 ├── run_logging/
 │   ├── workflow_logger.py # Main logger
-│   ├── sheets_logger.py   # Google Sheets logger
+│   ├── sheets_logger.py   # Google Sheets logger (15 sheets)
 │   └── langgraph_logger.py
 │
 └── storage/
-    └── mongodb.py         # MongoDB storage
+    └── mongodb.py         # MongoDB storage (db_writer)
 ```
 
 ---
@@ -985,11 +773,11 @@ The Credit Intelligence system is a hierarchical multi-agent workflow:
 
 1. **Workflow** orchestrates the entire process
 2. **Nodes** are discrete steps in the workflow
-3. **Agents** execute within nodes
+3. **Agents** execute within nodes (8 canonical agent names)
 4. **Tools** are used by agents to fetch data
 5. **Data Sources** connect to external APIs
 6. **LLM Calls** power analysis and decision-making
-7. **Evaluators** measure output quality
-8. **Loggers** record everything for analysis
+7. **Evaluators** measure output quality (all use `workflow_evaluator`)
+8. **Loggers** record everything to 15 Google Sheets
 
 Each entity has well-defined inputs, outputs, and relationships, enabling comprehensive tracing and evaluation of the credit assessment process.
