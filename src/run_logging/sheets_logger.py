@@ -257,13 +257,47 @@ class SheetsLogger:
                 "model", "temperature",
                 "timestamp", "generated_by"
             ],
-            # Sheet 12: Log Tests - Simple verification of sheet logging per run
+            # Sheet 12: Cross-model evaluation results
+            "cross_model_eval": [
+                "run_id", "company_name", "node", "node_type", "agent_name", "step_number",
+                "models_compared", "num_models",
+                "risk_level_agreement", "credit_score_mean", "credit_score_std", "credit_score_range",
+                "confidence_agreement", "best_model", "best_model_reasoning",
+                "cross_model_agreement", "eval_status",
+                "llm_judge_analysis", "model_recommendations",
+                "model_results", "pairwise_comparisons",
+                "duration_ms", "status", "timestamp", "generated_by"
+            ],
+            # Sheet 13: LLM-as-judge evaluation results
+            "llm_judge_results": [
+                "run_id", "company_name", "node", "node_type", "agent_name", "step_number",
+                "model_used", "temperature",
+                "accuracy_score", "completeness_score", "consistency_score",
+                "actionability_score", "data_utilization_score", "overall_score", "eval_status",
+                "accuracy_reasoning", "completeness_reasoning", "consistency_reasoning",
+                "actionability_reasoning", "data_utilization_reasoning", "overall_reasoning",
+                "benchmark_alignment", "benchmark_comparison", "suggestions",
+                "tokens_used", "evaluation_cost", "duration_ms", "status",
+                "timestamp", "generated_by"
+            ],
+            # Sheet 14: Agent efficiency metrics
+            "agent_metrics": [
+                "run_id", "company_name", "node", "node_type", "agent_name", "step_number", "model",
+                "intent_correctness", "plan_quality", "tool_choice_correctness",
+                "tool_completeness", "trajectory_match", "final_answer_quality",
+                "step_count", "tool_calls", "latency_ms",
+                "overall_score", "eval_status",
+                "intent_details", "plan_details", "tool_details", "trajectory_details", "answer_details",
+                "status", "timestamp", "generated_by"
+            ],
+            # Sheet 15: Log Tests - Simple verification of sheet logging per run
             "log_tests": [
                 "run_id", "company_name",
                 # Per-sheet verification (has_data: yes/no, count)
                 "runs", "langgraph_events", "llm_calls", "tool_calls",
                 "assessments", "evaluations", "tool_selections",
                 "consistency_scores", "data_sources", "plans", "prompts",
+                "cross_model_eval", "llm_judge_results", "agent_metrics",
                 # Summary
                 "total_sheets_logged", "verification_status",
                 "timestamp", "generated_by"
@@ -915,24 +949,222 @@ class SheetsLogger:
         """DEPRECATED: Use runs sheet via log_run instead. run_summaries sheet has been removed."""
         pass
 
-    def log_agent_metrics(self, *args, **kwargs):
-        """DEPRECATED: Agent metrics now logged via evaluations sheet. agent_metrics sheet has been removed."""
-        pass
+    def log_agent_metrics(
+        self,
+        run_id: str,
+        company_name: str,
+        node: str = "",
+        node_type: str = "agent",
+        agent_name: str = "",
+        step_number: int = 0,
+        model: str = "",
+        status: str = "ok",
+        intent_correctness: float = 0.0,
+        plan_quality: float = 0.0,
+        tool_choice_correctness: float = 0.0,
+        tool_completeness: float = 0.0,
+        trajectory_match: float = 0.0,
+        final_answer_quality: float = 0.0,
+        step_count: int = 0,
+        tool_calls: int = 0,
+        latency_ms: float = 0.0,
+        overall_score: float = 0.0,
+        intent_details: Dict[str, Any] = None,
+        plan_details: Dict[str, Any] = None,
+        tool_details: Dict[str, Any] = None,
+        trajectory_details: Dict[str, Any] = None,
+        answer_details: Dict[str, Any] = None,
+    ):
+        """Log agent efficiency metrics to agent_metrics sheet (non-blocking)."""
+        if not self.is_connected():
+            return
 
-    def log_llm_judge_result(self, *args, **kwargs):
-        """DEPRECATED: LLM judge results now logged via evaluations sheet. llm_judge_results sheet has been removed."""
-        pass
+        row = [
+            run_id,
+            company_name,
+            node or "",
+            node_type or "agent",
+            agent_name or "",
+            step_number,
+            model or "",
+            round(intent_correctness, 4),
+            round(plan_quality, 4),
+            round(tool_choice_correctness, 4),
+            round(tool_completeness, 4),
+            round(trajectory_match, 4),
+            round(final_answer_quality, 4),
+            step_count,
+            tool_calls,
+            round(latency_ms, 2),
+            round(overall_score, 4),
+            self._get_eval_status(overall_score),
+            self._safe_str(intent_details or {}, max_length=5000),
+            self._safe_str(plan_details or {}, max_length=5000),
+            self._safe_str(tool_details or {}, max_length=5000),
+            self._safe_str(trajectory_details or {}, max_length=5000),
+            self._safe_str(answer_details or {}, max_length=5000),
+            status,
+            datetime.utcnow().isoformat(),
+            "Us",
+        ]
+
+        def _write():
+            try:
+                sheet = self._get_sheet("agent_metrics")
+                sheet.append_row(row)
+            except Exception as e:
+                logger.error(f"Failed to log agent metrics: {e}")
+
+        _sheets_executor.submit(_write)
+
+    def log_llm_judge_result(
+        self,
+        run_id: str,
+        company_name: str,
+        model_used: str,
+        node: str = "",
+        node_type: str = "llm",
+        agent_name: str = "",
+        step_number: int = 0,
+        temperature: float = None,
+        duration_ms: float = 0,
+        status: str = "ok",
+        accuracy_score: float = 0.0,
+        completeness_score: float = 0.0,
+        consistency_score: float = 0.0,
+        actionability_score: float = 0.0,
+        data_utilization_score: float = 0.0,
+        overall_score: float = 0.0,
+        accuracy_reasoning: str = "",
+        completeness_reasoning: str = "",
+        consistency_reasoning: str = "",
+        actionability_reasoning: str = "",
+        data_utilization_reasoning: str = "",
+        overall_reasoning: str = "",
+        benchmark_alignment: float = 0.0,
+        benchmark_comparison: str = "",
+        suggestions: List[str] = None,
+        tokens_used: int = 0,
+        evaluation_cost: float = 0.0,
+    ):
+        """Log LLM-as-a-judge evaluation result to llm_judge_results sheet (non-blocking)."""
+        if not self.is_connected():
+            return
+
+        row = [
+            run_id,
+            company_name,
+            node or "",
+            node_type or "llm",
+            agent_name or "",
+            step_number,
+            model_used,
+            temperature if temperature is not None else 0.1,
+            round(accuracy_score, 4),
+            round(completeness_score, 4),
+            round(consistency_score, 4),
+            round(actionability_score, 4),
+            round(data_utilization_score, 4),
+            round(overall_score, 4),
+            self._get_eval_status(overall_score),
+            self._safe_str(accuracy_reasoning, max_length=2000),
+            self._safe_str(completeness_reasoning, max_length=2000),
+            self._safe_str(consistency_reasoning, max_length=2000),
+            self._safe_str(actionability_reasoning, max_length=2000),
+            self._safe_str(data_utilization_reasoning, max_length=2000),
+            self._safe_str(overall_reasoning, max_length=5000),
+            round(benchmark_alignment, 4) if benchmark_alignment else 0,
+            self._safe_str(benchmark_comparison, max_length=5000),
+            self._safe_str(suggestions or [], max_length=5000),
+            tokens_used,
+            round(evaluation_cost, 6),
+            duration_ms,
+            status,
+            datetime.utcnow().isoformat(),
+            "Us",
+        ]
+
+        def _write():
+            try:
+                sheet = self._get_sheet("llm_judge_results")
+                sheet.append_row(row)
+            except Exception as e:
+                logger.error(f"Failed to log LLM judge result: {e}")
+
+        _sheets_executor.submit(_write)
 
     def log_model_consistency(self, *args, **kwargs):
-        """DEPRECATED: Model consistency now logged via consistency_scores sheet. model_consistency sheet has been removed."""
+        """DEPRECATED: Model consistency now logged via consistency_scores sheet."""
         pass
 
-    def log_cross_model_eval(self, *args, **kwargs):
-        """DEPRECATED: Cross-model evaluation now logged via consistency_scores sheet. cross_model_eval sheet has been removed."""
-        pass
+    def log_cross_model_eval(
+        self,
+        eval_id: str,
+        company_name: str,
+        models_compared: List[str],
+        num_models: int,
+        node: str = "",
+        node_type: str = "agent",
+        agent_name: str = "",
+        step_number: int = 0,
+        duration_ms: float = 0,
+        status: str = "ok",
+        risk_level_agreement: float = 0.0,
+        credit_score_mean: float = 0.0,
+        credit_score_std: float = 0.0,
+        credit_score_range: float = 0.0,
+        confidence_agreement: float = 0.0,
+        best_model: str = "",
+        best_model_reasoning: str = "",
+        cross_model_agreement: float = 0.0,
+        llm_judge_analysis: str = "",
+        model_recommendations: List[str] = None,
+        model_results: Dict[str, Dict[str, Any]] = None,
+        pairwise_comparisons: List[Dict[str, Any]] = None,
+    ):
+        """Log cross-model evaluation result to cross_model_eval sheet (non-blocking)."""
+        if not self.is_connected():
+            return
+
+        row = [
+            eval_id,
+            company_name,
+            node or "",
+            node_type or "agent",
+            agent_name or "",
+            step_number,
+            ", ".join(models_compared) if models_compared else "",
+            num_models,
+            round(risk_level_agreement, 4),
+            round(credit_score_mean, 2),
+            round(credit_score_std, 2),
+            round(credit_score_range, 2),
+            round(confidence_agreement, 4),
+            best_model,
+            self._safe_str(best_model_reasoning, max_length=2000),
+            round(cross_model_agreement, 4),
+            self._get_eval_status(cross_model_agreement),
+            self._safe_str(llm_judge_analysis, max_length=5000),
+            self._safe_str(model_recommendations or [], max_length=2000),
+            self._safe_str(model_results or {}, max_length=10000),
+            self._safe_str(pairwise_comparisons or [], max_length=5000),
+            duration_ms,
+            status,
+            datetime.utcnow().isoformat(),
+            "Us",
+        ]
+
+        def _write():
+            try:
+                sheet = self._get_sheet("cross_model_eval")
+                sheet.append_row(row)
+            except Exception as e:
+                logger.error(f"Failed to log cross-model eval: {e}")
+
+        _sheets_executor.submit(_write)
 
     def log_deepeval_metrics(self, *args, **kwargs):
-        """DEPRECATED: DeepEval metrics not currently in use. deepeval_metrics sheet has been removed."""
+        """DEPRECATED: DeepEval metrics not currently in use."""
         pass
 
     def log_plan(
@@ -1173,7 +1405,8 @@ class SheetsLogger:
         all_sheets = [
             "runs", "langgraph_events", "llm_calls", "tool_calls",
             "assessments", "evaluations", "tool_selections",
-            "consistency_scores", "data_sources", "plans", "prompts", "log_tests"
+            "consistency_scores", "data_sources", "plans", "prompts",
+            "cross_model_eval", "llm_judge_results", "agent_metrics", "log_tests"
         ]
 
         results = {
