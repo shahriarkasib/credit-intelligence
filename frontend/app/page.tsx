@@ -607,6 +607,16 @@ export default function CreditIntelligenceStudio() {
           addLog('error', `Workflow failed: ${message.data.error}`)
           break
 
+        case 'api_error':
+          // Display API errors (rate limits, quota exceeded, etc.) prominently
+          const apiError = message.data
+          const errorIcon = apiError.error_type === 'rate_limit' ? 'Rate Limit' :
+                           apiError.error_type === 'quota_exceeded' ? 'Quota Exceeded' : 'API Error'
+          addLog('warning', `${errorIcon}: ${apiError.message}`)
+          // Show as a warning, not a fatal error - workflow may continue with fallbacks
+          setError(`${errorIcon}: ${apiError.message}`)
+          break
+
         case 'ping':
           ws.send('pong')
           break
@@ -919,7 +929,11 @@ export default function CreditIntelligenceStudio() {
                 </div>
 
                 {error && (
-                  <div className="mt-3 p-2 bg-red-900/30 border border-red-800 rounded text-sm text-red-400">
+                  <div className={`mt-3 p-2 rounded text-sm ${
+                    error.includes('Rate Limit') || error.includes('Quota Exceeded')
+                      ? 'bg-orange-900/30 border border-orange-800 text-orange-400'
+                      : 'bg-red-900/30 border border-red-800 text-red-400'
+                  }`}>
                     {error}
                   </div>
                 )}
@@ -1335,6 +1349,7 @@ export default function CreditIntelligenceStudio() {
                               </span>
                               <span className={`w-16 flex-shrink-0 ${
                                 log.type === 'error' ? 'text-red-400' :
+                                log.type === 'warning' ? 'text-orange-400' :
                                 log.type === 'success' ? 'text-green-400' :
                                 log.type === 'step' ? 'text-studio-accent' :
                                 log.type === 'workflow' ? 'text-purple-400' :

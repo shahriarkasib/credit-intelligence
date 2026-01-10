@@ -4,14 +4,52 @@ Provides:
 - CostTrackerCallback - integrates with existing CostTracker
 - MetricsCollectorCallback - integrates with existing MetricsCollector
 - Automatic token counting from LLM responses
+- API error broadcasting to frontend
 """
 
 import logging
 import time
-from typing import Any, Dict, List, Optional, Union
+import asyncio
+from typing import Any, Callable, Dict, List, Optional, Union
 from uuid import UUID
 
 logger = logging.getLogger(__name__)
+
+# Global callback for API errors (set by main.py to broadcast to frontend)
+_api_error_callback: Optional[Callable[[str, str, Dict], None]] = None
+_api_error_async_callback: Optional[Callable] = None
+
+def set_api_error_callback(callback: Optional[Callable[[str, str, Dict], None]]):
+    """Set the callback function for API errors (sync version)."""
+    global _api_error_callback
+    _api_error_callback = callback
+
+def set_api_error_async_callback(callback: Optional[Callable]):
+    """Set the async callback function for API errors."""
+    global _api_error_async_callback
+    _api_error_async_callback = callback
+
+def notify_api_error(error_type: str, message: str, details: Dict = None):
+    """Notify the frontend of an API error."""
+    global _api_error_callback, _api_error_async_callback
+
+    # Try async callback first (for FastAPI)
+    if _api_error_async_callback:
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.create_task(_api_error_async_callback(error_type, message, details or {}))
+            else:
+                loop.run_until_complete(_api_error_async_callback(error_type, message, details or {}))
+        except Exception as e:
+            logger.warning(f"Failed to call async API error callback: {e}")
+
+    # Fall back to sync callback
+    if _api_error_callback:
+        try:
+            _api_error_callback(error_type, message, details or {})
+        except Exception as e:
+            logger.warning(f"Failed to call API error callback: {e}")
 
 # Try to import LangChain callback base
 try:
@@ -494,6 +532,32 @@ class SheetsLoggingCallback(BaseCallbackHandler):
         execution_time_ms = (time.time() - start_time) * 1000
 
         error_msg = str(error)
+
+        # Determine error type and notify frontend
+        error_type = "api_error"
+        user_message = error_msg
+        if "429" in error_msg or "rate_limit" in error_msg.lower():
+            error_type = "rate_limit"
+            # Extract wait time if available
+            if "Please try again in" in error_msg:
+                try:
+                    wait_time = error_msg.split("Please try again in")[1].split(".")[0].strip()
+                    user_message = f"Rate limit exceeded. Please wait {wait_time} before retrying."
+                except:
+                    user_message = "Rate limit exceeded. Please wait a few minutes before retrying."
+        elif "quota" in error_msg.lower():
+            error_type = "quota_exceeded"
+            user_message = "API quota exceeded. Please try again later or upgrade your plan."
+
+        # Notify frontend of the API error
+        notify_api_error(
+            error_type=error_type,
+            message=user_message,
+            details={
+                "model": start_info.get("model", "unknown"),
+                "full_error": error_msg[:500],
+            }
+        )
 
         # Log to Google Sheets
         sheets_logger = self._get_sheets_logger()

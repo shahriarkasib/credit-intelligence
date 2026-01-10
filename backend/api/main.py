@@ -120,6 +120,15 @@ except ImportError as e:
     logger.warning(f"External config manager not available: {e}")
     CONFIG_MANAGER_AVAILABLE = False
 
+# Import API error callback for broadcasting errors to frontend
+try:
+    from config.langchain_callbacks import set_api_error_async_callback
+    API_ERROR_CALLBACK_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"API error callback not available: {e}")
+    API_ERROR_CALLBACK_AVAILABLE = False
+    set_api_error_async_callback = None
+
 
 # =============================================================================
 # PYDANTIC MODELS
@@ -266,6 +275,40 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
+# Global reference for broadcasting API errors from other modules
+_current_run_id: Optional[str] = None
+
+async def broadcast_api_error(error_type: str, error_message: str, details: Dict[str, Any] = None):
+    """
+    Broadcast an API error to the frontend.
+
+    Args:
+        error_type: Type of error (rate_limit, api_error, quota_exceeded, etc.)
+        error_message: Human-readable error message
+        details: Additional error details
+    """
+    global _current_run_id
+    if _current_run_id:
+        await manager.broadcast(_current_run_id, {
+            "type": "api_error",
+            "data": {
+                "error_type": error_type,
+                "message": error_message,
+                "details": details or {},
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        })
+        logger.warning(f"API error broadcast: {error_type} - {error_message}")
+
+def set_current_run_id(run_id: Optional[str]):
+    """Set the current run ID for error broadcasting."""
+    global _current_run_id
+    _current_run_id = run_id
+
+def get_current_run_id() -> Optional[str]:
+    """Get the current run ID."""
+    return _current_run_id
+
 
 # =============================================================================
 # WORKFLOW RUNNER
@@ -297,6 +340,13 @@ async def run_workflow_with_streaming(
         steps=[]
     )
     active_runs[run_id] = workflow_status
+
+    # Set current run ID for API error broadcasting
+    set_current_run_id(run_id)
+
+    # Set up API error callback to broadcast errors to frontend
+    if API_ERROR_CALLBACK_AVAILABLE and set_api_error_async_callback:
+        set_api_error_async_callback(broadcast_api_error)
 
     # Define workflow steps (matching the LangGraph nodes)
     # Format: (node_name, display_name, agent_name)
@@ -729,6 +779,9 @@ async def run_workflow_with_streaming(
         if SET_LOGGER_AVAILABLE and set_langgraph_event_logger:
             set_langgraph_event_logger(None)
 
+        # Clear current run ID
+        set_current_run_id(None)
+
     except Exception as e:
         logger.error(f"Workflow failed: {e}")
         workflow_status.status = "failed"
@@ -752,6 +805,9 @@ async def run_workflow_with_streaming(
         # Clear the global event logger on error too
         if SET_LOGGER_AVAILABLE and set_langgraph_event_logger:
             set_langgraph_event_logger(None)
+
+        # Clear current run ID on error
+        set_current_run_id(None)
 
     return workflow_status
 
