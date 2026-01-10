@@ -1291,16 +1291,45 @@ async def get_log_stats():
 
 
 @app.get("/logs/runs/history")
-async def get_run_history(limit: int = 50):
+async def get_run_history(
+    limit: int = 50,
+    search: Optional[str] = None,
+    run_id: Optional[str] = None,
+    company_name: Optional[str] = None,
+):
     """
     Get recent runs with summaries from MongoDB.
+
+    Supports search by run_id, company_name, or general search term.
+    Results are ordered by completion time (most recent first).
     """
     db = get_db()
     if not db or not db.is_connected():
         return {"runs": [], "source": "none", "message": "MongoDB not connected"}
 
+    # Build query for filtering
+    query = {}
+    if run_id:
+        query["run_id"] = {"$regex": run_id, "$options": "i"}
+    if company_name:
+        query["company_name"] = {"$regex": company_name, "$options": "i"}
+    if search:
+        # General search across run_id and company_name
+        query["$or"] = [
+            {"run_id": {"$regex": search, "$options": "i"}},
+            {"company_name": {"$regex": search, "$options": "i"}},
+        ]
+
     # Try run_summaries first (new Task 17 format), fallback to assessments
-    run_summaries = db.get_run_summaries(limit=limit)
+    if query:
+        # Use direct MongoDB query with filters
+        run_summaries = list(
+            db.db.run_summaries.find(query)
+            .sort("completed_at", -1)  # Sort by completion time
+            .limit(limit)
+        )
+    else:
+        run_summaries = db.get_run_summaries(limit=limit)
 
     if run_summaries:
         runs = []
@@ -1317,7 +1346,7 @@ async def get_run_history(limit: int = 50):
                 "duration_ms": r.get("duration_ms", 0),
                 "total_tokens": r.get("total_tokens", 0),
                 "total_cost": r.get("total_cost", 0),
-                "timestamp": r.get("saved_at", r.get("completed_at", "")),
+                "timestamp": r.get("completed_at", r.get("saved_at", "")),  # Use completed_at first
             })
         return {"runs": runs, "count": len(runs), "source": "run_summaries"}
 

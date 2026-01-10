@@ -403,6 +403,7 @@ export default function CreditIntelligenceStudio() {
   const [backendEvaluation, setBackendEvaluation] = useState<BackendEvaluation | null>(null)
   const [tracesLoading, setTracesLoading] = useState(false)
   const [historicalRuns, setHistoricalRuns] = useState<RunHistory[]>([])
+  const [historySearch, setHistorySearch] = useState('')
 
   // Help modal state
   const [showHelpModal, setShowHelpModal] = useState(false)
@@ -428,20 +429,26 @@ export default function CreditIntelligenceStudio() {
   }, [workflow?.status, workflow?.run_id])
 
   // Fetch historical runs from backend
-  const fetchHistoricalRuns = async () => {
+  const fetchHistoricalRuns = async (search?: string) => {
     try {
-      const response = await fetch(`${API_URL}/logs/runs/history?limit=50`)
+      const params = new URLSearchParams({ limit: '50' })
+      if (search) {
+        params.append('search', search)
+      }
+      const response = await fetch(`${API_URL}/logs/runs/history?${params}`)
       if (response.ok) {
         const data = await response.json()
         if (data.runs) {
           setHistoricalRuns(data.runs.map((r: any) => ({
             run_id: r.run_id,
             company_name: r.company_name,
-            status: 'completed',
+            status: r.status || 'completed',
             risk_level: r.risk_level,
             credit_score: r.credit_score,
             evaluation_score: r.overall_score,
             started_at: r.timestamp || new Date().toISOString(),
+            completed_at: r.timestamp || new Date().toISOString(),
+            duration_ms: r.duration_ms,
           })))
         }
       }
@@ -1671,7 +1678,7 @@ export default function CreditIntelligenceStudio() {
                               {run.duration_ms ? `${(run.duration_ms / 1000).toFixed(1)}s` : '-'}
                             </td>
                             <td className="p-3 text-studio-muted">
-                              {new Date(run.started_at).toLocaleString()}
+                              {new Date(run.completed_at || run.started_at).toLocaleString()}
                             </td>
                           </tr>
                         ))}
@@ -1693,12 +1700,42 @@ export default function CreditIntelligenceStudio() {
                     Historical Runs ({historicalRuns.length})
                   </h2>
                   <button
-                    onClick={fetchHistoricalRuns}
+                    onClick={() => fetchHistoricalRuns(historySearch)}
                     className="text-sm text-studio-accent hover:underline flex items-center gap-1"
                   >
                     <RefreshCw className="w-3 h-3" />
                     Refresh
                   </button>
+                </div>
+
+                {/* Search input */}
+                <div className="flex gap-2 mb-4">
+                  <input
+                    type="text"
+                    value={historySearch}
+                    onChange={(e) => setHistorySearch(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && fetchHistoricalRuns(historySearch)}
+                    placeholder="Search by run ID or company name..."
+                    className="flex-1 bg-studio-panel border border-studio-border rounded px-3 py-2 text-sm focus:outline-none focus:border-studio-accent"
+                  />
+                  <button
+                    onClick={() => fetchHistoricalRuns(historySearch)}
+                    className="px-4 py-2 bg-studio-accent hover:bg-blue-600 rounded text-sm font-medium transition-colors"
+                  >
+                    Search
+                  </button>
+                  {historySearch && (
+                    <button
+                      onClick={() => {
+                        setHistorySearch('')
+                        fetchHistoricalRuns()
+                      }}
+                      className="px-3 py-2 text-studio-muted hover:text-white transition-colors"
+                      title="Clear search"
+                    >
+                      Clear
+                    </button>
+                  )}
                 </div>
 
                 {historicalRuns.length > 0 ? (
@@ -1739,7 +1776,7 @@ export default function CreditIntelligenceStudio() {
                             </td>
                             <td className="p-3">{run.credit_score || 'N/A'}</td>
                             <td className="p-3 text-studio-muted">
-                              {new Date(run.started_at).toLocaleString()}
+                              {new Date(run.completed_at || run.started_at).toLocaleString()}
                             </td>
                             <td className="p-3">
                               <button
