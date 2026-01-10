@@ -3,7 +3,7 @@
 
 # Next.js
 /.next/
-/out/
+# /out/ is NOT ignored - needed for Heroku deployment
 
 # Production
 /build
