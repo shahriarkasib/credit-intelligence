@@ -222,6 +222,9 @@ class CreditWorkflowState(TypedDict):
     # Task plan
     task_plan: List[Dict[str, Any]]
 
+    # Tool selection reasoning (from LLM tool selection)
+    tool_selection: Optional[Dict[str, Any]]
+
     # Agent results
     api_data: Dict[str, Any]
     search_data: Dict[str, Any]
