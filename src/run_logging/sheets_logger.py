@@ -60,6 +60,7 @@ class SheetsLogger:
         # Check for credentials (file or env var)
         has_credentials = (
             self.credentials_path or
+            os.getenv("GOOGLE_CREDENTIALS_JSON") or
             os.getenv("GOOGLE_SHEETS_CREDENTIALS")
         )
         if GSPREAD_AVAILABLE and has_credentials:
@@ -68,32 +69,46 @@ class SheetsLogger:
     def _connect(self):
         """Connect to Google Sheets.
 
-        Supports two credential methods:
-        1. File-based: GOOGLE_CREDENTIALS_PATH points to a JSON file
-        2. Environment variable: GOOGLE_SHEETS_CREDENTIALS contains base64-encoded JSON
-           (for Heroku and other cloud deployments)
+        Supports three credential methods:
+        1. GOOGLE_CREDENTIALS_JSON: Plain JSON string (for Heroku - easiest)
+        2. GOOGLE_SHEETS_CREDENTIALS: Base64-encoded JSON (legacy cloud method)
+        3. GOOGLE_CREDENTIALS_PATH: File path to JSON file (local development)
         """
         try:
             import base64
 
             creds = None
 
-            # Method 1: Environment variable (base64-encoded JSON) - preferred for cloud
-            env_credentials = os.getenv("GOOGLE_SHEETS_CREDENTIALS")
-            if env_credentials:
+            # Method 1: Plain JSON environment variable (easiest for Heroku)
+            plain_json_creds = os.getenv("GOOGLE_CREDENTIALS_JSON")
+            if plain_json_creds:
                 try:
-                    # Decode base64 credentials
-                    creds_json = base64.b64decode(env_credentials).decode('utf-8')
-                    creds_dict = json.loads(creds_json)
+                    creds_dict = json.loads(plain_json_creds)
                     creds = Credentials.from_service_account_info(
                         creds_dict,
                         scopes=self.SCOPES
                     )
-                    logger.info("Using Google credentials from environment variable")
+                    logger.info("Using Google credentials from GOOGLE_CREDENTIALS_JSON env var")
                 except Exception as e:
-                    logger.warning(f"Failed to load credentials from env var: {e}")
+                    logger.warning(f"Failed to load credentials from GOOGLE_CREDENTIALS_JSON: {e}")
 
-            # Method 2: File-based credentials (for local development)
+            # Method 2: Base64-encoded environment variable (legacy)
+            if creds is None:
+                env_credentials = os.getenv("GOOGLE_SHEETS_CREDENTIALS")
+                if env_credentials:
+                    try:
+                        # Decode base64 credentials
+                        creds_json = base64.b64decode(env_credentials).decode('utf-8')
+                        creds_dict = json.loads(creds_json)
+                        creds = Credentials.from_service_account_info(
+                            creds_dict,
+                            scopes=self.SCOPES
+                        )
+                        logger.info("Using Google credentials from GOOGLE_SHEETS_CREDENTIALS env var")
+                    except Exception as e:
+                        logger.warning(f"Failed to load credentials from GOOGLE_SHEETS_CREDENTIALS: {e}")
+
+            # Method 3: File-based credentials (for local development)
             if creds is None and self.credentials_path:
                 creds_path = Path(self.credentials_path)
                 if not creds_path.is_absolute():
