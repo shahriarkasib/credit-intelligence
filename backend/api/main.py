@@ -1323,9 +1323,10 @@ async def get_run_history(
     # Try run_summaries first (new Task 17 format), fallback to assessments
     if query:
         # Use direct MongoDB query with filters
+        # Sort by timestamp (datetime field, always set) for reliable ordering
         run_summaries = list(
             db.db.run_summaries.find(query)
-            .sort("completed_at", -1)  # Sort by completion time
+            .sort("timestamp", -1)  # Sort by timestamp (datetime), most recent first
             .limit(limit)
         )
     else:
@@ -1334,6 +1335,16 @@ async def get_run_history(
     if run_summaries:
         runs = []
         for r in run_summaries:
+            # Get timestamp - prefer completed_at string, fall back to timestamp datetime
+            completed_at = r.get("completed_at", "")
+            if not completed_at and r.get("timestamp"):
+                # Convert datetime to ISO string
+                ts = r.get("timestamp")
+                if hasattr(ts, 'isoformat'):
+                    completed_at = ts.isoformat()
+                else:
+                    completed_at = str(ts)
+
             runs.append({
                 "run_id": r.get("run_id", str(r.get("_id", ""))),
                 "company_name": r.get("company_name", ""),
@@ -1346,7 +1357,7 @@ async def get_run_history(
                 "duration_ms": r.get("duration_ms", 0),
                 "total_tokens": r.get("total_tokens", 0),
                 "total_cost": r.get("total_cost", 0),
-                "timestamp": r.get("completed_at", r.get("saved_at", "")),  # Use completed_at first
+                "timestamp": completed_at,
             })
         return {"runs": runs, "count": len(runs), "source": "run_summaries"}
 

@@ -537,7 +537,7 @@ class CreditIntelligenceDB:
 
         return list(
             self.db.run_summaries.find(query)
-            .sort("saved_at", -1)
+            .sort("timestamp", -1)  # Sort by timestamp (datetime field)
             .limit(limit)
         )
 

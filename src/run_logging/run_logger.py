@@ -569,6 +569,10 @@ class RunLogger:
         - errors, warnings, tools_used, agents_used
         - timing and cost information
         """
+        # Use current time for completed_at if not provided
+        now = datetime.utcnow()
+        actual_completed_at = completed_at if completed_at else now.isoformat()
+
         summary_doc = {
             "run_id": run_id,
             "company_name": company_name,
@@ -588,12 +592,12 @@ class RunLogger:
             "tools_used": tools_used or [],
             "agents_used": agents_used or [],
             "started_at": started_at,
-            "completed_at": completed_at,
+            "completed_at": actual_completed_at,
             "duration_ms": duration_ms,
             "total_tokens": total_tokens,
             "total_cost": round(total_cost, 6),
             "llm_calls_count": llm_calls_count,
-            "timestamp": datetime.utcnow(),
+            "timestamp": now,
         }
 
         if self.is_connected():
