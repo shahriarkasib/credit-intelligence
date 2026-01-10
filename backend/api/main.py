@@ -17,6 +17,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 from contextlib import asynccontextmanager
 
+from bson import ObjectId
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -33,6 +34,25 @@ load_dotenv()
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def serialize_mongo_doc(doc: Any) -> Any:
+    """
+    Recursively serialize MongoDB document for JSON response.
+
+    Handles ObjectId, datetime, and nested documents/lists.
+    """
+    if doc is None:
+        return None
+    if isinstance(doc, ObjectId):
+        return str(doc)
+    if isinstance(doc, datetime):
+        return doc.isoformat()
+    if isinstance(doc, dict):
+        return {k: serialize_mongo_doc(v) for k, v in doc.items()}
+    if isinstance(doc, list):
+        return [serialize_mongo_doc(item) for item in doc]
+    return doc
 
 # Import prompt management
 try:
@@ -1492,68 +1512,38 @@ async def get_run_details(run_id: str):
     # Get run summary
     summary = db.get_run_summary(run_id)
     if summary:
-        if "_id" in summary:
-            summary["_id"] = str(summary["_id"])
-        # Convert datetime objects to strings
-        if summary.get("timestamp"):
-            ts = summary["timestamp"]
-            if hasattr(ts, 'isoformat'):
-                summary["timestamp"] = ts.isoformat()
         result["found"] = True
-        result["summary"] = summary
+        result["summary"] = serialize_mongo_doc(summary)
 
     # Get evaluation data
     eval_doc = db.db.evaluations.find_one({"run_id": run_id})
     if eval_doc:
-        if "_id" in eval_doc:
-            eval_doc["_id"] = str(eval_doc["_id"])
-        result["evaluation"] = eval_doc
+        result["evaluation"] = serialize_mongo_doc(eval_doc)
 
     # Get LLM calls summary
     llm_summary = db.get_llm_calls_summary(run_id)
     if llm_summary:
-        result["llm_summary"] = llm_summary
+        result["llm_summary"] = serialize_mongo_doc(llm_summary)
 
     # Get individual LLM calls
     llm_calls = db.get_llm_calls(run_id=run_id, limit=50)
     if llm_calls:
-        for call in llm_calls:
-            if "_id" in call:
-                call["_id"] = str(call["_id"])
-            # Convert timestamps
-            if call.get("timestamp"):
-                ts = call["timestamp"]
-                if hasattr(ts, 'isoformat'):
-                    call["timestamp"] = ts.isoformat()
-        result["llm_calls"] = llm_calls
+        result["llm_calls"] = serialize_mongo_doc(llm_calls)
 
     # Get LangGraph events/traces
     events = db.get_langgraph_events(run_id=run_id, limit=100)
     if events:
-        for event in events:
-            if "_id" in event:
-                event["_id"] = str(event["_id"])
-            if event.get("timestamp"):
-                ts = event["timestamp"]
-                if hasattr(ts, 'isoformat'):
-                    event["timestamp"] = ts.isoformat()
-        result["langgraph_events"] = events
+        result["langgraph_events"] = serialize_mongo_doc(events)
 
     # Get LangGraph run summary (nodes, agents)
     lg_summary = db.get_langgraph_run_summary(run_id)
     if lg_summary:
-        result["langgraph_summary"] = lg_summary
+        result["langgraph_summary"] = serialize_mongo_doc(lg_summary)
 
     # Get assessment
     assessment = db.db.assessments.find_one({"run_id": run_id})
     if assessment:
-        if "_id" in assessment:
-            assessment["_id"] = str(assessment["_id"])
-        if assessment.get("saved_at"):
-            ts = assessment["saved_at"]
-            if hasattr(ts, 'isoformat'):
-                assessment["saved_at"] = ts.isoformat()
-        result["assessment"] = assessment
+        result["assessment"] = serialize_mongo_doc(assessment)
 
     # Build LangSmith trace URL if available
     langsmith_project = os.getenv("LANGCHAIN_PROJECT", "credit-intelligence")
