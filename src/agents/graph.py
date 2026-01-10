@@ -305,6 +305,7 @@ def parse_input(state: CreditWorkflowState) -> Dict[str, Any]:
                 run_id=run_id,
                 company_name=company_name,
                 step_name="parse_input",
+                agent_name="llm_parser",
                 input_data={"company_name": company_name},
                 output_data={"error": "Company name empty"},
                 execution_time_ms=(time.time() - start_time) * 1000,
@@ -406,6 +407,7 @@ def parse_input(state: CreditWorkflowState) -> Dict[str, Any]:
             run_id=run_id,
             company_name=company_name,
             step_name="parse_input",
+            agent_name="llm_parser",
             input_data={"company_name": company_name, "jurisdiction": state.get("jurisdiction")},
             output_data={
                 "full_company_info": company_info,  # Full parsed company info
@@ -627,6 +629,7 @@ def create_plan(state: CreditWorkflowState) -> Dict[str, Any]:
             run_id=run_id,
             company_name=company_name,
             step_name="create_plan",
+            agent_name="tool_supervisor",
             input_data={"company_info": company_info},
             output_data={
                 "num_tasks": len(task_plan),
@@ -760,6 +763,7 @@ def fetch_api_data(state: CreditWorkflowState) -> Dict[str, Any]:
                 run_id=run_id,
                 company_name=company_name,
                 step_name="fetch_api_data",
+                agent_name="api_agent",
                 input_data={"ticker": company_info.get("ticker"), "jurisdiction": company_info.get("jurisdiction")},
                 output_data={
                     "full_api_data": api_data,  # Full API data from all sources
@@ -839,6 +843,7 @@ def fetch_api_data(state: CreditWorkflowState) -> Dict[str, Any]:
                 run_id=run_id,
                 company_name=company_name,
                 step_name="fetch_api_data",
+                agent_name="api_agent",
                 input_data={"ticker": company_info.get("ticker")},
                 output_data={"error": str(e)},
                 execution_time_ms=(time.time() - start_time) * 1000,
@@ -986,6 +991,7 @@ def synthesize(state: CreditWorkflowState) -> Dict[str, Any]:
                 run_id=run_id,
                 company_name=company_name,
                 step_name="synthesize",
+                agent_name="llm_analyst",
                 input_data={
                     "company_info": state.get("company_info", {}),
                     "api_data_sources": list(state.get("api_data", {}).keys()),
@@ -1074,8 +1080,8 @@ def synthesize(state: CreditWorkflowState) -> Dict[str, Any]:
                                 recommendations=llm_result.recommendations,
                                 risk_factors=llm_result.risk_factors,
                                 positive_factors=llm_result.positive_factors,
-                                node=f"synthesize_{call_type}",
-                                agent_name=call_type,
+                                node="synthesize",
+                                agent_name="llm_analyst",
                                 model=model_id,
                                 temperature=0.1,
                                 step_number=step_number,
@@ -1121,7 +1127,7 @@ def synthesize(state: CreditWorkflowState) -> Dict[str, Any]:
                                 run_id=run_id,
                                 company_name=company_name,
                                 llm_provider="groq",
-                                agent_name=call_type,
+                                agent_name="llm_analyst",
                                 model=model_id,
                                 prompt=f"Credit analysis for {company_name}",
                                 context=f"API data sources: {list(state.get('api_data', {}).keys())}",
@@ -1328,6 +1334,7 @@ def synthesize(state: CreditWorkflowState) -> Dict[str, Any]:
                 run_id=run_id,
                 company_name=company_name,
                 step_name="synthesize",
+                agent_name="llm_analyst",
                 input_data={"has_api_data": bool(state.get("api_data"))},
                 output_data={"error": str(e)},
                 execution_time_ms=(time.time() - start_time) * 1000,
@@ -1630,6 +1637,7 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                 run_id=run_id,
                 company_name=company_name,
                 step_name="evaluate",
+                agent_name="workflow_evaluator",
                 input_data={
                     "has_assessment": bool(assessment),
                     "num_data_sources": len(data_sources_used),
@@ -2333,6 +2341,7 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                 run_id=state.get("run_id", "unknown"),
                 company_name=state.get("company_name", ""),
                 step_name="evaluate",
+                agent_name="workflow_evaluator",
                 input_data={},
                 output_data={"error": str(e)},
                 execution_time_ms=(time.time() - start_time) * 1000,

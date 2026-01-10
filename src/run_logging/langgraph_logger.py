@@ -143,7 +143,7 @@ class LangGraphEventLogger:
         self.log_to_mongodb = log_to_mongodb and MONGODB_AVAILABLE
 
         # Common tracking fields
-        self._agent_name = agent_name or "credit_intelligence_agent"
+        self._agent_name = agent_name or "workflow"
         self._temperature = temperature
         self._step_counter = 0  # Global step counter
 
@@ -266,7 +266,8 @@ class LangGraphEventLogger:
             lg_event.node = self._current_node
 
             # Set agent_name based on current node (using NODE_TO_AGENT mapping)
-            lg_event.agent_name = NODE_TO_AGENT.get(self._current_node, self._agent_name)
+            # Use "workflow" as fallback for events outside specific nodes
+            lg_event.agent_name = NODE_TO_AGENT.get(self._current_node, "workflow" if not self._current_node else self._current_node)
 
             # Determine node_type based on event_type
             if event_type in ("on_tool_start", "on_tool_end"):
