@@ -252,11 +252,16 @@ class ConnectionManager:
     async def broadcast(self, run_id: str, message: dict):
         """Send message to all connections for a run."""
         if run_id in self.active_connections:
-            for connection in self.active_connections[run_id]:
+            connections = self.active_connections[run_id]
+            logger.info(f"Broadcasting to {len(connections)} connections for run {run_id[:8]}: {message.get('type')}")
+            for connection in connections:
                 try:
                     await connection.send_json(message)
+                    logger.debug(f"Message sent successfully: {message.get('type')}")
                 except Exception as e:
                     logger.error(f"Failed to send message: {e}")
+        else:
+            logger.warning(f"No connections for run {run_id[:8]} to broadcast {message.get('type')}")
 
 
 manager = ConnectionManager()
