@@ -1169,13 +1169,11 @@ class SheetsLogger:
         if not self.is_connected():
             return {"error": "Not connected to Google Sheets"}
 
+        # Only include sheets that exist (redundant sheets have been deleted)
         all_sheets = [
-            "runs", "tool_calls", "assessments", "evaluations",
-            "tool_selections", "step_logs", "llm_calls",
-            "consistency_scores", "data_sources", "langgraph_events",
-            "llm_calls_detailed", "run_summaries", "agent_metrics",
-            "llm_judge_results", "model_consistency", "cross_model_eval",
-            "deepeval_metrics", "plans", "prompts"
+            "runs", "langgraph_events", "llm_calls", "tool_calls",
+            "assessments", "evaluations", "tool_selections",
+            "consistency_scores", "data_sources", "plans", "prompts", "log_tests"
         ]
 
         results = {
