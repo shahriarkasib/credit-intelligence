@@ -28,7 +28,11 @@ import {
   Download,
   ExternalLink,
   HelpCircle,
-  Info
+  Info,
+  Cpu,
+  GitBranch,
+  Shield,
+  AlertCircle,
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -408,6 +412,11 @@ export default function CreditIntelligenceStudio() {
   // Help modal state
   const [showHelpModal, setShowHelpModal] = useState(false)
 
+  // Run details modal state
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
+  const [runDetails, setRunDetails] = useState<any>(null)
+  const [runDetailsLoading, setRunDetailsLoading] = useState(false)
+
   const wsRef = useRef<WebSocket | null>(null)
   const logsEndRef = useRef<HTMLDivElement>(null)
 
@@ -455,6 +464,30 @@ export default function CreditIntelligenceStudio() {
     } catch (e) {
       console.error('Failed to fetch historical runs:', e)
     }
+  }
+
+  // Fetch run details when clicking on a row
+  const fetchRunDetails = async (runId: string) => {
+    setSelectedRunId(runId)
+    setRunDetailsLoading(true)
+    setRunDetails(null)
+    try {
+      const response = await fetch(`${API_URL}/logs/runs/${runId}/details`)
+      if (response.ok) {
+        const data = await response.json()
+        setRunDetails(data)
+      }
+    } catch (e) {
+      console.error('Failed to fetch run details:', e)
+    } finally {
+      setRunDetailsLoading(false)
+    }
+  }
+
+  // Close run details modal
+  const closeRunDetails = () => {
+    setSelectedRunId(null)
+    setRunDetails(null)
   }
 
   // Fetch traces and evaluation for a run
@@ -1753,14 +1786,21 @@ export default function CreditIntelligenceStudio() {
                       </thead>
                       <tbody>
                         {historicalRuns.map((run) => (
-                          <tr key={run.run_id} className="border-t border-studio-border hover:bg-studio-panel/30">
+                          <tr
+                            key={run.run_id}
+                            className="border-t border-studio-border hover:bg-studio-panel/50 cursor-pointer transition-colors"
+                            onClick={() => fetchRunDetails(run.run_id)}
+                          >
                             <td className="p-3">
                               <div className="flex items-center gap-1">
                                 <code className="text-xs font-mono text-studio-accent bg-studio-panel px-1.5 py-0.5 rounded break-all" title={run.run_id}>
-                                  {run.run_id}
+                                  {run.run_id.slice(0, 8)}...
                                 </code>
                                 <button
-                                  onClick={() => navigator.clipboard.writeText(run.run_id)}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    navigator.clipboard.writeText(run.run_id)
+                                  }}
                                   className="text-xs text-studio-muted hover:text-studio-accent px-1"
                                   title="Copy full Run ID"
                                 >
@@ -1780,7 +1820,8 @@ export default function CreditIntelligenceStudio() {
                             </td>
                             <td className="p-3">
                               <button
-                                onClick={() => {
+                                onClick={(e) => {
+                                  e.stopPropagation()
                                   setCompanyName(run.company_name)
                                   setActiveTab('single')
                                 }}
@@ -1806,8 +1847,482 @@ export default function CreditIntelligenceStudio() {
         )}
       </div>
 
+      {/* Run Details Modal */}
+      {selectedRunId && (
+        <RunDetailsModal
+          runId={selectedRunId}
+          details={runDetails}
+          loading={runDetailsLoading}
+          onClose={closeRunDetails}
+        />
+      )}
+
       {/* Help Modal */}
       <HelpModal isOpen={showHelpModal} onClose={() => setShowHelpModal(false)} />
+    </div>
+  )
+}
+
+// Run Details Modal Component
+function RunDetailsModal({
+  runId,
+  details,
+  loading,
+  onClose,
+}: {
+  runId: string
+  details: any
+  loading: boolean
+  onClose: () => void
+}) {
+  const [activeSection, setActiveSection] = useState<'summary' | 'evaluation' | 'llm' | 'nodes' | 'assessment'>('summary')
+
+  const formatDuration = (ms: number) => {
+    if (ms < 1000) return `${ms.toFixed(0)}ms`
+    return `${(ms / 1000).toFixed(2)}s`
+  }
+
+  const formatCost = (cost: number) => {
+    if (cost < 0.01) return `$${cost.toFixed(6)}`
+    return `$${cost.toFixed(4)}`
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div
+        className="bg-studio-bg border border-studio-border rounded-lg w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="p-4 border-b border-studio-border bg-studio-panel flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <Activity className="w-5 h-5 text-studio-accent" />
+              Run Details
+            </h2>
+            <div className="flex items-center gap-2 mt-1">
+              <code className="text-xs font-mono text-studio-muted bg-black/30 px-2 py-0.5 rounded">
+                {runId}
+              </code>
+              {details?.summary?.company_name && (
+                <span className="text-sm text-studio-accent">{details.summary.company_name}</span>
+              )}
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 hover:bg-studio-border rounded transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Loading state */}
+        {loading && (
+          <div className="flex-1 flex items-center justify-center py-20">
+            <div className="flex items-center gap-3 text-studio-muted">
+              <Loader2 className="w-6 h-6 animate-spin" />
+              Loading run details...
+            </div>
+          </div>
+        )}
+
+        {/* Content */}
+        {!loading && details && (
+          <>
+            {/* Navigation tabs */}
+            <div className="border-b border-studio-border bg-studio-panel px-4">
+              <nav className="flex gap-1">
+                {[
+                  { id: 'summary', label: 'Summary', icon: FileText },
+                  { id: 'evaluation', label: 'Evaluation', icon: BarChart3 },
+                  { id: 'llm', label: 'LLM Calls', icon: Cpu },
+                  { id: 'nodes', label: 'Nodes & Agents', icon: GitBranch },
+                  { id: 'assessment', label: 'Assessment', icon: Shield },
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveSection(tab.id as any)}
+                    className={`flex items-center gap-2 px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
+                      activeSection === tab.id
+                        ? 'border-studio-accent text-studio-accent'
+                        : 'border-transparent text-studio-muted hover:text-studio-text'
+                    }`}
+                  >
+                    <tab.icon className="w-4 h-4" />
+                    {tab.label}
+                  </button>
+                ))}
+              </nav>
+            </div>
+
+            {/* Tab Content */}
+            <div className="flex-1 overflow-y-auto p-4">
+              {/* Summary Tab */}
+              {activeSection === 'summary' && (
+                <div className="space-y-4">
+                  {/* Quick Stats */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                      <div className="text-xs text-studio-muted mb-1">Status</div>
+                      <div className={`font-semibold ${
+                        details.summary?.status === 'completed' ? 'text-green-400' : 'text-yellow-400'
+                      }`}>
+                        {details.summary?.status || 'Unknown'}
+                      </div>
+                    </div>
+                    <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                      <div className="text-xs text-studio-muted mb-1">Risk Level</div>
+                      <div className={`font-semibold ${
+                        details.summary?.risk_level === 'low' ? 'text-green-400' :
+                        details.summary?.risk_level === 'medium' ? 'text-yellow-400' : 'text-red-400'
+                      }`}>
+                        {details.summary?.risk_level || 'N/A'}
+                      </div>
+                    </div>
+                    <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                      <div className="text-xs text-studio-muted mb-1">Credit Score</div>
+                      <div className="font-semibold text-studio-accent">
+                        {details.summary?.credit_score || 'N/A'}
+                      </div>
+                    </div>
+                    <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                      <div className="text-xs text-studio-muted mb-1">Duration</div>
+                      <div className="font-semibold">
+                        {details.summary?.duration_ms ? formatDuration(details.summary.duration_ms) : 'N/A'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Decision */}
+                  {details.summary?.final_decision && (
+                    <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                      <div className="text-sm text-studio-muted mb-2">Final Decision</div>
+                      <div className={`text-lg font-bold ${
+                        details.summary.final_decision === 'APPROVED' ? 'text-green-400' :
+                        details.summary.final_decision === 'REJECTED' ? 'text-red-400' : 'text-yellow-400'
+                      }`}>
+                        {details.summary.final_decision}
+                      </div>
+                      {details.summary.decision_reasoning && (
+                        <p className="text-sm text-studio-muted mt-2">{details.summary.decision_reasoning}</p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Reasoning */}
+                  {details.summary?.reasoning && (
+                    <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                      <div className="text-sm text-studio-muted mb-2">Analysis Reasoning</div>
+                      <p className="text-sm whitespace-pre-wrap">{details.summary.reasoning}</p>
+                    </div>
+                  )}
+
+                  {/* Cost & Tokens */}
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                      <div className="text-xs text-studio-muted mb-1">Total Tokens</div>
+                      <div className="font-semibold">{details.summary?.total_tokens?.toLocaleString() || 'N/A'}</div>
+                    </div>
+                    <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                      <div className="text-xs text-studio-muted mb-1">Total Cost</div>
+                      <div className="font-semibold">{details.summary?.total_cost ? formatCost(details.summary.total_cost) : 'N/A'}</div>
+                    </div>
+                    <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                      <div className="text-xs text-studio-muted mb-1">LLM Calls</div>
+                      <div className="font-semibold">{details.summary?.llm_calls_count || details.llm_calls?.length || 'N/A'}</div>
+                    </div>
+                  </div>
+
+                  {/* LangSmith Link */}
+                  {details.langsmith_url && (
+                    <a
+                      href={details.langsmith_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 p-4 rounded-lg border border-studio-accent/50 bg-studio-accent/10 hover:bg-studio-accent/20 transition-colors"
+                    >
+                      <ExternalLink className="w-5 h-5 text-studio-accent" />
+                      <span className="text-studio-accent font-medium">View in LangSmith</span>
+                      <span className="text-xs text-studio-muted ml-auto">Opens in new tab</span>
+                    </a>
+                  )}
+                </div>
+              )}
+
+              {/* Evaluation Tab */}
+              {activeSection === 'evaluation' && (
+                <div className="space-y-4">
+                  {/* Scores Grid */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                      <div className="text-xs text-studio-muted mb-1">Overall Score</div>
+                      <div className="text-2xl font-bold text-studio-accent">
+                        {details.summary?.overall_score ? (details.summary.overall_score * 100).toFixed(1) + '%' : 'N/A'}
+                      </div>
+                    </div>
+                    <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                      <div className="text-xs text-studio-muted mb-1">Tool Selection</div>
+                      <div className="text-2xl font-bold">
+                        {details.summary?.tool_selection_score ? (details.summary.tool_selection_score * 100).toFixed(1) + '%' : 'N/A'}
+                      </div>
+                    </div>
+                    <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                      <div className="text-xs text-studio-muted mb-1">Data Quality</div>
+                      <div className="text-2xl font-bold">
+                        {details.summary?.data_quality_score ? (details.summary.data_quality_score * 100).toFixed(1) + '%' : 'N/A'}
+                      </div>
+                    </div>
+                    <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                      <div className="text-xs text-studio-muted mb-1">Synthesis</div>
+                      <div className="text-2xl font-bold">
+                        {details.summary?.synthesis_score ? (details.summary.synthesis_score * 100).toFixed(1) + '%' : 'N/A'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Confidence */}
+                  <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm text-studio-muted">Confidence</span>
+                      <span className="font-semibold">{details.summary?.confidence ? (details.summary.confidence * 100).toFixed(1) + '%' : 'N/A'}</span>
+                    </div>
+                    <div className="w-full bg-studio-border rounded-full h-2">
+                      <div
+                        className="bg-studio-accent h-2 rounded-full transition-all"
+                        style={{ width: `${(details.summary?.confidence || 0) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Evaluation Details */}
+                  {details.evaluation && (
+                    <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                      <h3 className="text-sm font-medium mb-3">Evaluation Details</h3>
+                      <pre className="text-xs text-studio-muted overflow-x-auto bg-black/30 p-3 rounded">
+                        {JSON.stringify(details.evaluation, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+
+                  {/* Tools Used */}
+                  {details.summary?.tools_used && details.summary.tools_used.length > 0 && (
+                    <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                      <h3 className="text-sm font-medium mb-3">Tools Used</h3>
+                      <div className="flex flex-wrap gap-2">
+                        {details.summary.tools_used.map((tool: string, i: number) => (
+                          <span key={i} className="px-2 py-1 bg-studio-accent/20 text-studio-accent rounded text-xs">
+                            {tool}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* LLM Calls Tab */}
+              {activeSection === 'llm' && (
+                <div className="space-y-4">
+                  {/* LLM Summary */}
+                  {details.llm_summary && (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                        <div className="text-xs text-studio-muted mb-1">Total Calls</div>
+                        <div className="text-xl font-bold">{details.llm_summary.total_calls || 0}</div>
+                      </div>
+                      <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                        <div className="text-xs text-studio-muted mb-1">Input Tokens</div>
+                        <div className="text-xl font-bold">{details.llm_summary.total_input_tokens?.toLocaleString() || 0}</div>
+                      </div>
+                      <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                        <div className="text-xs text-studio-muted mb-1">Output Tokens</div>
+                        <div className="text-xl font-bold">{details.llm_summary.total_output_tokens?.toLocaleString() || 0}</div>
+                      </div>
+                      <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                        <div className="text-xs text-studio-muted mb-1">Total Cost</div>
+                        <div className="text-xl font-bold">{formatCost(details.llm_summary.total_cost || 0)}</div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Individual Calls */}
+                  {details.llm_calls && details.llm_calls.length > 0 ? (
+                    <div className="rounded-lg border border-studio-border overflow-hidden">
+                      <table className="w-full text-sm">
+                        <thead className="bg-studio-panel">
+                          <tr>
+                            <th className="text-left p-3 text-studio-muted">Model</th>
+                            <th className="text-left p-3 text-studio-muted">Agent</th>
+                            <th className="text-left p-3 text-studio-muted">Tokens</th>
+                            <th className="text-left p-3 text-studio-muted">Cost</th>
+                            <th className="text-left p-3 text-studio-muted">Duration</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {details.llm_calls.map((call: any, i: number) => (
+                            <tr key={i} className="border-t border-studio-border">
+                              <td className="p-3">
+                                <code className="text-xs bg-studio-panel px-1.5 py-0.5 rounded">
+                                  {call.model || 'Unknown'}
+                                </code>
+                              </td>
+                              <td className="p-3 text-studio-muted">{call.agent_name || call.node_name || '-'}</td>
+                              <td className="p-3">
+                                {call.input_tokens || 0} / {call.output_tokens || 0}
+                              </td>
+                              <td className="p-3">{formatCost(call.cost || 0)}</td>
+                              <td className="p-3">{call.duration_ms ? formatDuration(call.duration_ms) : '-'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-studio-muted border border-studio-border rounded-lg">
+                      No LLM call data available
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Nodes & Agents Tab */}
+              {activeSection === 'nodes' && (
+                <div className="space-y-4">
+                  {/* LangGraph Summary */}
+                  {details.langgraph_summary && (
+                    <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                      <h3 className="text-sm font-medium mb-3">Workflow Summary</h3>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+                        <div>
+                          <span className="text-studio-muted">Total Nodes: </span>
+                          <span className="font-medium">{details.langgraph_summary.total_nodes || 0}</span>
+                        </div>
+                        <div>
+                          <span className="text-studio-muted">Total Events: </span>
+                          <span className="font-medium">{details.langgraph_summary.total_events || 0}</span>
+                        </div>
+                        <div>
+                          <span className="text-studio-muted">Duration: </span>
+                          <span className="font-medium">
+                            {details.langgraph_summary.total_duration_ms ? formatDuration(details.langgraph_summary.total_duration_ms) : 'N/A'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Agents Used */}
+                  {details.summary?.agents_used && details.summary.agents_used.length > 0 && (
+                    <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                      <h3 className="text-sm font-medium mb-3">Agents Used</h3>
+                      <div className="flex flex-wrap gap-2">
+                        {details.summary.agents_used.map((agent: string, i: number) => (
+                          <span key={i} className="px-3 py-1.5 bg-purple-900/30 text-purple-400 border border-purple-800 rounded text-sm">
+                            {agent}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* LangGraph Events */}
+                  {details.langgraph_events && details.langgraph_events.length > 0 ? (
+                    <div className="rounded-lg border border-studio-border overflow-hidden">
+                      <div className="p-3 bg-studio-panel border-b border-studio-border">
+                        <h3 className="text-sm font-medium">Workflow Events ({details.langgraph_events.length})</h3>
+                      </div>
+                      <div className="max-h-96 overflow-y-auto">
+                        {details.langgraph_events.map((event: any, i: number) => (
+                          <div key={i} className="p-3 border-b border-studio-border last:border-0 hover:bg-studio-panel/30">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className={`px-2 py-0.5 rounded text-xs ${
+                                event.event_type === 'node_start' ? 'bg-blue-900/50 text-blue-400' :
+                                event.event_type === 'node_end' ? 'bg-green-900/50 text-green-400' :
+                                'bg-gray-700 text-gray-400'
+                              }`}>
+                                {event.event_type || 'event'}
+                              </span>
+                              <span className="font-medium text-sm">{event.node_name || event.agent_name || 'Unknown'}</span>
+                              {event.duration_ms && (
+                                <span className="text-xs text-studio-muted ml-auto">{formatDuration(event.duration_ms)}</span>
+                              )}
+                            </div>
+                            {event.message && (
+                              <p className="text-xs text-studio-muted truncate">{event.message}</p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-studio-muted border border-studio-border rounded-lg">
+                      No workflow event data available
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Assessment Tab */}
+              {activeSection === 'assessment' && (
+                <div className="space-y-4">
+                  {details.assessment ? (
+                    <>
+                      {/* Assessment Summary */}
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                        <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                          <div className="text-xs text-studio-muted mb-1">Risk Level</div>
+                          <div className={`text-xl font-bold ${
+                            details.assessment.overall_risk_level === 'low' ? 'text-green-400' :
+                            details.assessment.overall_risk_level === 'medium' ? 'text-yellow-400' : 'text-red-400'
+                          }`}>
+                            {details.assessment.overall_risk_level || 'N/A'}
+                          </div>
+                        </div>
+                        <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                          <div className="text-xs text-studio-muted mb-1">Credit Score</div>
+                          <div className="text-xl font-bold text-studio-accent">
+                            {details.assessment.credit_score || 'N/A'}
+                          </div>
+                        </div>
+                        <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                          <div className="text-xs text-studio-muted mb-1">Confidence</div>
+                          <div className="text-xl font-bold">
+                            {details.assessment.confidence ? (details.assessment.confidence * 100).toFixed(0) + '%' : 'N/A'}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Full Assessment */}
+                      <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                        <h3 className="text-sm font-medium mb-3">Full Assessment Data</h3>
+                        <pre className="text-xs text-studio-muted overflow-x-auto bg-black/30 p-3 rounded max-h-96 overflow-y-auto">
+                          {JSON.stringify(details.assessment, null, 2)}
+                        </pre>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-center py-8 text-studio-muted border border-studio-border rounded-lg">
+                      No assessment data available
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* Not Found */}
+        {!loading && (!details || !details.found) && (
+          <div className="flex-1 flex items-center justify-center py-20">
+            <div className="text-center text-studio-muted">
+              <AlertCircle className="w-12 h-12 mx-auto mb-3 opacity-50" />
+              <p>No data found for this run</p>
+              <p className="text-xs mt-1">Run ID: {runId}</p>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

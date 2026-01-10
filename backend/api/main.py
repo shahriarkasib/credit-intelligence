@@ -1468,6 +1468,101 @@ async def get_run_summary_by_id(run_id: str):
     }
 
 
+@app.get("/logs/runs/{run_id}/details")
+async def get_run_details(run_id: str):
+    """
+    Get comprehensive details for a specific run.
+
+    Aggregates data from multiple sources:
+    - Run summary (status, scores, timing)
+    - Evaluation metrics (tool selection, data quality, synthesis)
+    - LLM calls (token usage, costs, models)
+    - LangGraph events (nodes, agents, traces)
+    - Assessment data
+    """
+    db = get_db()
+    if not db or not db.is_connected():
+        return {"error": "MongoDB not connected", "run_id": run_id}
+
+    result = {
+        "run_id": run_id,
+        "found": False,
+    }
+
+    # Get run summary
+    summary = db.get_run_summary(run_id)
+    if summary:
+        if "_id" in summary:
+            summary["_id"] = str(summary["_id"])
+        # Convert datetime objects to strings
+        if summary.get("timestamp"):
+            ts = summary["timestamp"]
+            if hasattr(ts, 'isoformat'):
+                summary["timestamp"] = ts.isoformat()
+        result["found"] = True
+        result["summary"] = summary
+
+    # Get evaluation data
+    eval_doc = db.db.evaluations.find_one({"run_id": run_id})
+    if eval_doc:
+        if "_id" in eval_doc:
+            eval_doc["_id"] = str(eval_doc["_id"])
+        result["evaluation"] = eval_doc
+
+    # Get LLM calls summary
+    llm_summary = db.get_llm_calls_summary(run_id)
+    if llm_summary:
+        result["llm_summary"] = llm_summary
+
+    # Get individual LLM calls
+    llm_calls = db.get_llm_calls(run_id=run_id, limit=50)
+    if llm_calls:
+        for call in llm_calls:
+            if "_id" in call:
+                call["_id"] = str(call["_id"])
+            # Convert timestamps
+            if call.get("timestamp"):
+                ts = call["timestamp"]
+                if hasattr(ts, 'isoformat'):
+                    call["timestamp"] = ts.isoformat()
+        result["llm_calls"] = llm_calls
+
+    # Get LangGraph events/traces
+    events = db.get_langgraph_events(run_id=run_id, limit=100)
+    if events:
+        for event in events:
+            if "_id" in event:
+                event["_id"] = str(event["_id"])
+            if event.get("timestamp"):
+                ts = event["timestamp"]
+                if hasattr(ts, 'isoformat'):
+                    event["timestamp"] = ts.isoformat()
+        result["langgraph_events"] = events
+
+    # Get LangGraph run summary (nodes, agents)
+    lg_summary = db.get_langgraph_run_summary(run_id)
+    if lg_summary:
+        result["langgraph_summary"] = lg_summary
+
+    # Get assessment
+    assessment = db.db.assessments.find_one({"run_id": run_id})
+    if assessment:
+        if "_id" in assessment:
+            assessment["_id"] = str(assessment["_id"])
+        if assessment.get("saved_at"):
+            ts = assessment["saved_at"]
+            if hasattr(ts, 'isoformat'):
+                assessment["saved_at"] = ts.isoformat()
+        result["assessment"] = assessment
+
+    # Build LangSmith trace URL if available
+    langsmith_project = os.getenv("LANGCHAIN_PROJECT", "credit-intelligence")
+    if result.get("found"):
+        result["langsmith_url"] = f"https://smith.langchain.com/o/anthropic/projects/p/{langsmith_project}?filter=run_id%3D{run_id}"
+
+    return result
+
+
 @app.get("/logs/statistics")
 async def get_run_statistics():
     """
