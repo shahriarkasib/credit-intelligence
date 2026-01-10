@@ -821,15 +821,18 @@ async def start_analysis(request: CompanyRequest):
     """
     run_id = str(uuid.uuid4())
 
-    # Start workflow in background
-    asyncio.create_task(
-        run_workflow_with_streaming(
+    async def delayed_workflow_start():
+        """Start workflow after a brief delay to allow WebSocket connection."""
+        await asyncio.sleep(0.5)  # Give frontend time to connect WebSocket
+        await run_workflow_with_streaming(
             run_id=run_id,
             company_name=request.company_name,
             jurisdiction=request.jurisdiction,
             ticker=request.ticker,
         )
-    )
+
+    # Start workflow in background with delay
+    asyncio.create_task(delayed_workflow_start())
 
     return {
         "run_id": run_id,
