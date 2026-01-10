@@ -194,24 +194,19 @@ class SheetsLogger:
                 "duration_ms", "status",
                 "timestamp", "generated_by"
             ],
-            # Sheet 6: Detailed step-by-step logs
-            "step_logs": [
-                "run_id", "company_name", "node", "node_type", "agent_name",
-                "step_name", "step_number", "model", "temperature",
-                "input_summary", "output_summary",
-                "execution_time_ms", "status", "error",
-                "timestamp", "generated_by"
-            ],
-            # Sheet 7: LLM call logs (Mixed: we log, but tokens/response from LLM)
+            # Sheet 6: LLM call logs - ALL LLM calls with full details
+            # Includes: parse_input, tool_selection, credit_analysis, evaluations
             "llm_calls": [
                 "run_id", "company_name", "node", "node_type", "agent_name", "step_number",
-                "call_type", "model", "temperature", "context",
-                # Added: current_task to track which task triggered this LLM call
-                "current_task",
-                "prompt_summary", "response_summary",
+                "call_type", "model", "temperature",
+                # Full prompt and response for auditability
+                "prompt", "response", "reasoning",
+                # Context and task tracking
+                "context", "current_task",
+                # Token usage and costs
                 "prompt_tokens", "completion_tokens", "total_tokens",
                 "input_cost", "output_cost", "total_cost",
-                "execution_time_ms", "status",
+                "execution_time_ms", "status", "error",
                 "timestamp", "generated_by"
             ],
             # Sheet 8: Consistency scores (includes model name for per-model tracking)
@@ -239,119 +234,7 @@ class SheetsLogger:
                 "duration_ms", "status", "error",
                 "timestamp", "generated_by"
             ],
-            # Sheet 12: Task 17 - Detailed LLM call logs (Mixed: we log, but tokens/response from LLM)
-            "llm_calls_detailed": [
-                "run_id", "company_name", "node", "node_type", "agent_name", "step_number",
-                "llm_provider", "model", "temperature",
-                "prompt", "context", "response", "reasoning",
-                "prompt_tokens", "completion_tokens", "total_tokens",
-                "input_cost", "output_cost", "total_cost",
-                "response_time_ms", "status", "error",
-                "timestamp", "generated_by"
-            ],
-            # Sheet 13: Task 17 - Comprehensive run summaries
-            "run_summaries": [
-                "run_id", "company_name", "node", "node_type", "agent_name", "model", "temperature",
-                "status", "risk_level", "credit_score", "confidence", "reasoning",
-                "tool_selection_score", "data_quality_score", "synthesis_score", "overall_score",
-                "final_decision", "decision_reasoning",
-                "errors", "warnings", "tools_used", "agents_used", "total_steps",
-                "started_at", "completed_at", "duration_ms",
-                "total_tokens", "total_cost", "llm_calls_count",
-                "timestamp", "generated_by"
-            ],
-            # Sheet 14: Task 4 - Agent efficiency metrics
-            "agent_metrics": [
-                "run_id", "company_name", "node", "node_type", "agent_name", "step_number", "model",
-                # Core agent metrics (0-1 scores)
-                "intent_correctness", "plan_quality", "tool_choice_correctness",
-                "tool_completeness", "trajectory_match", "final_answer_quality",
-                # Execution metrics
-                "step_count", "tool_calls", "latency_ms",
-                # Overall score
-                "overall_score", "eval_status",  # good/average/bad
-                # Details (JSON)
-                "intent_details", "plan_details", "tool_details",
-                "trajectory_details", "answer_details",
-                "status", "timestamp", "generated_by"
-            ],
-            # Sheet 15: Task 21 - LLM-as-a-judge evaluations
-            "llm_judge_results": [
-                "run_id", "company_name", "node", "node_type", "agent_name", "step_number",
-                "model_used", "temperature",
-                # Dimension scores (0-1)
-                "accuracy_score", "completeness_score", "consistency_score",
-                "actionability_score", "data_utilization_score", "overall_score",
-                "eval_status",  # good/average/bad
-                # Reasoning
-                "accuracy_reasoning", "completeness_reasoning", "consistency_reasoning",
-                "actionability_reasoning", "data_utilization_reasoning", "overall_reasoning",
-                # Benchmark comparison
-                "benchmark_alignment", "benchmark_comparison",
-                # Suggestions
-                "suggestions",
-                # Metadata
-                "tokens_used", "evaluation_cost", "duration_ms", "status",
-                "timestamp", "generated_by"
-            ],
-            # Sheet 17: Task 21 Enhanced - Model consistency evaluation
-            "model_consistency": [
-                "eval_id", "company_name", "node", "node_type", "agent_name", "step_number",
-                "model_name", "num_runs",
-                # Core consistency metrics
-                "risk_level_consistency", "credit_score_mean", "credit_score_std",
-                "confidence_variance", "reasoning_similarity",
-                "risk_factors_overlap", "recommendations_overlap",
-                # Overall
-                "overall_consistency", "is_consistent", "consistency_grade",
-                "eval_status",  # good/average/bad
-                # LLM Judge analysis
-                "llm_judge_analysis", "llm_judge_concerns",
-                # Run details
-                "run_details",
-                "duration_ms", "status", "timestamp", "generated_by"
-            ],
-            # Sheet 18: Task 21 Enhanced - Cross-model comparison
-            "cross_model_eval": [
-                "eval_id", "company_name", "node", "node_type", "agent_name", "step_number",
-                "models_compared", "num_models",
-                # Agreement metrics
-                "risk_level_agreement", "credit_score_mean", "credit_score_std",
-                "credit_score_range", "confidence_agreement",
-                # Best model
-                "best_model", "best_model_reasoning",
-                # Overall
-                "cross_model_agreement", "eval_status",  # good/average/bad
-                # LLM analysis
-                "llm_judge_analysis", "model_recommendations",
-                # Per-model results
-                "model_results", "pairwise_comparisons",
-                "duration_ms", "status", "timestamp", "generated_by"
-            ],
-            # Sheet 19: DeepEval Metrics - LLM-powered evaluation
-            # Source: DeepEval library (https://docs.confident-ai.com/)
-            "deepeval_metrics": [
-                "run_id", "company_name", "node", "node_type", "agent_name", "step_number",
-                "model_used",  # e.g., gpt-4, gpt-4o-mini
-                # Core DeepEval metrics (0-1 scores)
-                "answer_relevancy",       # Is the answer relevant to the question?
-                "faithfulness",           # Is the answer grounded in the provided context?
-                "hallucination",          # Does the answer contain hallucinated information? (lower is better)
-                "contextual_relevancy",   # Is the retrieval context relevant?
-                "bias",                   # Does the answer contain bias? (lower is better)
-                "toxicity",               # Does the answer contain toxic content? (lower is better)
-                # Overall score
-                "overall_score", "eval_status",  # good/average/bad
-                # Reasoning from DeepEval
-                "answer_relevancy_reason", "faithfulness_reason", "hallucination_reason",
-                "contextual_relevancy_reason", "bias_reason",
-                # Input/output for reproducibility
-                "input_query", "context_summary", "assessment_summary",
-                # Metadata
-                "evaluation_model", "evaluation_time_ms", "status",
-                "timestamp", "generated_by"
-            ],
-            # Sheet 20: Plans - Full task plans created for each run
+            # Sheet 10: Plans - Full task plans created for each run
             "plans": [
                 "run_id", "company_name", "node", "agent_name",
                 "num_tasks", "plan_summary",
@@ -374,20 +257,15 @@ class SheetsLogger:
                 "model", "temperature",
                 "timestamp", "generated_by"
             ],
-            # Sheet 22: Log Tests - Verification that all sheet logging worked per run
+            # Sheet 12: Log Tests - Simple verification of sheet logging per run
             "log_tests": [
                 "run_id", "company_name",
-                # Per-sheet verification (count of rows logged)
-                "runs_count", "tool_calls_count", "assessments_count", "evaluations_count",
-                "tool_selections_count", "step_logs_count", "llm_calls_count",
-                "consistency_scores_count", "data_sources_count", "langgraph_events_count",
-                "llm_calls_detailed_count", "run_summaries_count", "agent_metrics_count",
-                "llm_judge_results_count", "model_consistency_count", "cross_model_eval_count",
-                "deepeval_metrics_count", "plans_count", "prompts_count",
-                # Overall verification
-                "total_sheets_with_data", "total_rows_logged", "all_expected_sheets_logged",
-                "missing_sheets", "verification_status",  # pass/fail/partial
-                "verification_notes",
+                # Per-sheet verification (has_data: yes/no, count)
+                "runs", "langgraph_events", "llm_calls", "tool_calls",
+                "assessments", "evaluations", "tool_selections",
+                "consistency_scores", "data_sources", "plans", "prompts",
+                # Summary
+                "total_sheets_logged", "verification_status",
                 "timestamp", "generated_by"
             ]
         }
@@ -750,10 +628,10 @@ class SheetsLogger:
         run_id: str,
         company_name: str,
         step_name: str,
-        step_number: int,
-        input_data: Dict[str, Any],
-        output_data: Dict[str, Any],
-        execution_time_ms: float,
+        step_number: int = 0,
+        input_data: Dict[str, Any] = None,
+        output_data: Dict[str, Any] = None,
+        execution_time_ms: float = 0,
         # New common fields
         node: str = "",
         node_type: str = "agent",
@@ -765,42 +643,14 @@ class SheetsLogger:
         success: bool = True,
         error: str = "",
     ):
-        """Log a workflow step execution (non-blocking)."""
-        if not self.is_connected():
-            return
+        """
+        Log a workflow step execution.
 
-        # Determine status from success flag
-        final_status = status if status != "ok" else ("ok" if success else "fail")
-
-        # Prepare data synchronously
-        row = [
-            run_id,
-            company_name,
-            node or step_name,  # Use step_name as node if not provided
-            node_type or "agent",
-            agent_name or "",
-            step_name,
-            step_number,
-            model or "",
-            temperature if temperature is not None else 0.1,  # Default temperature
-            self._safe_str(input_data),  # Full data (up to 50k)
-            self._safe_str(output_data),  # Full data (up to 50k)
-            execution_time_ms,
-            final_status,
-            error or "",  # Full error message
-            datetime.utcnow().isoformat(),  # timestamp
-            "Us",  # generated_by: We log steps via @log_node decorator
-        ]
-
-        # Write asynchronously (non-blocking)
-        def _write():
-            try:
-                sheet = self._get_sheet("step_logs")
-                sheet.append_row(row)
-            except Exception as e:
-                logger.error(f"Failed to log step to sheets: {e}")
-
-        _sheets_executor.submit(_write)
+        NOTE: Step logging is now handled by langgraph_events sheet.
+        This method is kept for backwards compatibility but does not write to sheets.
+        """
+        # Step logging is now done via langgraph_events - no separate step_logs sheet
+        pass
 
     def log_llm_call(
         self,
@@ -821,8 +671,10 @@ class SheetsLogger:
         temperature: float = None,
         context: str = "",
         status: str = "ok",
+        error: str = "",
         # Task tracking
         current_task: str = "",  # Which task triggered this LLM call
+        reasoning: str = "",  # LLM reasoning/explanation
         # Original fields
         input_cost: float = 0.0,
         output_cost: float = 0.0,
@@ -848,6 +700,15 @@ class SheetsLogger:
             except Exception:
                 pass  # Cost calculation optional
 
+        # Row matches llm_calls sheet columns:
+        # run_id, company_name, node, node_type, agent_name, step_number,
+        # call_type, model, temperature,
+        # prompt, response, reasoning,
+        # context, current_task,
+        # prompt_tokens, completion_tokens, total_tokens,
+        # input_cost, output_cost, total_cost,
+        # execution_time_ms, status, error,
+        # timestamp, generated_by
         row = [
             run_id,
             company_name,
@@ -857,11 +718,12 @@ class SheetsLogger:
             step_number,
             call_type,
             model,
-            temperature if temperature is not None else 0.1,  # Default temperature
+            temperature if temperature is not None else 0.1,
+            self._safe_str(prompt),  # Full prompt
+            self._safe_str(response),  # Full response
+            self._safe_str(reasoning, max_length=10000),  # Reasoning
             self._safe_str(context, max_length=5000),
-            current_task or "",  # Which task triggered this call
-            self._safe_str(prompt),  # Full prompt (up to 50k)
-            self._safe_str(response),  # Full response (up to 50k)
+            current_task or "",
             prompt_tokens,
             completion_tokens,
             prompt_tokens + completion_tokens,
@@ -870,8 +732,9 @@ class SheetsLogger:
             round(total_cost, 6),
             execution_time_ms,
             status,
-            datetime.utcnow().isoformat(),  # timestamp
-            "Mixed",  # generated_by: We log, but tokens/response from LLM (FW)
+            error or "",
+            datetime.utcnow().isoformat(),
+            "Mixed",
         ]
 
         def _write():
@@ -1044,642 +907,33 @@ class SheetsLogger:
 
     # ==================== TASK 17: DETAILED LOGGING ====================
 
-    def log_llm_call_detailed(
-        self,
-        run_id: str,
-        company_name: str,
-        llm_provider: str,
-        agent_name: str,
-        model: str,
-        prompt: str,
-        # New common fields
-        node: str = "",
-        node_type: str = "llm",
-        step_number: int = 0,
-        temperature: float = None,
-        status: str = "ok",
-        # Original fields
-        context: str = "",
-        response: str = "",
-        reasoning: str = "",
-        error: str = "",
-        prompt_tokens: int = 0,
-        completion_tokens: int = 0,
-        response_time_ms: float = 0,
-        input_cost: float = 0,
-        output_cost: float = 0,
-        total_cost: float = 0,
-    ):
-        """
-        Log a detailed LLM call (Task 17 compliant).
+    def log_llm_call_detailed(self, *args, **kwargs):
+        """DEPRECATED: Use log_llm_call instead. This sheet has been removed."""
+        pass
 
-        Logs to llm_calls_detailed sheet with all fields:
-        - llm_provider, run_id, agent_name
-        - prompt, context, response, reasoning
-        - error, tokens, response_time_ms, costs
+    def log_run_summary(self, *args, **kwargs):
+        """DEPRECATED: Use runs sheet via log_run instead. run_summaries sheet has been removed."""
+        pass
 
-        Non-blocking (async write).
-        """
-        if not self.is_connected():
-            return
+    def log_agent_metrics(self, *args, **kwargs):
+        """DEPRECATED: Agent metrics now logged via evaluations sheet. agent_metrics sheet has been removed."""
+        pass
 
-        row = [
-            run_id,
-            company_name,
-            node or "",
-            node_type or "llm",
-            agent_name,
-            step_number,
-            llm_provider,
-            model,
-            temperature if temperature is not None else 0.1,  # Default temperature
-            self._safe_str(prompt, max_length=10000),
-            self._safe_str(context, max_length=5000),
-            self._safe_str(response, max_length=10000),
-            self._safe_str(reasoning, max_length=2000),
-            prompt_tokens,
-            completion_tokens,
-            prompt_tokens + completion_tokens,
-            round(input_cost, 6),
-            round(output_cost, 6),
-            round(total_cost, 6),
-            response_time_ms,
-            status,
-            error or "",
-            datetime.utcnow().isoformat(),  # timestamp
-            "Mixed",  # generated_by: We log, but tokens/response from LLM (FW)
-        ]
+    def log_llm_judge_result(self, *args, **kwargs):
+        """DEPRECATED: LLM judge results now logged via evaluations sheet. llm_judge_results sheet has been removed."""
+        pass
 
-        def _write():
-            try:
-                sheet = self._get_sheet("llm_calls_detailed")
-                sheet.append_row(row)
-                logger.debug(f"Logged detailed LLM call for run: {run_id}")
-            except Exception as e:
-                logger.error(f"Failed to log detailed LLM call to sheets: {e}")
+    def log_model_consistency(self, *args, **kwargs):
+        """DEPRECATED: Model consistency now logged via consistency_scores sheet. model_consistency sheet has been removed."""
+        pass
 
-        _sheets_executor.submit(_write)
+    def log_cross_model_eval(self, *args, **kwargs):
+        """DEPRECATED: Cross-model evaluation now logged via consistency_scores sheet. cross_model_eval sheet has been removed."""
+        pass
 
-    def log_run_summary(
-        self,
-        run_id: str,
-        company_name: str,
-        status: str = "completed",
-        # New common fields
-        node: str = "",
-        node_type: str = "",
-        agent_name: str = "",
-        model: str = "",
-        temperature: float = None,
-        total_steps: int = 0,
-        # Assessment
-        risk_level: str = "",
-        credit_score: int = 0,
-        confidence: float = 0.0,
-        reasoning: str = "",
-        # Eval metrics
-        tool_selection_score: float = 0.0,
-        data_quality_score: float = 0.0,
-        synthesis_score: float = 0.0,
-        overall_score: float = 0.0,
-        # Decision
-        final_decision: str = "",
-        decision_reasoning: str = "",
-        # Execution details
-        errors: List[str] = None,
-        warnings: List[str] = None,
-        tools_used: List[str] = None,
-        agents_used: List[str] = None,
-        # Timing
-        started_at: str = "",
-        completed_at: str = "",
-        duration_ms: float = 0.0,
-        # Costs
-        total_tokens: int = 0,
-        total_cost: float = 0.0,
-        llm_calls_count: int = 0,
-    ):
-        """
-        Log a comprehensive run summary (Task 17 compliant).
-
-        Logs to run_summaries sheet with all fields:
-        - company_name, run_id, status
-        - risk_level, credit_score, confidence, reasoning
-        - ALL eval metrics (tool_selection, data_quality, synthesis, overall)
-        - final_decision (Good/Not Good), decision_reasoning
-        - errors, warnings, tools_used, agents_used
-        - timing (started_at, completed_at, duration_ms)
-        - costs (total_tokens, total_cost, llm_calls_count)
-
-        Non-blocking (async write).
-        """
-        if not self.is_connected():
-            return
-
-        row = [
-            run_id,
-            company_name,
-            node or "",
-            node_type or "",
-            agent_name or "",
-            model or "",
-            temperature if temperature is not None else 0.1,  # Default temperature
-            status,
-            risk_level,
-            credit_score,
-            round(confidence, 4),
-            self._safe_str(reasoning, max_length=5000),
-            round(tool_selection_score, 4),
-            round(data_quality_score, 4),
-            round(synthesis_score, 4),
-            round(overall_score, 4),
-            final_decision,
-            self._safe_str(decision_reasoning, max_length=2000),
-            ", ".join(errors) if errors else "",
-            ", ".join(warnings) if warnings else "",
-            ", ".join(tools_used) if tools_used else "",
-            ", ".join(agents_used) if agents_used else "",
-            total_steps,
-            started_at,
-            completed_at,
-            duration_ms,
-            total_tokens,
-            round(total_cost, 6),
-            llm_calls_count,
-            datetime.utcnow().isoformat(),  # timestamp
-            "Us",  # generated_by: We aggregate and log run summaries
-        ]
-
-        def _write():
-            try:
-                sheet = self._get_sheet("run_summaries")
-                sheet.append_row(row)
-                logger.info(f"Logged run summary for: {company_name} (run: {run_id})")
-            except Exception as e:
-                logger.error(f"Failed to log run summary to sheets: {e}")
-
-        _sheets_executor.submit(_write)
-
-    def log_agent_metrics(
-        self,
-        run_id: str,
-        company_name: str,
-        # New common fields
-        node: str = "",
-        node_type: str = "agent",
-        agent_name: str = "",
-        step_number: int = 0,
-        model: str = "",
-        status: str = "ok",
-        # Core agent metrics (0-1 scores)
-        intent_correctness: float = 0.0,
-        plan_quality: float = 0.0,
-        tool_choice_correctness: float = 0.0,
-        tool_completeness: float = 0.0,
-        trajectory_match: float = 0.0,
-        final_answer_quality: float = 0.0,
-        # Execution metrics
-        step_count: int = 0,
-        tool_calls: int = 0,
-        latency_ms: float = 0.0,
-        # Overall score
-        overall_score: float = 0.0,
-        # Details (dicts)
-        intent_details: Dict[str, Any] = None,
-        plan_details: Dict[str, Any] = None,
-        tool_details: Dict[str, Any] = None,
-        trajectory_details: Dict[str, Any] = None,
-        answer_details: Dict[str, Any] = None,
-    ):
-        """
-        Log agent efficiency metrics (Task 4 compliant).
-
-        Logs standard agentic metrics to agent_metrics sheet:
-        - intent_correctness: Did the agent understand the task?
-        - plan_quality: How good was the execution plan?
-        - tool_choice_correctness: Did agent choose correct tools? (precision)
-        - tool_completeness: Did agent use all needed tools? (recall)
-        - trajectory_match: Did agent follow expected execution path?
-        - final_answer_quality: Is the final output correct and complete?
-        - step_count, tool_calls, latency_ms: Execution metrics
-
-        Non-blocking (async write).
-        """
-        if not self.is_connected():
-            return
-
-        row = [
-            run_id,
-            company_name,
-            node or "",
-            node_type or "agent",
-            agent_name or "",
-            step_number,
-            model or "",
-            # Core metrics
-            round(intent_correctness, 4),
-            round(plan_quality, 4),
-            round(tool_choice_correctness, 4),
-            round(tool_completeness, 4),
-            round(trajectory_match, 4),
-            round(final_answer_quality, 4),
-            # Execution metrics
-            step_count,
-            tool_calls,
-            round(latency_ms, 2),
-            # Overall
-            round(overall_score, 4),
-            self._get_eval_status(overall_score),  # eval_status
-            # Details as JSON
-            self._safe_str(intent_details or {}, max_length=5000),
-            self._safe_str(plan_details or {}, max_length=5000),
-            self._safe_str(tool_details or {}, max_length=5000),
-            self._safe_str(trajectory_details or {}, max_length=5000),
-            self._safe_str(answer_details or {}, max_length=5000),
-            status,
-            datetime.utcnow().isoformat(),  # timestamp
-            "Us",  # generated_by: We calculate agent efficiency metrics
-        ]
-
-        def _write():
-            try:
-                sheet = self._get_sheet("agent_metrics")
-                sheet.append_row(row)
-                logger.info(f"Logged agent metrics for: {company_name} (run: {run_id})")
-            except Exception as e:
-                logger.error(f"Failed to log agent metrics to sheets: {e}")
-
-        _sheets_executor.submit(_write)
-
-    def log_llm_judge_result(
-        self,
-        run_id: str,
-        company_name: str,
-        model_used: str,
-        # New common fields
-        node: str = "",
-        node_type: str = "llm",
-        agent_name: str = "",
-        step_number: int = 0,
-        temperature: float = None,
-        duration_ms: float = 0,
-        status: str = "ok",
-        # Dimension scores (0-1)
-        accuracy_score: float = 0.0,
-        completeness_score: float = 0.0,
-        consistency_score: float = 0.0,
-        actionability_score: float = 0.0,
-        data_utilization_score: float = 0.0,
-        overall_score: float = 0.0,
-        # Reasoning
-        accuracy_reasoning: str = "",
-        completeness_reasoning: str = "",
-        consistency_reasoning: str = "",
-        actionability_reasoning: str = "",
-        data_utilization_reasoning: str = "",
-        overall_reasoning: str = "",
-        # Benchmark comparison
-        benchmark_alignment: float = 0.0,
-        benchmark_comparison: str = "",
-        # Suggestions
-        suggestions: List[str] = None,
-        # Metadata
-        tokens_used: int = 0,
-        evaluation_cost: float = 0.0,
-    ):
-        """
-        Log LLM-as-a-judge evaluation result (Task 21 compliant).
-
-        Logs comprehensive LLM judge evaluation to llm_judge_results sheet:
-        - Dimension scores: accuracy, completeness, consistency, actionability, data_utilization
-        - Reasoning for each dimension
-        - Benchmark comparison (if provided)
-        - Suggestions for improvement
-        - Cost and token metadata
-
-        Non-blocking (async write).
-        """
-        if not self.is_connected():
-            return
-
-        row = [
-            run_id,
-            company_name,
-            node or "",
-            node_type or "llm",
-            agent_name or "",
-            step_number,
-            model_used,
-            temperature if temperature is not None else 0.1,  # Default temperature
-            # Dimension scores
-            round(accuracy_score, 4),
-            round(completeness_score, 4),
-            round(consistency_score, 4),
-            round(actionability_score, 4),
-            round(data_utilization_score, 4),
-            round(overall_score, 4),
-            self._get_eval_status(overall_score),  # eval_status
-            # Reasoning (truncated)
-            self._safe_str(accuracy_reasoning, max_length=2000),
-            self._safe_str(completeness_reasoning, max_length=2000),
-            self._safe_str(consistency_reasoning, max_length=2000),
-            self._safe_str(actionability_reasoning, max_length=2000),
-            self._safe_str(data_utilization_reasoning, max_length=2000),
-            self._safe_str(overall_reasoning, max_length=5000),
-            # Benchmark
-            round(benchmark_alignment, 4) if benchmark_alignment else 0,
-            self._safe_str(benchmark_comparison, max_length=5000),
-            # Suggestions
-            self._safe_str(suggestions or [], max_length=5000),
-            # Metadata
-            tokens_used,
-            round(evaluation_cost, 6),
-            duration_ms,
-            status,
-            datetime.utcnow().isoformat(),  # timestamp
-            "Us",  # generated_by: We run LLM-as-a-judge evaluation
-        ]
-
-        def _write():
-            try:
-                sheet = self._get_sheet("llm_judge_results")
-                sheet.append_row(row)
-                logger.info(f"Logged LLM judge result for: {company_name} (run: {run_id})")
-            except Exception as e:
-                logger.error(f"Failed to log LLM judge result to sheets: {e}")
-
-        _sheets_executor.submit(_write)
-
-    def log_model_consistency(
-        self,
-        eval_id: str,
-        company_name: str,
-        model_name: str,
-        num_runs: int,
-        # New common fields
-        node: str = "",
-        node_type: str = "agent",
-        agent_name: str = "",
-        step_number: int = 0,
-        duration_ms: float = 0,
-        status: str = "ok",
-        # Core consistency metrics
-        risk_level_consistency: float = 0.0,
-        credit_score_mean: float = 0.0,
-        credit_score_std: float = 0.0,
-        confidence_variance: float = 0.0,
-        reasoning_similarity: float = 0.0,
-        risk_factors_overlap: float = 0.0,
-        recommendations_overlap: float = 0.0,
-        # Overall
-        overall_consistency: float = 0.0,
-        is_consistent: bool = False,
-        consistency_grade: str = "",
-        # LLM Judge analysis
-        llm_judge_analysis: str = "",
-        llm_judge_concerns: List[str] = None,
-        # Run details
-        run_details: List[Dict[str, Any]] = None,
-    ):
-        """
-        Log model consistency evaluation result.
-
-        Measures how consistent a model is when run multiple times
-        on the same company.
-
-        Non-blocking (async write).
-        """
-        if not self.is_connected():
-            return
-
-        row = [
-            eval_id,
-            company_name,
-            node or "",
-            node_type or "agent",
-            agent_name or "",
-            step_number,
-            model_name,
-            num_runs,
-            # Core metrics
-            round(risk_level_consistency, 4),
-            round(credit_score_mean, 2),
-            round(credit_score_std, 2),
-            round(confidence_variance, 4),
-            round(reasoning_similarity, 4),
-            round(risk_factors_overlap, 4),
-            round(recommendations_overlap, 4),
-            # Overall
-            round(overall_consistency, 4),
-            "Yes" if is_consistent else "No",
-            consistency_grade,
-            self._get_eval_status(overall_consistency),  # eval_status
-            # LLM analysis
-            self._safe_str(llm_judge_analysis, max_length=5000),
-            self._safe_str(llm_judge_concerns or [], max_length=2000),
-            # Run details
-            self._safe_str(run_details or [], max_length=10000),
-            duration_ms,
-            status,
-            datetime.utcnow().isoformat(),  # timestamp
-            "Us",  # generated_by: We calculate model consistency
-        ]
-
-        def _write():
-            try:
-                sheet = self._get_sheet("model_consistency")
-                sheet.append_row(row)
-                logger.info(f"Logged model consistency for: {company_name} ({model_name})")
-            except Exception as e:
-                logger.error(f"Failed to log model consistency to sheets: {e}")
-
-        _sheets_executor.submit(_write)
-
-    def log_cross_model_eval(
-        self,
-        eval_id: str,
-        company_name: str,
-        models_compared: List[str],
-        num_models: int,
-        # New common fields
-        node: str = "",
-        node_type: str = "agent",
-        agent_name: str = "",
-        step_number: int = 0,
-        duration_ms: float = 0,
-        status: str = "ok",
-        # Agreement metrics
-        risk_level_agreement: float = 0.0,
-        credit_score_mean: float = 0.0,
-        credit_score_std: float = 0.0,
-        credit_score_range: float = 0.0,
-        confidence_agreement: float = 0.0,
-        # Best model
-        best_model: str = "",
-        best_model_reasoning: str = "",
-        # Overall
-        cross_model_agreement: float = 0.0,
-        # LLM analysis
-        llm_judge_analysis: str = "",
-        model_recommendations: List[str] = None,
-        # Per-model results
-        model_results: Dict[str, Dict[str, Any]] = None,
-        pairwise_comparisons: List[Dict[str, Any]] = None,
-    ):
-        """
-        Log cross-model evaluation result.
-
-        Compares assessments from different models for the same company.
-
-        Non-blocking (async write).
-        """
-        if not self.is_connected():
-            return
-
-        row = [
-            eval_id,
-            company_name,
-            node or "",
-            node_type or "agent",
-            agent_name or "",
-            step_number,
-            ", ".join(models_compared) if models_compared else "",
-            num_models,
-            # Agreement metrics
-            round(risk_level_agreement, 4),
-            round(credit_score_mean, 2),
-            round(credit_score_std, 2),
-            round(credit_score_range, 2),
-            round(confidence_agreement, 4),
-            # Best model
-            best_model,
-            self._safe_str(best_model_reasoning, max_length=2000),
-            # Overall
-            round(cross_model_agreement, 4),
-            self._get_eval_status(cross_model_agreement),  # eval_status
-            # LLM analysis
-            self._safe_str(llm_judge_analysis, max_length=5000),
-            self._safe_str(model_recommendations or [], max_length=2000),
-            # Per-model results
-            self._safe_str(model_results or {}, max_length=10000),
-            self._safe_str(pairwise_comparisons or [], max_length=5000),
-            duration_ms,
-            status,
-            datetime.utcnow().isoformat(),  # timestamp
-            "Us",  # generated_by: We calculate cross-model evaluation
-        ]
-
-        def _write():
-            try:
-                sheet = self._get_sheet("cross_model_eval")
-                sheet.append_row(row)
-                logger.info(f"Logged cross-model eval for: {company_name} ({len(models_compared)} models)")
-            except Exception as e:
-                logger.error(f"Failed to log cross-model eval to sheets: {e}")
-
-        _sheets_executor.submit(_write)
-
-    # ==================== DEDICATED EVAL SHEETS ====================
-
-    def log_deepeval_metrics(
-        self,
-        run_id: str,
-        company_name: str,
-        model_used: str,
-        # New common fields
-        node: str = "evaluate",
-        node_type: str = "agent",
-        agent_name: str = "",
-        step_number: int = 0,
-        status: str = "ok",
-        # Core DeepEval metrics (0-1 scores)
-        answer_relevancy: float = 0.0,
-        faithfulness: float = 0.0,
-        hallucination: float = 0.0,       # Lower is better
-        contextual_relevancy: float = 0.0,
-        bias: float = 0.0,                # Lower is better
-        toxicity: float = 0.0,            # Lower is better
-        # Overall
-        overall_score: float = 0.0,
-        # Reasoning
-        answer_relevancy_reason: str = "",
-        faithfulness_reason: str = "",
-        hallucination_reason: str = "",
-        contextual_relevancy_reason: str = "",
-        bias_reason: str = "",
-        # Input/output
-        input_query: str = "",
-        context_summary: str = "",
-        assessment_summary: str = "",
-        # Metadata
-        evaluation_model: str = "",
-        evaluation_time_ms: float = 0.0,
-    ):
-        """
-        Log DeepEval evaluation metrics.
-
-        DeepEval provides LLM-powered evaluation metrics:
-        - answer_relevancy: Is the answer relevant to the question? (0-1, higher is better)
-        - faithfulness: Is the answer grounded in the provided context? (0-1, higher is better)
-        - hallucination: Does the answer contain hallucinated info? (0-1, LOWER is better)
-        - contextual_relevancy: Is the retrieval context relevant? (0-1, higher is better)
-        - bias: Does the answer contain bias? (0-1, LOWER is better)
-        - toxicity: Does the answer contain toxic content? (0-1, LOWER is better)
-
-        Overall score calculation:
-        overall = (answer_relevancy * 0.25 + faithfulness * 0.30 +
-                  (1 - hallucination) * 0.25 + contextual_relevancy * 0.10 +
-                  (1 - bias) * 0.10)
-
-        Non-blocking (async write).
-        """
-        if not self.is_connected():
-            return
-
-        row = [
-            run_id,
-            company_name,
-            node or "evaluate",
-            node_type or "agent",
-            agent_name or "",
-            step_number,
-            model_used,
-            # Core metrics
-            round(answer_relevancy, 4),
-            round(faithfulness, 4),
-            round(hallucination, 4),
-            round(contextual_relevancy, 4),
-            round(bias, 4),
-            round(toxicity, 4),
-            round(overall_score, 4),
-            self._get_eval_status(overall_score),  # eval_status
-            # Reasoning
-            self._safe_str(answer_relevancy_reason, max_length=2000),
-            self._safe_str(faithfulness_reason, max_length=2000),
-            self._safe_str(hallucination_reason, max_length=2000),
-            self._safe_str(contextual_relevancy_reason, max_length=2000),
-            self._safe_str(bias_reason, max_length=2000),
-            # Input/output
-            self._safe_str(input_query, max_length=1000),
-            self._safe_str(context_summary, max_length=5000),
-            self._safe_str(assessment_summary, max_length=5000),
-            # Metadata
-            evaluation_model or model_used,
-            round(evaluation_time_ms, 2),
-            status,
-            datetime.utcnow().isoformat(),  # timestamp
-            "Us",  # generated_by: We run DeepEval evaluation
-        ]
-
-        def _write():
-            try:
-                sheet = self._get_sheet("deepeval_metrics")
-                sheet.append_row(row)
-                logger.info(f"Logged DeepEval metrics for: {company_name} (run: {run_id}, overall: {overall_score:.2f})")
-            except Exception as e:
-                logger.error(f"Failed to log DeepEval metrics to sheets: {e}")
-
-        _sheets_executor.submit(_write)
+    def log_deepeval_metrics(self, *args, **kwargs):
+        """DEPRECATED: DeepEval metrics not currently in use. deepeval_metrics sheet has been removed."""
+        pass
 
     def log_plan(
         self,
@@ -1828,115 +1082,72 @@ class SheetsLogger:
         Log verification of all sheet logging for a run.
 
         Counts rows in each sheet for this run_id and logs summary to log_tests sheet.
+        Simple format: shows "count" or "0" for each sheet.
 
         Args:
             run_id: The run ID to verify
             company_name: Company name for the run
             expected_sheets: Optional list of sheets that should have data
-                           (defaults to core sheets: runs, step_logs, llm_calls, assessments, evaluations)
         """
         if not self.is_connected():
             return
 
-        # Default expected sheets for a complete run
-        if expected_sheets is None:
-            expected_sheets = [
-                "runs", "step_logs", "llm_calls", "assessments",
-                "evaluations", "run_summaries"
-            ]
-
-        # All sheets to check
-        all_sheets = [
-            "runs", "tool_calls", "assessments", "evaluations",
-            "tool_selections", "step_logs", "llm_calls",
-            "consistency_scores", "data_sources", "langgraph_events",
-            "llm_calls_detailed", "run_summaries", "agent_metrics",
-            "llm_judge_results", "model_consistency", "cross_model_eval",
-            "deepeval_metrics", "plans", "prompts"
+        # Core sheets to check (matches log_tests columns)
+        core_sheets = [
+            "runs", "langgraph_events", "llm_calls", "tool_calls",
+            "assessments", "evaluations", "tool_selections",
+            "consistency_scores", "data_sources", "plans", "prompts"
         ]
 
         def _verify_and_log():
             try:
                 sheet_counts = {}
-                total_rows = 0
                 sheets_with_data = 0
 
-                for sheet_name in all_sheets:
+                for sheet_name in core_sheets:
                     try:
                         sheet = self._get_sheet(sheet_name)
                         if sheet:
-                            # Get all values and count rows matching run_id
                             all_values = sheet.get_all_values()
-                            # First column is run_id (or eval_id for some sheets)
                             count = sum(1 for row in all_values[1:] if row and row[0] == run_id)
                             sheet_counts[sheet_name] = count
-                            total_rows += count
                             if count > 0:
                                 sheets_with_data += 1
                         else:
                             sheet_counts[sheet_name] = 0
                     except Exception as e:
                         logger.warning(f"Failed to check sheet {sheet_name}: {e}")
-                        sheet_counts[sheet_name] = -1  # Error
+                        sheet_counts[sheet_name] = 0
 
-                # Check which expected sheets are missing
-                missing_sheets = [s for s in expected_sheets if sheet_counts.get(s, 0) == 0]
-                all_expected_logged = len(missing_sheets) == 0
+                # Determine status
+                status = "pass" if sheets_with_data >= 5 else ("partial" if sheets_with_data > 0 else "fail")
 
-                # Determine verification status
-                if all_expected_logged and sheets_with_data >= len(expected_sheets):
-                    status = "pass"
-                elif sheets_with_data > 0:
-                    status = "partial"
-                else:
-                    status = "fail"
-
-                # Build verification notes
-                notes = []
-                if missing_sheets:
-                    notes.append(f"Missing: {', '.join(missing_sheets)}")
-                if sheets_with_data > 0:
-                    logged_sheets = [s for s, c in sheet_counts.items() if c > 0]
-                    notes.append(f"Logged: {', '.join(logged_sheets)}")
-
-                # Build row for log_tests sheet
+                # Build row - simple format showing count for each sheet
                 row = [
                     run_id,
                     company_name,
-                    # Per-sheet counts
+                    # Per-sheet: show count (or 0)
                     sheet_counts.get("runs", 0),
+                    sheet_counts.get("langgraph_events", 0),
+                    sheet_counts.get("llm_calls", 0),
                     sheet_counts.get("tool_calls", 0),
                     sheet_counts.get("assessments", 0),
                     sheet_counts.get("evaluations", 0),
                     sheet_counts.get("tool_selections", 0),
-                    sheet_counts.get("step_logs", 0),
-                    sheet_counts.get("llm_calls", 0),
                     sheet_counts.get("consistency_scores", 0),
                     sheet_counts.get("data_sources", 0),
-                    sheet_counts.get("langgraph_events", 0),
-                    sheet_counts.get("llm_calls_detailed", 0),
-                    sheet_counts.get("run_summaries", 0),
-                    sheet_counts.get("agent_metrics", 0),
-                    sheet_counts.get("llm_judge_results", 0),
-                    sheet_counts.get("model_consistency", 0),
-                    sheet_counts.get("cross_model_eval", 0),
-                    sheet_counts.get("deepeval_metrics", 0),
                     sheet_counts.get("plans", 0),
                     sheet_counts.get("prompts", 0),
-                    # Overall
+                    # Summary
                     sheets_with_data,
-                    total_rows,
-                    "Yes" if all_expected_logged else "No",
-                    ", ".join(missing_sheets) if missing_sheets else "",
                     status,
-                    "; ".join(notes),
                     datetime.utcnow().isoformat(),
                     "Us",
                 ]
 
                 sheet = self._get_sheet("log_tests")
                 sheet.append_row(row)
-                logger.info(f"Log verification for run {run_id}: {status} ({sheets_with_data} sheets, {total_rows} rows)")
+                logger.info(f"Log verification for run {run_id}: {status} ({sheets_with_data}/11 sheets)")
 
             except Exception as e:
                 logger.error(f"Failed to log verification: {e}")

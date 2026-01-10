@@ -808,6 +808,9 @@ def fetch_api_data(state: CreditWorkflowState) -> Dict[str, Any]:
                     records_found=records,
                     data_summary=source_data if source_data else {},  # Full data
                     execution_time_ms=tool_duration or 0,
+                    node="fetch_api_data",
+                    agent_name="api_agent",
+                    step_number=step_number,
                 )
 
                 # Log as tool call with hierarchy tracking
@@ -919,6 +922,9 @@ def search_web(state: CreditWorkflowState) -> Dict[str, Any]:
                 records_found=num_results,
                 data_summary=search_data if search_data else {},  # Full data
                 execution_time_ms=tool_duration,
+                node="search_web",
+                agent_name="search_agent",
+                step_number=step_number,
             )
 
         return result
@@ -1122,29 +1128,6 @@ def synthesize(state: CreditWorkflowState) -> Dict[str, Any]:
                                 except Exception as e:
                                     logger.warning(f"Failed to log synthesis prompt: {e}")
 
-                            # Task 17: Log detailed LLM call
-                            wf_logger.log_llm_call_detailed(
-                                run_id=run_id,
-                                company_name=company_name,
-                                llm_provider="groq",
-                                agent_name="llm_analyst",
-                                model=model_id,
-                                prompt=f"Credit analysis for {company_name}",
-                                context=f"API data sources: {list(state.get('api_data', {}).keys())}",
-                                response=json.dumps({
-                                    "risk_level": llm_result.risk_level,
-                                    "credit_score": llm_result.credit_score_estimate,
-                                    "confidence": llm_result.confidence,
-                                }, default=str),
-                                reasoning=llm_result.reasoning or "",
-                                prompt_tokens=llm_result.prompt_tokens,
-                                completion_tokens=llm_result.completion_tokens,
-                                response_time_ms=llm_exec_time,
-                                input_cost=llm_result.input_cost,
-                                output_cost=llm_result.output_cost,
-                                total_cost=llm_result.total_cost,
-                            )
-
                         logger.info(f"  [{call_type}] {model_id}: {llm_result.risk_level} (score: {llm_result.credit_score_estimate}, tokens: {llm_result.total_tokens}, cost: ${llm_result.total_cost:.6f})")
                     else:
                         logger.warning(f"  [{call_type}] {model_id}: Failed - {llm_result.error}")
@@ -1240,6 +1223,7 @@ def synthesize(state: CreditWorkflowState) -> Dict[str, Any]:
                     "balanced": "llama3-70b-8192",
                 }
 
+                consistency_step = 1
                 for model_type, data in model_consistency.items():
                     model_name = MODEL_NAMES.get(model_type, model_type)
                     wf_logger.log_consistency(
@@ -1256,7 +1240,11 @@ def synthesize(state: CreditWorkflowState) -> Dict[str, Any]:
                         },
                         risk_levels=data["risk_levels"],
                         credit_scores=data["credit_scores"],
+                        node="synthesize",
+                        agent_name="workflow_evaluator",
+                        step_number=consistency_step,
                     )
+                    consistency_step += 1
 
                 # Log cross-model consistency (overall)
                 wf_logger.log_consistency(
@@ -1273,6 +1261,9 @@ def synthesize(state: CreditWorkflowState) -> Dict[str, Any]:
                     },
                     risk_levels=all_risk_levels,
                     credit_scores=all_scores,
+                    node="synthesize",
+                    agent_name="workflow_evaluator",
+                    step_number=consistency_step,
                 )
 
         # Note: Individual LLM assessments are logged in the loop above
@@ -1762,6 +1753,9 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                     },
                     risk_levels=[risk_level],
                     credit_scores=[credit_score],
+                    node="evaluate_assessment",
+                    agent_name="workflow_evaluator",
+                    step_number=1,
                 )
 
         # ============ CROSS-MODEL EVALUATION ============
@@ -2035,6 +2029,8 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
 
         # Complete the run in workflow logger
         if wf_logger:
+            # Get the primary model used for this run
+            primary_model = "llama-3.3-70b-versatile"  # Default primary model
             wf_logger.complete_run(
                 run_id=run_id,
                 final_result={
@@ -2043,6 +2039,7 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                     "confidence": assessment.get("confidence_score", 0),  # Use confidence_score key
                     "evaluation_score": evaluation["overall_score"],
                     "api_data": state.get("api_data", {}),
+                    "model": primary_model,
                 },
                 total_metrics={
                     "tool_selection_score": tool_selection_score,

@@ -536,6 +536,7 @@ class EvaluationRunner:
                 run_id=run_id,
                 company_name=company_name,
                 status="completed",
+                model="llama-3.3-70b-versatile",  # Primary model
                 risk_level=assessment.get("risk_level", ""),
                 credit_score=assessment.get("credit_score"),
                 confidence=assessment.get("confidence"),
