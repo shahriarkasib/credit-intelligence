@@ -17,6 +17,13 @@ import {
 import Link from 'next/link';
 
 // Types
+interface LLMConfig {
+  provider?: string;
+  model?: string;
+  temperature?: number;
+  max_tokens?: number;
+}
+
 interface Prompt {
   id: string;
   name: string;
@@ -27,6 +34,7 @@ interface Prompt {
   user_template: string;
   is_custom: boolean;
   updated_at?: string;
+  llm_config?: LLMConfig;
 }
 
 interface TestResult {
@@ -34,6 +42,47 @@ interface TestResult {
   user_prompt: string;
   variables_used: Record<string, string>;
 }
+
+interface RunResult {
+  prompt_id: string;
+  model: string;
+  provider?: string;
+  system_prompt: string;
+  user_prompt: string;
+  variables_used: Record<string, string>;
+  response: string;
+  execution_time_ms: number;
+  usage: {
+    input_tokens: number;
+    output_tokens: number;
+  };
+  resolved_config?: {
+    provider: string;
+    model_alias: string;
+    model_id: string;
+    temperature: number;
+    max_tokens: number;
+  };
+}
+
+// Provider and model options
+const PROVIDERS = ['groq', 'openai', 'anthropic'] as const;
+const MODEL_OPTIONS: Record<string, { label: string; value: string }[]> = {
+  groq: [
+    { label: 'Primary (llama-3.3-70b)', value: 'primary' },
+    { label: 'Fast (llama-3.1-8b)', value: 'fast' },
+    { label: 'Balanced (llama3-70b)', value: 'balanced' },
+  ],
+  openai: [
+    { label: 'Primary (gpt-4o-mini)', value: 'primary' },
+    { label: 'Fast (gpt-4o-mini)', value: 'fast' },
+    { label: 'Legacy (gpt-4-turbo)', value: 'legacy' },
+  ],
+  anthropic: [
+    { label: 'Primary (claude-3.5-sonnet)', value: 'primary' },
+    { label: 'Fast (claude-3-haiku)', value: 'fast' },
+  ],
+};
 
 // API base URL - use environment variable or empty for same origin
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
@@ -48,8 +97,12 @@ export default function PromptsPage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [testVariables, setTestVariables] = useState<Record<string, string>>({});
   const [testResult, setTestResult] = useState<TestResult | null>(null);
+  const [runResult, setRunResult] = useState<RunResult | null>(null);
+  const [running, setRunning] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showLLMConfig, setShowLLMConfig] = useState(false);
+  const [editedLLMConfig, setEditedLLMConfig] = useState<LLMConfig>({});
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['input', 'planning', 'synthesis', 'analysis', 'validation']));
 
   // Fetch prompts on mount
@@ -75,7 +128,10 @@ export default function PromptsPage() {
     setSelectedPrompt(prompt);
     setEditedPrompt({ ...prompt });
     setTestResult(null);
+    setRunResult(null);
     setShowPreview(false);
+    // Initialize LLM config from prompt
+    setEditedLLMConfig(prompt.llm_config || {});
     // Initialize test variables with empty strings
     const vars: Record<string, string> = {};
     prompt.variables.forEach(v => {
@@ -110,6 +166,7 @@ export default function PromptsPage() {
         body: JSON.stringify({
           system_prompt: editedPrompt.system_prompt,
           user_template: editedPrompt.user_template,
+          llm_config: editedLLMConfig,
         }),
       });
 
@@ -118,6 +175,7 @@ export default function PromptsPage() {
       const data = await response.json();
       setSelectedPrompt(data.prompt);
       setEditedPrompt(data.prompt);
+      setEditedLLMConfig(data.prompt.llm_config || {});
       setSuccess('Prompt saved successfully!');
 
       // Refresh prompts list
@@ -147,6 +205,7 @@ export default function PromptsPage() {
       const data = await response.json();
       setSelectedPrompt(data.prompt);
       setEditedPrompt(data.prompt);
+      setEditedLLMConfig(data.prompt.llm_config || {});
       setSuccess('Prompt reset to default!');
 
       // Refresh prompts list
@@ -188,6 +247,42 @@ export default function PromptsPage() {
     }
   };
 
+  const handleRunWithLLM = async () => {
+    if (!editedPrompt) return;
+
+    try {
+      setError(null);
+      setRunning(true);
+      setRunResult(null);
+
+      const response = await fetch(`${API_BASE}/api/prompts/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt_id: editedPrompt.id,
+          variables: testVariables,
+          provider: editedLLMConfig.provider,
+          model: editedLLMConfig.model,
+          temperature: editedLLMConfig.temperature,
+          max_tokens: editedLLMConfig.max_tokens,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Failed to run prompt');
+      }
+
+      const data = await response.json();
+      setRunResult(data);
+      setShowPreview(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to run prompt with LLM');
+    } finally {
+      setRunning(false);
+    }
+  };
+
   const toggleCategory = (category: string) => {
     const newExpanded = new Set(expandedCategories);
     if (newExpanded.has(category)) {
@@ -200,9 +295,16 @@ export default function PromptsPage() {
 
   const hasChanges = () => {
     if (!selectedPrompt || !editedPrompt) return false;
+    const originalConfig = selectedPrompt.llm_config || {};
+    const llmConfigChanged =
+      editedLLMConfig.provider !== originalConfig.provider ||
+      editedLLMConfig.model !== originalConfig.model ||
+      editedLLMConfig.temperature !== originalConfig.temperature ||
+      editedLLMConfig.max_tokens !== originalConfig.max_tokens;
     return (
       selectedPrompt.system_prompt !== editedPrompt.system_prompt ||
-      selectedPrompt.user_template !== editedPrompt.user_template
+      selectedPrompt.user_template !== editedPrompt.user_template ||
+      llmConfigChanged
     );
   };
 
@@ -369,6 +471,115 @@ export default function PromptsPage() {
                   </div>
                 </div>
 
+                {/* LLM Configuration Toggle */}
+                <div className="p-4 border-b border-gray-800">
+                  <button
+                    onClick={() => setShowLLMConfig(!showLLMConfig)}
+                    className="flex items-center gap-2 text-sm font-medium text-gray-400 hover:text-gray-300 transition-colors"
+                  >
+                    {showLLMConfig ? (
+                      <ChevronUp className="w-4 h-4" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4" />
+                    )}
+                    LLM Configuration
+                    <span className="text-xs bg-blue-600/30 text-blue-400 px-2 py-0.5 rounded ml-2">
+                      {editedLLMConfig.provider || 'groq'} / {editedLLMConfig.model || 'primary'}
+                    </span>
+                  </button>
+                </div>
+
+                {/* LLM Configuration Panel */}
+                {showLLMConfig && (
+                  <div className="p-4 border-b border-gray-800 bg-blue-900/10">
+                    <div className="grid grid-cols-2 gap-4">
+                      {/* Provider */}
+                      <div>
+                        <label className="text-xs text-gray-500 mb-1 block">Provider</label>
+                        <select
+                          value={editedLLMConfig.provider || 'groq'}
+                          onChange={(e) => setEditedLLMConfig({
+                            ...editedLLMConfig,
+                            provider: e.target.value,
+                            // Reset model when provider changes
+                            model: 'primary'
+                          })}
+                          className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                        >
+                          {PROVIDERS.map(provider => (
+                            <option key={provider} value={provider}>
+                              {provider.charAt(0).toUpperCase() + provider.slice(1)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Model */}
+                      <div>
+                        <label className="text-xs text-gray-500 mb-1 block">Model</label>
+                        <select
+                          value={editedLLMConfig.model || 'primary'}
+                          onChange={(e) => setEditedLLMConfig({
+                            ...editedLLMConfig,
+                            model: e.target.value
+                          })}
+                          className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                        >
+                          {MODEL_OPTIONS[editedLLMConfig.provider || 'groq']?.map(option => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Temperature */}
+                      <div>
+                        <label className="text-xs text-gray-500 mb-1 block">
+                          Temperature: {editedLLMConfig.temperature ?? 0.1}
+                        </label>
+                        <input
+                          type="range"
+                          min="0"
+                          max="1"
+                          step="0.1"
+                          value={editedLLMConfig.temperature ?? 0.1}
+                          onChange={(e) => setEditedLLMConfig({
+                            ...editedLLMConfig,
+                            temperature: parseFloat(e.target.value)
+                          })}
+                          className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                        />
+                        <div className="flex justify-between text-xs text-gray-600 mt-1">
+                          <span>Deterministic</span>
+                          <span>Creative</span>
+                        </div>
+                      </div>
+
+                      {/* Max Tokens */}
+                      <div>
+                        <label className="text-xs text-gray-500 mb-1 block">Max Tokens</label>
+                        <input
+                          type="number"
+                          min="100"
+                          max="8000"
+                          step="100"
+                          value={editedLLMConfig.max_tokens ?? 2000}
+                          onChange={(e) => setEditedLLMConfig({
+                            ...editedLLMConfig,
+                            max_tokens: parseInt(e.target.value) || 2000
+                          })}
+                          className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-gray-500 mt-3">
+                      Configure which LLM provider and model to use for this prompt. Changes affect both saved config and test runs.
+                    </p>
+                  </div>
+                )}
+
                 {/* System Prompt */}
                 <div className="p-4 border-b border-gray-800">
                   <div className="flex items-center justify-between mb-2">
@@ -432,10 +643,18 @@ export default function PromptsPage() {
                           </button>
                           <button
                             onClick={handleTest}
-                            className="flex items-center gap-2 px-3 py-1.5 text-sm bg-green-600 hover:bg-green-500 rounded transition-colors"
+                            className="flex items-center gap-2 px-3 py-1.5 text-sm bg-gray-600 hover:bg-gray-500 rounded transition-colors"
+                          >
+                            <Eye className="w-4 h-4" />
+                            Preview
+                          </button>
+                          <button
+                            onClick={handleRunWithLLM}
+                            disabled={running}
+                            className="flex items-center gap-2 px-3 py-1.5 text-sm bg-green-600 hover:bg-green-500 rounded transition-colors disabled:opacity-50"
                           >
                             <Play className="w-4 h-4" />
-                            Test
+                            {running ? 'Running...' : 'Run with LLM'}
                           </button>
                         </div>
                       </div>
@@ -469,6 +688,31 @@ export default function PromptsPage() {
                             <h4 className="text-xs font-medium text-green-400 mb-2">User Prompt Preview</h4>
                             <pre className="text-xs text-gray-300 whitespace-pre-wrap font-mono">
                               {testResult.user_prompt}
+                            </pre>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* LLM Response */}
+                      {runResult && (
+                        <div className="space-y-3 mt-4">
+                          <div className="bg-green-900/20 border border-green-700 rounded-lg p-4">
+                            <div className="flex items-center justify-between mb-3">
+                              <h4 className="text-sm font-medium text-green-400">LLM Response</h4>
+                              <div className="flex items-center gap-3 text-xs text-gray-400">
+                                {runResult.resolved_config && (
+                                  <span className="bg-blue-600/30 text-blue-400 px-2 py-0.5 rounded">
+                                    {runResult.resolved_config.provider} / {runResult.resolved_config.model_id}
+                                  </span>
+                                )}
+                                <span>{runResult.execution_time_ms.toFixed(0)}ms</span>
+                                {runResult.usage.input_tokens > 0 && (
+                                  <span>{runResult.usage.input_tokens + runResult.usage.output_tokens} tokens</span>
+                                )}
+                              </div>
+                            </div>
+                            <pre className="text-sm text-gray-200 whitespace-pre-wrap font-mono bg-gray-900/50 rounded p-3 max-h-96 overflow-y-auto">
+                              {runResult.response}
                             </pre>
                           </div>
                         </div>

@@ -328,24 +328,15 @@ class LangGraphEventLogger:
         """Handle chain end event."""
         event.status = "completed"
 
-        # Extract meaningful output summary
+        # Store FULL output data (not just summary) for complete traceability
         output = data.get("output", {})
         if isinstance(output, dict):
-            # Extract key fields for summary
-            summary_parts = []
-            if "status" in output:
-                summary_parts.append(f"status={output['status']}")
-            if "risk_level" in output:
-                summary_parts.append(f"risk={output['risk_level']}")
-            if "credit_score" in output:
-                summary_parts.append(f"score={output['credit_score']}")
-            if "company_info" in output and isinstance(output["company_info"], dict):
-                info = output["company_info"]
-                if "is_public_company" in info:
-                    summary_parts.append(f"public={info['is_public_company']}")
-            if summary_parts:
-                event.output_data = ", ".join(summary_parts)
-            else:
+            # Include full output as JSON for complete visibility
+            # This includes task_plan, assessment, api_data, search_data, etc.
+            import json
+            try:
+                event.output_data = self._truncate(json.dumps(output, default=str, indent=2))
+            except Exception:
                 event.output_data = self._truncate(str(output))
         else:
             event.output_data = self._truncate(str(output))
@@ -510,8 +501,9 @@ class LangGraphEventLogger:
                     event.model or "",
                     event.temperature if event.temperature is not None else "",
                     event.tokens if event.tokens is not None else "",
-                    (event.input_data[:500] if event.input_data else ""),
-                    (event.output_data[:500] if event.output_data else ""),
+                    # Full data - up to 10000 chars for complete visibility
+                    (event.input_data[:10000] if event.input_data else ""),
+                    (event.output_data[:10000] if event.output_data else ""),
                     event.duration_ms if event.duration_ms is not None else "",
                     event.status,
                     event.error or "",

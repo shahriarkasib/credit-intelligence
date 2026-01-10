@@ -68,6 +68,15 @@ class LLMProviderConfig:
 
 
 @dataclass
+class PromptLLMConfig:
+    """LLM configuration for a specific prompt."""
+    provider: Optional[str] = None  # groq, openai, anthropic
+    model: Optional[str] = None     # primary, fast, balanced, or specific model ID
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
+
+
+@dataclass
 class PromptConfig:
     """Configuration for a single prompt."""
     id: str
@@ -77,6 +86,7 @@ class PromptConfig:
     variables: List[str] = field(default_factory=list)
     system_prompt: str = ""
     user_template: str = ""
+    llm_config: Optional[PromptLLMConfig] = None
 
 
 @dataclass
@@ -396,6 +406,17 @@ class ConfigManager:
         if not prompt_data:
             return None
 
+        # Parse llm_config if present
+        llm_config = None
+        llm_config_data = prompt_data.get("llm_config")
+        if llm_config_data:
+            llm_config = PromptLLMConfig(
+                provider=llm_config_data.get("provider"),
+                model=llm_config_data.get("model"),
+                temperature=llm_config_data.get("temperature"),
+                max_tokens=llm_config_data.get("max_tokens"),
+            )
+
         return PromptConfig(
             id=prompt_id,
             name=prompt_data.get("name", prompt_id),
@@ -404,6 +425,7 @@ class ConfigManager:
             variables=prompt_data.get("variables", []),
             system_prompt=prompt_data.get("system_prompt", ""),
             user_template=prompt_data.get("user_template", ""),
+            llm_config=llm_config,
         )
 
     def get_all_prompts(self) -> Dict[str, PromptConfig]:
@@ -412,6 +434,17 @@ class ConfigManager:
         prompts_data = self.get("prompts", {})
 
         for prompt_id, prompt_data in prompts_data.items():
+            # Parse llm_config if present
+            llm_config = None
+            llm_config_data = prompt_data.get("llm_config")
+            if llm_config_data:
+                llm_config = PromptLLMConfig(
+                    provider=llm_config_data.get("provider"),
+                    model=llm_config_data.get("model"),
+                    temperature=llm_config_data.get("temperature"),
+                    max_tokens=llm_config_data.get("max_tokens"),
+                )
+
             prompts[prompt_id] = PromptConfig(
                 id=prompt_id,
                 name=prompt_data.get("name", prompt_id),
@@ -420,6 +453,7 @@ class ConfigManager:
                 variables=prompt_data.get("variables", []),
                 system_prompt=prompt_data.get("system_prompt", ""),
                 user_template=prompt_data.get("user_template", ""),
+                llm_config=llm_config,
             )
 
         return prompts

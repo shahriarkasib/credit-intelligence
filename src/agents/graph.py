@@ -34,6 +34,14 @@ from agents.api_agent import APIAgent
 from agents.search_agent import SearchAgent
 from agents.llm_analyst import LLMAnalystAgent
 
+# Import ToolSupervisor for LLM-based tool selection
+try:
+    from agents.tool_supervisor import ToolSupervisor
+    TOOL_SUPERVISOR_AVAILABLE = True
+except ImportError:
+    TOOL_SUPERVISOR_AVAILABLE = False
+    ToolSupervisor = None
+
 # Import LLM parser for company input
 try:
     from agents.llm_parser import get_llm_parser, parse_company_input as llm_parse_company
@@ -307,6 +315,7 @@ def parse_input(state: CreditWorkflowState) -> Dict[str, Any]:
 
     # Use LLM parser if available, otherwise fallback to rule-based
     llm_metrics = {}
+    step_number = 1  # parse_input is step 1 in workflow
     if LLM_PARSER_AVAILABLE and llm_parse_company:
         logger.info(f"Using LLM parser for: {company_name}")
         parser = get_llm_parser()
@@ -315,6 +324,48 @@ def parse_input(state: CreditWorkflowState) -> Dict[str, Any]:
             context={"jurisdiction": state.get("jurisdiction")},
             step_logger=step_logger,
         )
+
+        # Log LLM call for parse_input
+        if wf_logger and llm_metrics:
+            wf_logger.log_llm_call(
+                run_id=run_id,
+                company_name=company_name,
+                call_type="parse_input",
+                model=llm_metrics.get("model", "unknown"),
+                prompt=f"Parse company: {company_name}",
+                response=json.dumps(company_info, default=str),
+                prompt_tokens=llm_metrics.get("prompt_tokens", 0),
+                completion_tokens=llm_metrics.get("completion_tokens", 0),
+                execution_time_ms=llm_metrics.get("execution_time_ms", 0),
+                # Node and task tracking
+                node="parse_input",
+                agent_name="llm_parser",
+                step_number=step_number,
+                current_task="company_parsing",
+            )
+
+        # Log prompt used for parse_input
+        if llm_metrics:
+            try:
+                from run_logging.sheets_logger import get_sheets_logger
+                sheets_logger = get_sheets_logger()
+                if sheets_logger and sheets_logger.is_connected():
+                    sheets_logger.log_prompt(
+                        run_id=run_id,
+                        company_name=company_name,
+                        prompt_id="company_parser",
+                        prompt_name="Company Parser",
+                        category="input",
+                        system_prompt=llm_metrics.get("system_prompt", ""),
+                        user_prompt=llm_metrics.get("prompt_used", ""),
+                        variables={"company_name": company_name},
+                        node="parse_input",
+                        agent_name="llm_parser",
+                        step_number=step_number,
+                        model=llm_metrics.get("model", ""),
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to log prompt: {e}")
     else:
         logger.info(f"Using rule-based parser for: {company_name}")
         company_info = supervisor.parse_company_input(
@@ -398,6 +449,7 @@ def validate_company(state: CreditWorkflowState) -> Dict[str, Any]:
                 execution_time_ms=(time.time() - start_time) * 1000,
                 success=False,
                 error="Company validation failed",
+                agent_name="supervisor",
             )
         return result
 
@@ -415,55 +467,248 @@ def validate_company(state: CreditWorkflowState) -> Dict[str, Any]:
             output_data={"status": "validated", "human_approved": True},
             execution_time_ms=(time.time() - start_time) * 1000,
             success=True,
+            agent_name="supervisor",
         )
 
     return result
 
 
+def convert_llm_selection_to_task_plan(selection: Dict[str, Any], company_info: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Convert LLM tool selection output to task_plan format.
+
+    The LLM returns:
+    {
+        "company_analysis": {"is_likely_public": True, "reasoning": "..."},
+        "tools_to_use": [
+            {"name": "fetch_sec_data", "params": {...}, "reason": "..."},
+        ],
+        "execution_order_reasoning": "..."
+    }
+
+    This function converts to the existing task_plan format:
+    [
+        {"agent": "api", "action": "fetch_sec_edgar", "params": {...}, "priority": 1, "reason": "..."},
+    ]
+    """
+    task_plan = []
+    tools_to_use = selection.get("tools_to_use", [])
+
+    # Tool name to (agent, action) mapping
+    tool_action_map = {
+        "fetch_sec_data": ("api", "fetch_sec_edgar"),
+        "fetch_market_data": ("api", "fetch_finnhub"),
+        "fetch_legal_data": ("api", "fetch_court_records"),
+        "web_search": ("search", "search_company"),
+        # Additional mappings for flexibility
+        "sec_edgar": ("api", "fetch_sec_edgar"),
+        "finnhub": ("api", "fetch_finnhub"),
+        "court_listener": ("api", "fetch_court_records"),
+        "search": ("search", "search_company"),
+    }
+
+    company_name = company_info.get("company_name", "")
+    ticker = company_info.get("ticker", "")
+    jurisdiction = company_info.get("jurisdiction", "US")
+
+    for i, tool in enumerate(tools_to_use):
+        tool_name = tool.get("name", "")
+        params = tool.get("params", {})
+        reason = tool.get("reason", "")
+
+        # Normalize tool name
+        tool_name_lower = tool_name.lower().replace("-", "_").replace(" ", "_")
+
+        if tool_name_lower in tool_action_map:
+            agent, action = tool_action_map[tool_name_lower]
+
+            # Ensure required params are set
+            if action == "fetch_sec_edgar":
+                if "ticker" not in params and ticker:
+                    params["ticker"] = ticker
+                if "company_identifier" not in params:
+                    params["company_identifier"] = ticker or company_name
+            elif action == "fetch_finnhub":
+                if "ticker" not in params and ticker:
+                    params["ticker"] = ticker
+                if "company_name" not in params:
+                    params["company_name"] = company_name
+            elif action in ["fetch_court_records", "search_company"]:
+                if "company_name" not in params:
+                    params["company_name"] = company_name
+            elif action == "fetch_opencorporates":
+                if "company_name" not in params:
+                    params["company_name"] = company_name
+                if "jurisdiction" not in params:
+                    params["jurisdiction"] = jurisdiction
+
+            task_plan.append({
+                "agent": agent,
+                "action": action,
+                "params": params,
+                "priority": i + 1,  # Order from LLM
+                "reason": reason,  # Keep LLM reasoning
+            })
+        else:
+            logger.warning(f"Unknown tool in LLM selection: {tool_name}")
+
+    return task_plan
+
+
 def create_plan(state: CreditWorkflowState) -> Dict[str, Any]:
-    """Create task plan based on company info."""
+    """Create task plan using LLM-based tool selection."""
     import time
     start_time = time.time()
+    step_number = 3  # create_plan is step 3 in workflow
     run_id = state.get("run_id", "unknown")
     company_name = state.get("company_name", "")
+    company_info = state.get("company_info", {})
 
     # Log node entry for timing
     event_logger = get_current_event_logger()
     if event_logger:
-        event_logger.log_node_enter("create_plan", {"company_info": state.get("company_info", {})})
+        event_logger.log_node_enter("create_plan", {"company_info": company_info})
 
-    task_plan = supervisor.create_task_plan(state["company_info"])
+    # Prepare context for LLM tool selection
+    context = {
+        "ticker": company_info.get("ticker"),
+        "jurisdiction": company_info.get("jurisdiction"),
+        "is_public_company": company_info.get("is_public_company"),
+    }
+
+    # Use LLM-based tool selection if available, otherwise fall back to rule-based
+    tool_selection = None
+    llm_metrics = None
+
+    if TOOL_SUPERVISOR_AVAILABLE:
+        try:
+            tool_supervisor = ToolSupervisor(model="primary")
+            selection_result = tool_supervisor.select_tools(
+                company_name=company_name,
+                context=context,
+                run_id=run_id,
+            )
+
+            tool_selection = selection_result.get("selection", {})
+            llm_metrics = selection_result.get("llm_metrics", {})
+
+            # Convert LLM output to task_plan format
+            task_plan = convert_llm_selection_to_task_plan(tool_selection, company_info)
+
+            logger.info(f"LLM tool selection: {[t.get('action') for t in task_plan]}")
+
+        except Exception as e:
+            logger.warning(f"LLM tool selection failed, falling back to rule-based: {e}")
+            task_plan = supervisor.create_task_plan(company_info)
+            tool_selection = None
+    else:
+        # Fall back to rule-based tool selection
+        task_plan = supervisor.create_task_plan(company_info)
 
     # Show plan summary for human review
-    plan_summary = f"Plan: Fetching data from {len(task_plan)} sources for {state['company_name']}"
+    plan_summary = f"Plan: Fetching data from {len(task_plan)} sources for {company_name}"
 
+    # Build result with LLM selection info if available
     result = {
         "task_plan": task_plan,
         "status": "plan_created",
         "validation_message": plan_summary,
     }
 
+    # Store tool_selection for evaluation phase
+    if tool_selection:
+        result["tool_selection"] = tool_selection
+
     execution_time_ms = (time.time() - start_time) * 1000
 
+    # Log step
     if wf_logger:
         wf_logger.log_step(
             run_id=run_id,
             company_name=company_name,
             step_name="create_plan",
-            input_data={"company_info": state.get("company_info", {})},
+            input_data={"company_info": company_info},
             output_data={
                 "num_tasks": len(task_plan),
-                "full_task_plan": task_plan,  # Full plan with all details
+                "full_task_plan": task_plan,
+                "tool_selection_reasoning": tool_selection.get("execution_order_reasoning", "") if tool_selection else "",
             },
             execution_time_ms=execution_time_ms,
             success=True,
         )
 
-    # Log full plan to langgraph_events (event_logger was set at function start)
+    # Log LLM call if we used LLM tool selection
+    if wf_logger and llm_metrics:
+        wf_logger.log_llm_call(
+            run_id=run_id,
+            company_name=company_name,
+            call_type="tool_selection",
+            model=llm_metrics.get("model", "llama-3.3-70b-versatile"),
+            prompt=f"Tool selection for {company_name}",
+            response=json.dumps(tool_selection.get("company_analysis", {})) if tool_selection else "",
+            prompt_tokens=llm_metrics.get("prompt_tokens", 0),
+            completion_tokens=llm_metrics.get("completion_tokens", 0),
+            execution_time_ms=llm_metrics.get("execution_time_ms", 0),
+            node="create_plan",
+            agent_name="tool_supervisor",
+            step_number=step_number,
+            current_task="tool_selection",
+            temperature=0.1,
+        )
+
+    # Log prompt if we used LLM tool selection
+    if wf_logger and tool_selection:
+        try:
+            from config.prompts import get_prompt_text
+            system_prompt, user_prompt = get_prompt_text(
+                "tool_selection",
+                company_name=company_name,
+                context=json.dumps(context),
+                tool_specs="[available tools]",  # Simplified for logging
+            )
+            wf_logger.log_prompt(
+                run_id=run_id,
+                company_name=company_name,
+                node="create_plan",
+                agent_name="tool_supervisor",
+                step_number=step_number,
+                prompt_id="tool_selection",
+                prompt_name="Tool Selection",
+                category="planning",
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                model=llm_metrics.get("model", "llama-3.3-70b-versatile") if llm_metrics else "",
+                temperature=0.1,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to log prompt: {e}")
+
+    # Log full plan to dedicated plans sheet for easy visibility
+    try:
+        from run_logging.sheets_logger import get_sheets_logger
+        sheets_logger = get_sheets_logger()
+        if sheets_logger and sheets_logger.is_connected():
+            sheets_logger.log_plan(
+                run_id=run_id,
+                company_name=company_name,
+                task_plan=task_plan,
+                node="create_plan",
+                agent_name="tool_supervisor" if tool_selection else "supervisor",
+                status="ok",
+            )
+    except Exception as e:
+        logger.warning(f"Failed to log plan to sheets: {e}")
+
+    # Log full plan to langgraph_events
     if event_logger:
         event_logger.log_node_exit(
             node_name="create_plan",
-            output_state={"full_plan": task_plan, "num_tasks": len(task_plan)},
+            output_state={
+                "full_plan": task_plan,
+                "num_tasks": len(task_plan),
+                "company_analysis": tool_selection.get("company_analysis", {}) if tool_selection else {},
+                "execution_order_reasoning": tool_selection.get("execution_order_reasoning", "") if tool_selection else "",
+            },
         )
 
     return result
@@ -476,6 +721,7 @@ def fetch_api_data(state: CreditWorkflowState) -> Dict[str, Any]:
     run_id = state.get("run_id", "unknown")
     company_name = state.get("company_name", "")
     company_info = state["company_info"]
+    step_number = 4  # fetch_api_data is step 4 in workflow
 
     # Get event logger for tool tracking
     event_logger = get_current_event_logger()
@@ -560,7 +806,7 @@ def fetch_api_data(state: CreditWorkflowState) -> Dict[str, Any]:
                     execution_time_ms=tool_duration or 0,
                 )
 
-                # Log as tool call
+                # Log as tool call with hierarchy tracking
                 wf_logger.log_tool_call(
                     run_id=run_id,
                     company_name=company_name,
@@ -569,6 +815,14 @@ def fetch_api_data(state: CreditWorkflowState) -> Dict[str, Any]:
                     tool_output=source_data,
                     execution_time_ms=tool_duration or 0,
                     success=bool(source_data),
+                    # Node tracking
+                    node="fetch_api_data",
+                    agent_name="api_agent",
+                    step_number=step_number,
+                    # Hierarchy tracking
+                    parent_node="fetch_api_data",
+                    workflow_phase="data_collection",
+                    call_depth=0,
                 )
 
         return result
@@ -649,6 +903,7 @@ def search_web(state: CreditWorkflowState) -> Dict[str, Any]:
                 },
                 execution_time_ms=tool_duration,
                 success=True,
+                agent_name="search_agent",
             )
             # Log as data source
             wf_logger.log_data_source(
@@ -680,6 +935,7 @@ def search_web(state: CreditWorkflowState) -> Dict[str, Any]:
                 execution_time_ms=(time.time() - start_time) * 1000,
                 success=False,
                 error=str(e),
+                agent_name="search_agent",
             )
 
         return result
@@ -698,6 +954,7 @@ def synthesize(state: CreditWorkflowState) -> Dict[str, Any]:
     start_time = time.time()
     run_id = state.get("run_id", "unknown")
     company_name = state.get("company_name", "")
+    step_number = 6  # synthesize is step 6 in workflow
 
     # Models to use for consistency evaluation (3 runs each for proper consistency)
     # Using 2 working Groq models (many others are decommissioned)
@@ -777,7 +1034,7 @@ def synthesize(state: CreditWorkflowState) -> Dict[str, Any]:
                             "total_cost": llm_result.total_cost,
                         })
 
-                        # Log each LLM call with token usage
+                        # Log each LLM call with token usage and task tracking
                         if wf_logger:
                             wf_logger.log_llm_call(
                                 run_id=run_id,
@@ -798,7 +1055,66 @@ def synthesize(state: CreditWorkflowState) -> Dict[str, Any]:
                                 prompt_tokens=llm_result.prompt_tokens,
                                 completion_tokens=llm_result.completion_tokens,
                                 execution_time_ms=llm_exec_time,
+                                # Node and task tracking
+                                node="synthesize",
+                                agent_name="llm_analyst",
+                                step_number=step_number,
+                                current_task="credit_synthesis",
                             )
+
+                            # Log each LLM assessment to assessments sheet
+                            eval_status = "good" if llm_result.credit_score_estimate >= 70 else ("average" if llm_result.credit_score_estimate >= 50 else "bad")
+                            wf_logger.log_assessment(
+                                run_id=run_id,
+                                company_name=company_name,
+                                risk_level=llm_result.risk_level,
+                                credit_score=llm_result.credit_score_estimate,
+                                confidence=llm_result.confidence,
+                                reasoning=llm_result.reasoning,
+                                recommendations=llm_result.recommendations,
+                                risk_factors=llm_result.risk_factors,
+                                positive_factors=llm_result.positive_factors,
+                                node=f"synthesize_{call_type}",
+                                agent_name=call_type,
+                                model=model_id,
+                                temperature=0.1,
+                                step_number=step_number,
+                                prompt=LLMAnalystAgent.CREDIT_ANALYSIS_PROMPT[:500] + "...",
+                                duration_ms=llm_exec_time,
+                                status=eval_status,
+                            )
+
+                            # Log prompt for the first synthesis call only (to avoid duplicates)
+                            if call_type == "synthesis_primary_1":
+                                try:
+                                    from run_logging.sheets_logger import get_sheets_logger
+                                    sheets_logger = get_sheets_logger()
+                                    if sheets_logger and sheets_logger.is_connected():
+                                        sheets_logger.log_prompt(
+                                            run_id=run_id,
+                                            company_name=company_name,
+                                            prompt_id="credit_synthesis",
+                                            prompt_name="Credit Synthesis",
+                                            category="synthesis",
+                                            system_prompt="You are an expert credit analyst...",
+                                            user_prompt=LLMAnalystAgent.CREDIT_ANALYSIS_PROMPT.format(
+                                                company_info=json.dumps(state.get("company_info", {}), default=str)[:500],
+                                                financial_data="(summarized)",
+                                                legal_data="(summarized)",
+                                                market_data="(summarized)",
+                                                news_data="(summarized)",
+                                            )[:2000],  # Truncate for sheet
+                                            variables={
+                                                "company_name": company_name,
+                                                "api_sources": list(state.get("api_data", {}).keys()),
+                                            },
+                                            node="synthesize",
+                                            agent_name="llm_analyst",
+                                            step_number=step_number,
+                                            model=model_id,
+                                        )
+                                except Exception as e:
+                                    logger.warning(f"Failed to log synthesis prompt: {e}")
 
                             # Task 17: Log detailed LLM call
                             wf_logger.log_llm_call_detailed(
@@ -953,8 +1269,10 @@ def synthesize(state: CreditWorkflowState) -> Dict[str, Any]:
                     credit_scores=all_scores,
                 )
 
-        # Log the primary assessment
+        # Note: Individual LLM assessments are logged in the loop above
+        # This logs the final consensus assessment
         if wf_logger:
+            final_eval_status = "good" if assessment_dict.get('credit_score_estimate', 0) >= 70 else ("average" if assessment_dict.get('credit_score_estimate', 0) >= 50 else "bad")
             wf_logger.log_assessment(
                 run_id=run_id,
                 company_name=company_name,
@@ -965,6 +1283,12 @@ def synthesize(state: CreditWorkflowState) -> Dict[str, Any]:
                 recommendations=assessment_dict.get('recommendations', []),
                 risk_factors=assessment_dict.get('risk_factors', []),
                 positive_factors=assessment_dict.get('positive_factors', []),
+                node="synthesize_final",
+                agent_name="consensus",
+                model="multi-model",
+                step_number=step_number,
+                prompt="Final consensus from 6 LLM analyses",
+                status=final_eval_status,
             )
 
         result = {
@@ -1036,6 +1360,7 @@ def save_to_database(state: CreditWorkflowState) -> Dict[str, Any]:
                 run_id=run_id,
                 company_name=company_name,
                 step_name="save_to_database",
+                agent_name="db_writer",
                 input_data={"db_connected": False},
                 output_data={"status": "skipped_no_db"},
                 execution_time_ms=(time.time() - start_time) * 1000,
@@ -1065,6 +1390,7 @@ def save_to_database(state: CreditWorkflowState) -> Dict[str, Any]:
                 run_id=run_id,
                 company_name=company_name,
                 step_name="save_to_database",
+                agent_name="db_writer",
                 input_data={"has_assessment": bool(assessment), "has_api_data": bool(api_data)},
                 output_data={"status": "saved", "saved_assessment": bool(assessment)},
                 execution_time_ms=(time.time() - start_time) * 1000,
@@ -1079,6 +1405,7 @@ def save_to_database(state: CreditWorkflowState) -> Dict[str, Any]:
                 run_id=run_id,
                 company_name=company_name,
                 step_name="save_to_database",
+                agent_name="db_writer",
                 input_data={"db_connected": True},
                 output_data={"error": str(e)},
                 execution_time_ms=(time.time() - start_time) * 1000,
@@ -1139,10 +1466,36 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
             elif "search" in action or "web" in action:
                 planned_tools.append("web_search")
 
-        tool_eval = tool_evaluator.evaluate(
-            company_name=company_name,
-            selected_tools=planned_tools,
-        )
+        # Get tool selection reasoning from create_plan (if LLM-based selection was used)
+        tool_selection_reasoning = state.get("tool_selection", {})
+
+        # Use LLM-as-judge evaluation if available, otherwise fall back to rule-based
+        llm_eval_metrics = None
+        use_llm_evaluation = LANGCHAIN_GROQ_AVAILABLE if 'LANGCHAIN_GROQ_AVAILABLE' in dir() else False
+
+        # Try to import for LLM evaluation
+        try:
+            from config.langchain_llm import is_langchain_groq_available
+            use_llm_evaluation = is_langchain_groq_available()
+        except ImportError:
+            use_llm_evaluation = False
+
+        if use_llm_evaluation and tool_selection_reasoning:
+            # Use LLM-as-judge for more intelligent evaluation
+            tool_eval, llm_eval_metrics = tool_evaluator.evaluate_with_llm(
+                company_name=company_name,
+                selected_tools=planned_tools,
+                tool_selection_reasoning=tool_selection_reasoning,
+                actual_data_results=api_data,
+            )
+            logger.info(f"LLM-as-judge tool selection evaluation: {tool_eval.f1_score:.2f}")
+        else:
+            # Fall back to rule-based evaluation
+            tool_eval = tool_evaluator.evaluate(
+                company_name=company_name,
+                selected_tools=planned_tools,
+            )
+
         tool_selection_score = tool_eval.f1_score
 
         # 2. Evaluate data quality
@@ -1292,6 +1645,10 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
             )
 
             # Log tool selection with reasoning
+            # Determine if LLM-as-judge was used
+            eval_model = "llm_judge" if llm_eval_metrics else "rule_based"
+            eval_agent = "llm_tool_selection_judge" if llm_eval_metrics else "tool_selection_evaluator"
+
             wf_logger.log_tool_selection(
                 run_id=run_id,
                 company_name=company_name,
@@ -1304,9 +1661,40 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                 missing_tools=missing_tools,
                 extra_tools=extra_tools,
                 reasoning=tool_reasoning,
+                # Node tracking fields
+                node="evaluate",
+                agent_name=eval_agent,
+                step_number=7,  # evaluate is step 7
+                model=llm_eval_metrics.get("model", "rule_based") if llm_eval_metrics else "rule_based",
             )
 
+            # Log LLM evaluation call if LLM-as-judge was used
+            if llm_eval_metrics:
+                wf_logger.log_llm_call(
+                    run_id=run_id,
+                    company_name=company_name,
+                    call_type="tool_selection_evaluation",
+                    model=llm_eval_metrics.get("model", "llama-3.3-70b-versatile"),
+                    prompt=f"Tool selection evaluation for {company_name}",
+                    response=json.dumps({
+                        "precision": tool_eval.precision,
+                        "recall": tool_eval.recall,
+                        "f1_score": tool_eval.f1_score,
+                        "is_correct": tool_eval.is_correct,
+                    }),
+                    prompt_tokens=llm_eval_metrics.get("prompt_tokens", 0),
+                    completion_tokens=llm_eval_metrics.get("completion_tokens", 0),
+                    execution_time_ms=llm_eval_metrics.get("execution_time_ms", 0),
+                    node="evaluate",
+                    agent_name="llm_tool_selection_judge",
+                    step_number=7,
+                    current_task="tool_selection_evaluation",
+                    temperature=0.1,
+                )
+
             # Log evaluation with reasoning
+            step_number = 7  # evaluate is step 7
+            eval_duration_ms = (time.time() - start_time) * 1000
             wf_logger.log_evaluation(
                 run_id=run_id,
                 company_name=company_name,
@@ -1317,6 +1705,14 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                 tool_reasoning=tool_reasoning,
                 data_reasoning=data_reasoning,
                 synthesis_reasoning=synthesis_reasoning,
+                # Node tracking fields
+                node="evaluate",
+                node_type="agent",
+                agent_name="workflow_evaluator",
+                step_number=step_number,
+                model="rule_based",  # Evaluation is rule-based, not LLM
+                duration_ms=eval_duration_ms,
+                status="ok",
             )
 
             # Log consistency scores from multi-LLM evaluation
@@ -1425,26 +1821,37 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                     from run_logging.sheets_logger import get_sheets_logger
                     sheets_logger = get_sheets_logger()
                     if sheets_logger and sheets_logger.is_connected():
+                        # Calculate confidence agreement (how close are the confidence scores)
+                        confidence_diff = abs(primary_confidence - secondary_confidence)
+                        confidence_agreement = max(0, 1.0 - confidence_diff)  # 1.0 = perfect agreement
+
                         sheets_logger.log_cross_model_eval(
-                            eval_id=run_id[:8],
+                            eval_id=run_id,  # Full run_id for Google Sheets lookup
                             company_name=company_name,
                             models_compared=[primary_model, secondary_model],
                             num_models=2,
+                            # Node tracking fields
+                            node="synthesize",
+                            node_type="agent",
+                            agent_name="cross_model_evaluator",
+                            step_number=6,  # synthesize is step 6
+                            # Agreement metrics
                             risk_level_agreement=risk_agreement,
                             credit_score_mean=(primary_score + secondary_score) / 2,
                             credit_score_std=abs(primary_score - secondary_score) / 2,
                             credit_score_range=abs(primary_score - secondary_score),
+                            confidence_agreement=confidence_agreement,
                             best_model=best_model,
                             best_model_reasoning=best_reasoning,
                             cross_model_agreement=cross_model_agreement,
-                            llm_judge_analysis=f"Primary ({primary_model}): {primary_risk}/{primary_score}, Secondary ({secondary_model}): {secondary_risk}/{secondary_score}",
-                            model_recommendations=f"Use {best_model} for this company type",
+                            llm_judge_analysis=f"Primary ({primary_model}): {primary_risk}/{primary_score}/{primary_confidence:.2f}, Secondary ({secondary_model}): {secondary_risk}/{secondary_score}/{secondary_confidence:.2f}",
+                            model_recommendations=[f"Use {best_model} for this company type"],
                             model_results={
                                 primary_model: {"risk_level": primary_risk, "credit_score": primary_score, "confidence": primary_confidence},
                                 secondary_model: {"risk_level": secondary_risk, "credit_score": secondary_score, "confidence": secondary_confidence},
                             },
                         )
-                        logger.info(f"Cross-model eval logged: agreement={cross_model_agreement:.2f}, best={best_model}")
+                        logger.info(f"Cross-model eval logged: agreement={cross_model_agreement:.2f}, confidence_agreement={confidence_agreement:.2f}, best={best_model}")
 
                 except Exception as secondary_error:
                     logger.warning(f"Secondary model analysis failed: {secondary_error}")
@@ -1475,6 +1882,10 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                     all_risk_levels = [assessment.get("overall_risk_level", "unknown")]
                     all_credit_scores = [assessment.get("credit_score_estimate", 0)]
                     all_confidences = [assessment.get("confidence_score", 0)]
+                    # Additional fields for similarity metrics
+                    all_reasonings = [assessment.get("reasoning", "")]
+                    all_risk_factors = [assessment.get("risk_factors", [])]
+                    all_recommendations = [assessment.get("recommendations", [])]
                     run_details = [{
                         "run": 1,
                         "risk_level": all_risk_levels[0],
@@ -1499,6 +1910,10 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                                 all_risk_levels.append(result.risk_level or "unknown")
                                 all_credit_scores.append(result.credit_score_estimate or 0)
                                 all_confidences.append(result.confidence or 0)
+                                # Collect for similarity metrics
+                                all_reasonings.append(result.reasoning or "")
+                                all_risk_factors.append(result.risk_factors or [])
+                                all_recommendations.append(result.recommendations or [])
                                 run_details.append({
                                     "run": i,
                                     "risk_level": result.risk_level,
@@ -1523,8 +1938,51 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                         # Confidence variance
                         confidence_variance = statistics.variance(all_confidences) if len(all_confidences) > 1 else 0
 
-                        # Overall consistency
-                        overall_consistency = risk_level_consistency * 0.6 + max(0, 1 - credit_score_std / 100) * 0.4
+                        # Calculate reasoning similarity (word overlap using Jaccard)
+                        def jaccard_similarity_text(texts):
+                            """Calculate average Jaccard similarity between pairs of text."""
+                            if len(texts) < 2:
+                                return 1.0
+                            word_sets = [set(t.lower().split()) for t in texts if t]
+                            if len(word_sets) < 2:
+                                return 1.0
+                            similarities = []
+                            for i in range(len(word_sets)):
+                                for j in range(i + 1, len(word_sets)):
+                                    if word_sets[i] or word_sets[j]:
+                                        intersection = len(word_sets[i] & word_sets[j])
+                                        union = len(word_sets[i] | word_sets[j])
+                                        similarities.append(intersection / union if union > 0 else 1.0)
+                            return sum(similarities) / len(similarities) if similarities else 1.0
+
+                        def list_overlap(list_of_lists):
+                            """Calculate average Jaccard overlap between pairs of lists."""
+                            if len(list_of_lists) < 2:
+                                return 1.0
+                            sets = [set(items) for items in list_of_lists if items]
+                            if len(sets) < 2:
+                                return 1.0
+                            overlaps = []
+                            for i in range(len(sets)):
+                                for j in range(i + 1, len(sets)):
+                                    if sets[i] or sets[j]:
+                                        intersection = len(sets[i] & sets[j])
+                                        union = len(sets[i] | sets[j])
+                                        overlaps.append(intersection / union if union > 0 else 1.0)
+                            return sum(overlaps) / len(overlaps) if overlaps else 1.0
+
+                        reasoning_similarity = jaccard_similarity_text(all_reasonings)
+                        risk_factors_overlap = list_overlap(all_risk_factors)
+                        recommendations_overlap = list_overlap(all_recommendations)
+
+                        # Overall consistency (including new metrics)
+                        overall_consistency = (
+                            risk_level_consistency * 0.4 +
+                            max(0, 1 - credit_score_std / 100) * 0.3 +
+                            reasoning_similarity * 0.1 +
+                            risk_factors_overlap * 0.1 +
+                            recommendations_overlap * 0.1
+                        )
 
                         # Determine grade
                         if overall_consistency >= 0.9:
@@ -1541,18 +1999,24 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                         sheets_logger = get_sheets_logger()
                         if sheets_logger and sheets_logger.is_connected():
                             sheets_logger.log_model_consistency(
-                                eval_id=run_id[:8],
+                                eval_id=run_id,  # Full run_id for Google Sheets lookup
                                 company_name=company_name,
                                 model_name=primary_model,
                                 num_runs=len(all_risk_levels),
+                                node="evaluate",
+                                agent_name="consistency_evaluator",
+                                step_number=7,
                                 risk_level_consistency=risk_level_consistency,
                                 credit_score_mean=credit_score_mean,
                                 credit_score_std=credit_score_std,
                                 confidence_variance=confidence_variance,
+                                reasoning_similarity=reasoning_similarity,
+                                risk_factors_overlap=risk_factors_overlap,
+                                recommendations_overlap=recommendations_overlap,
                                 overall_consistency=overall_consistency,
                                 is_consistent=overall_consistency >= 0.75,
                                 consistency_grade=grade,
-                                llm_judge_analysis=f"Ran {len(all_risk_levels)} analyses. Risk levels: {all_risk_levels}. Scores: {all_credit_scores}.",
+                                llm_judge_analysis=f"Ran {len(all_risk_levels)} analyses. Risk levels: {all_risk_levels}. Scores: {all_credit_scores}. Reasoning similarity: {reasoning_similarity:.2f}. Risk factors overlap: {risk_factors_overlap:.2f}. Recommendations overlap: {recommendations_overlap:.2f}.",
                                 run_details=run_details,
                             )
                             logger.info(f"Same-model consistency: {overall_consistency:.2f} (Grade {grade})")
@@ -1568,6 +2032,7 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                 final_result={
                     "risk_level": assessment.get("overall_risk_level"),
                     "credit_score": assessment.get("credit_score_estimate"),
+                    "confidence": assessment.get("confidence_score", 0),  # Use confidence_score key
                     "evaluation_score": evaluation["overall_score"],
                     "api_data": state.get("api_data", {}),
                 },
@@ -1836,6 +2301,21 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                             logger.info(f"Logged {logged} LangSmith traces to sheets")
                 except Exception as langsmith_error:
                     logger.debug(f"LangSmith trace logging skipped: {langsmith_error}")
+
+            # Log verification - verify all sheet logging worked for this run
+            try:
+                from run_logging.sheets_logger import get_sheets_logger
+                sheets_logger = get_sheets_logger()
+                if sheets_logger and sheets_logger.is_connected():
+                    # Wait a moment for async logging to complete
+                    import time as time_module
+                    time_module.sleep(2)  # Give async writers time to finish
+                    sheets_logger.log_verification(
+                        run_id=run_id,
+                        company_name=company_name,
+                    )
+            except Exception as verify_error:
+                logger.debug(f"Log verification skipped: {verify_error}")
 
         return {
             "evaluation": evaluation,

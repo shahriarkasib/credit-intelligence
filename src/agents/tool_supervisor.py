@@ -18,15 +18,17 @@ except ImportError:
     GROQ_AVAILABLE = False
     logger.warning("groq not installed")
 
-# Import LangChain ChatGroq (preferred)
+# Import LangChain LLM factory (preferred)
 try:
-    from config.langchain_llm import get_chat_groq, is_langchain_groq_available
+    from config.langchain_llm import get_chat_groq, get_llm_for_prompt, get_llm_config_for_prompt, is_langchain_groq_available
     from config.langchain_callbacks import CostTrackerCallback
     from langchain_core.messages import HumanMessage
     LANGCHAIN_GROQ_AVAILABLE = is_langchain_groq_available()
+    LLM_FOR_PROMPT_AVAILABLE = True
 except ImportError:
     LANGCHAIN_GROQ_AVAILABLE = False
-    logger.warning("LangChain Groq not available, using legacy Groq client")
+    LLM_FOR_PROMPT_AVAILABLE = False
+    logger.warning("LangChain LLM not available, using legacy Groq client")
 
 # Import cost tracker
 try:
@@ -338,6 +340,77 @@ Respond with a JSON object:
 
         return response.choices[0].message.content, metrics
 
+    def _call_llm_for_prompt(
+        self,
+        prompt_id: str,
+        prompt: str,
+        call_type: str = "",
+    ) -> Tuple[str, Dict[str, Any]]:
+        """
+        Call LLM using the configuration specified for a prompt.
+
+        Uses get_llm_for_prompt to get the LLM configured for this specific prompt.
+
+        Args:
+            prompt_id: The prompt identifier (e.g., "tool_selection", "credit_synthesis")
+            prompt: The formatted prompt text
+            call_type: Type of call for cost tracking
+
+        Returns:
+            Tuple of (response_text, metrics_dict)
+        """
+        if not LLM_FOR_PROMPT_AVAILABLE:
+            # Fall back to the standard _call_llm method
+            logger.debug(f"get_llm_for_prompt not available, using default LLM for {prompt_id}")
+            return self._call_llm(prompt, call_type=call_type)
+
+        start_time = time.time()
+
+        # Get resolved config for logging
+        resolved_config = get_llm_config_for_prompt(prompt_id)
+
+        # Setup callbacks
+        callbacks = []
+        if COST_TRACKER_AVAILABLE:
+            tracker = get_cost_tracker()
+            callbacks.append(CostTrackerCallback(tracker=tracker, call_type=call_type))
+
+        # Get LLM configured for this prompt
+        llm = get_llm_for_prompt(prompt_id, callbacks=callbacks)
+
+        if not llm:
+            # Fallback to default
+            logger.warning(f"Failed to get LLM for prompt '{prompt_id}', falling back to default")
+            llm = get_chat_groq(model=self.model, temperature=0.1, callbacks=callbacks)
+
+        if not llm:
+            raise RuntimeError(f"Failed to create LLM instance for prompt '{prompt_id}'")
+
+        response = llm.invoke([HumanMessage(content=prompt)])
+        execution_time = (time.time() - start_time) * 1000
+
+        # Extract metrics
+        usage_metadata = getattr(response, 'usage_metadata', {}) or {}
+        prompt_tokens = usage_metadata.get('input_tokens', 0)
+        completion_tokens = usage_metadata.get('output_tokens', 0)
+        total_tokens = usage_metadata.get('total_tokens', prompt_tokens + completion_tokens)
+
+        metrics = {
+            "model": resolved_config.get("model_id", self.model),
+            "provider": resolved_config.get("provider", "groq"),
+            "prompt_id": prompt_id,
+            "execution_time_ms": round(execution_time, 2),
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+            "temperature": resolved_config.get("temperature", 0.1),
+            "llm_backend": "per_prompt_config",
+        }
+
+        logger.debug(f"LLM call for prompt '{prompt_id}': {metrics['model']}, {total_tokens} tokens, {execution_time:.0f}ms")
+
+        return response.content, metrics
+
     def _parse_json_response(self, response: str) -> Dict[str, Any]:
         """Parse JSON from LLM response."""
         # Try to extract JSON from response
@@ -379,7 +452,12 @@ Respond with a JSON object:
         run_id = run_id or str(uuid.uuid4())
 
         prompt = self._get_tool_selection_prompt(company_name, context)
-        response, llm_metrics = self._call_llm(prompt, call_type="tool_selection")
+        # Use per-prompt LLM configuration
+        response, llm_metrics = self._call_llm_for_prompt(
+            prompt_id="tool_selection",
+            prompt=prompt,
+            call_type="tool_selection",
+        )
 
         # Parse with new OutputParser (with legacy fallback)
         if OUTPUT_PARSERS_AVAILABLE:
@@ -502,7 +580,12 @@ Respond with a JSON object:
             tool_selection.get("selection", {}),
         )
 
-        response, llm_metrics = self._call_llm(prompt, call_type="synthesis")
+        # Use per-prompt LLM configuration
+        response, llm_metrics = self._call_llm_for_prompt(
+            prompt_id="credit_synthesis",
+            prompt=prompt,
+            call_type="synthesis",
+        )
 
         # Parse with new OutputParser (with legacy fallback)
         if OUTPUT_PARSERS_AVAILABLE:

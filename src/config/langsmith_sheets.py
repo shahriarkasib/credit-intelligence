@@ -225,7 +225,7 @@ class LangSmithSheetsLogger:
 
                 # Log to sheets
                 self.sheets_logger.log_langsmith_trace(
-                    run_id=run_id[:8] if run_id else "",
+                    run_id=run_id if run_id else "",  # Full run_id
                     company_name=company_name or "Unknown",
                     step_name=name,
                     run_type=run_type,

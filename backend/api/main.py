@@ -50,6 +50,24 @@ except ImportError as e:
     logger.warning(f"Prompts module not available: {e}")
     PROMPTS_AVAILABLE = False
 
+# Import LLM factory for running prompts
+try:
+    from config.langchain_llm import (
+        get_chat_groq,
+        get_llm_for_prompt,
+        get_llm_config_for_prompt,
+        is_langchain_groq_available,
+    )
+    LLM_AVAILABLE = is_langchain_groq_available()
+    LLM_FOR_PROMPT_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"LangChain LLM not available: {e}")
+    LLM_AVAILABLE = False
+    LLM_FOR_PROMPT_AVAILABLE = False
+    get_chat_groq = None
+    get_llm_for_prompt = None
+    get_llm_config_for_prompt = None
+
 # Import storage modules for logs
 try:
     from storage.mongodb import CreditIntelligenceDB
@@ -120,12 +138,31 @@ class PromptUpdateRequest(BaseModel):
     user_template: Optional[str] = None
     name: Optional[str] = None
     description: Optional[str] = None
+    llm_config: Optional[Dict[str, Any]] = None  # provider, model, temperature, max_tokens
 
 
 class PromptTestRequest(BaseModel):
     """Request to test a prompt with sample data."""
     prompt_id: str
     variables: Dict[str, str] = {}
+
+
+class PromptLLMConfigRequest(BaseModel):
+    """LLM configuration for a prompt request."""
+    provider: Optional[str] = None  # groq, openai, anthropic
+    model: Optional[str] = None     # primary, fast, balanced, or specific model ID
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
+
+
+class PromptRunRequest(BaseModel):
+    """Request to run a prompt with LLM."""
+    prompt_id: str
+    variables: Dict[str, str] = {}
+    model: Optional[str] = None       # Optional model override (legacy)
+    provider: Optional[str] = None    # Optional provider override
+    temperature: Optional[float] = None  # Optional temperature override
+    max_tokens: Optional[int] = None  # Optional max_tokens override
 
 
 # Configuration management models
@@ -353,7 +390,7 @@ async def run_workflow_with_streaming(
                 output_data = {
                     "company_name": company_name,
                     "company_info": company_info,
-                    "run_id": str(source.get("run_id", ""))[:8] + "...",
+                    "run_id": str(source.get("run_id", "")),  # Full run_id
                     "validation_message": source.get("validation_message", ""),
                     "requires_review": source.get("requires_review", False),
                 }
@@ -931,6 +968,96 @@ async def test_prompt(request: PromptTestRequest):
         raise HTTPException(status_code=404, detail=str(e))
     except KeyError as e:
         raise HTTPException(status_code=400, detail=f"Missing variable: {e}")
+
+
+@app.post("/api/prompts/run")
+async def run_prompt(request: PromptRunRequest):
+    """
+    Run a prompt with the LLM and return the response.
+
+    This allows testing individual prompts with real LLM execution.
+    Supports per-prompt LLM configuration with runtime overrides.
+
+    The LLM is selected based on:
+    1. Runtime overrides (provider, model, temperature, max_tokens in request)
+    2. Prompt's llm_config (defined in prompts.py or settings.yaml)
+    3. Global defaults
+    """
+    if not PROMPTS_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Prompts module not available")
+
+    if not LLM_AVAILABLE:
+        raise HTTPException(status_code=503, detail="LLM not available. Check API keys.")
+
+    import time
+    start_time = time.time()
+
+    try:
+        # Get formatted prompt
+        system_prompt, user_prompt = get_prompt_text(request.prompt_id, **request.variables)
+
+        # Get resolved LLM config for this prompt
+        resolved_config = {}
+        if LLM_FOR_PROMPT_AVAILABLE and get_llm_config_for_prompt:
+            resolved_config = get_llm_config_for_prompt(request.prompt_id)
+
+        # Create LLM instance using per-prompt configuration
+        if LLM_FOR_PROMPT_AVAILABLE and get_llm_for_prompt:
+            llm = get_llm_for_prompt(
+                request.prompt_id,
+                override_provider=request.provider,
+                override_model=request.model,
+                override_temperature=request.temperature,
+                override_max_tokens=request.max_tokens,
+            )
+        else:
+            # Fallback to legacy get_chat_groq
+            model = request.model or "primary"
+            llm = get_chat_groq(model=model)
+
+        if not llm:
+            raise HTTPException(status_code=503, detail="Failed to create LLM instance. Check API keys.")
+
+        # Create messages for the LLM
+        from langchain_core.messages import SystemMessage, HumanMessage
+        messages = []
+        if system_prompt:
+            messages.append(SystemMessage(content=system_prompt))
+        messages.append(HumanMessage(content=user_prompt))
+
+        # Run the LLM
+        response = llm.invoke(messages)
+
+        execution_time_ms = (time.time() - start_time) * 1000
+
+        # Extract usage metadata
+        usage_metadata = getattr(response, 'usage_metadata', {}) or {}
+
+        return {
+            "prompt_id": request.prompt_id,
+            "provider": request.provider or resolved_config.get("provider", "groq"),
+            "model": request.model or resolved_config.get("model_alias", "primary"),
+            "model_id": resolved_config.get("model_id", "unknown"),
+            "temperature": request.temperature if request.temperature is not None else resolved_config.get("temperature", 0.1),
+            "max_tokens": request.max_tokens if request.max_tokens is not None else resolved_config.get("max_tokens", 2000),
+            "config_source": resolved_config.get("source", "defaults"),
+            "system_prompt": system_prompt,
+            "user_prompt": user_prompt,
+            "variables_used": request.variables,
+            "response": response.content,
+            "execution_time_ms": round(execution_time_ms, 2),
+            "usage": {
+                "input_tokens": usage_metadata.get('input_tokens', 0),
+                "output_tokens": usage_metadata.get('output_tokens', 0),
+            }
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except KeyError as e:
+        raise HTTPException(status_code=400, detail=f"Missing variable: {e}")
+    except Exception as e:
+        logger.error(f"Error running prompt: {e}")
+        raise HTTPException(status_code=500, detail=f"LLM execution failed: {str(e)}")
 
 
 # =============================================================================

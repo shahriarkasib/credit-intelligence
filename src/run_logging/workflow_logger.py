@@ -134,8 +134,11 @@ class WorkflowLogger:
         node: str = "",
         agent_name: str = "",
         temperature: float = None,
+        step_number: int = 0,
+        # Task tracking
+        current_task: str = "",
     ):
-        """Log an LLM API call with cost tracking to all storage."""
+        """Log an LLM API call with cost and task tracking to all storage."""
         # Increment LLM call counter
         self._increment_llm_calls(run_id)
 
@@ -168,7 +171,7 @@ class WorkflowLogger:
                 execution_time_ms=execution_time_ms,
             )
 
-        # Log to Google Sheets with cost
+        # Log to Google Sheets with cost and task tracking
         if self.sheets_logger.is_connected():
             self.sheets_logger.log_llm_call(
                 run_id=run_id,
@@ -176,6 +179,7 @@ class WorkflowLogger:
                 node=node or call_type,
                 agent_name=agent_name,
                 temperature=temperature,
+                step_number=step_number,
                 call_type=call_type,
                 model=model,
                 prompt=prompt,
@@ -186,6 +190,7 @@ class WorkflowLogger:
                 input_cost=input_cost,
                 output_cost=output_cost,
                 total_cost=total_cost,
+                current_task=current_task,
             )
 
         logger.debug(f"[{run_id[:8]}] LLM {call_type}: {prompt_tokens}+{completion_tokens} tokens, ${total_cost:.6f} ({execution_time_ms:.0f}ms)")
@@ -249,8 +254,13 @@ class WorkflowLogger:
         node: str = "",
         agent_name: str = "",
         step_number: int = 0,
+        # Hierarchy tracking fields
+        parent_node: str = "",
+        workflow_phase: str = "",
+        call_depth: int = 0,
+        parent_tool_id: str = "",
     ):
-        """Log a tool call to all storage."""
+        """Log a tool call to all storage with hierarchy tracking."""
         # Use tool_name as node if not provided
         effective_node = node or tool_name
 
@@ -268,6 +278,11 @@ class WorkflowLogger:
                 execution_time_ms=execution_time_ms,
                 success=success,
                 error=error,
+                # Pass hierarchy fields
+                parent_node=parent_node or effective_node,
+                workflow_phase=workflow_phase,
+                call_depth=call_depth,
+                parent_tool_id=parent_tool_id,
             )
         logger.debug(f"[{run_id[:8]}] Tool {tool_name}: {execution_time_ms:.0f}ms - {'OK' if success else 'FAILED'}")
 
@@ -287,6 +302,10 @@ class WorkflowLogger:
         agent_name: str = "llm_analyst",
         model: str = "",
         temperature: float = None,
+        step_number: int = 0,
+        prompt: str = "",
+        duration_ms: float = 0,
+        status: str = "ok",
     ):
         """Log assessment to all storage."""
         # Log to Google Sheets
@@ -298,6 +317,10 @@ class WorkflowLogger:
                 agent_name=agent_name,
                 model=model,
                 temperature=temperature,
+                step_number=step_number,
+                prompt=prompt,
+                duration_ms=duration_ms,
+                status=status,
                 risk_level=risk_level,
                 credit_score=credit_score,
                 confidence=confidence,
@@ -320,8 +343,12 @@ class WorkflowLogger:
         details: Dict[str, Any] = None,
         # Node tracking fields
         node: str = "evaluate",
+        node_type: str = "agent",
         agent_name: str = "workflow_evaluator",
+        step_number: int = 0,
         model: str = "",
+        duration_ms: float = 0,
+        status: str = "ok",
     ):
         """Log evaluation with reasoning to all storage."""
         # Log to Google Sheets
@@ -330,8 +357,12 @@ class WorkflowLogger:
                 run_id=run_id,
                 company_name=company_name,
                 node=node,
+                node_type=node_type,
                 agent_name=agent_name,
+                step_number=step_number,
                 model=model,
+                duration_ms=duration_ms,
+                status=status,
                 tool_selection_score=tool_selection_score,
                 data_quality_score=data_quality_score,
                 synthesis_score=synthesis_score,

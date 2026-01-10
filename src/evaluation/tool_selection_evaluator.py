@@ -1,11 +1,36 @@
 """Tool Selection Evaluator - Evaluates whether LLM chose the right tools."""
 
+import json
 import logging
-from typing import Any, Dict, List, Optional
+import time
+from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
+
+# Import LangChain ChatGroq for LLM-as-judge evaluation
+try:
+    from config.langchain_llm import get_chat_groq, is_langchain_groq_available
+    from config.langchain_callbacks import CostTrackerCallback
+    from langchain_core.messages import HumanMessage
+    LANGCHAIN_GROQ_AVAILABLE = is_langchain_groq_available()
+except ImportError:
+    LANGCHAIN_GROQ_AVAILABLE = False
+
+# Import prompts
+try:
+    from config.prompts import get_prompt_text
+    PROMPTS_AVAILABLE = True
+except ImportError:
+    PROMPTS_AVAILABLE = False
+
+# Import cost tracker
+try:
+    from config.cost_tracker import get_cost_tracker
+    COST_TRACKER_AVAILABLE = True
+except ImportError:
+    COST_TRACKER_AVAILABLE = False
 
 
 @dataclass
@@ -232,6 +257,199 @@ class ToolSelectionEvaluator:
             "avg_f1": avg_f1,
             "avg_reasoning_quality": avg_reasoning,
         }
+
+    def evaluate_with_llm(
+        self,
+        company_name: str,
+        selected_tools: List[str],
+        tool_selection_reasoning: Dict[str, Any] = None,
+        actual_data_results: Dict[str, Any] = None,
+        model: str = "llama-3.3-70b-versatile",
+    ) -> Tuple[ToolSelectionResult, Dict[str, Any]]:
+        """
+        Use LLM-as-judge to evaluate tool selection quality.
+
+        Instead of comparing against hardcoded expected tools, the LLM evaluates:
+        - Was the company type correctly identified?
+        - Were the selected tools appropriate?
+        - Were any important tools missed?
+        - Were any unnecessary tools selected?
+
+        Args:
+            company_name: Name of the company
+            selected_tools: Tools that were selected
+            tool_selection_reasoning: The reasoning provided for tool selection
+            actual_data_results: Results from running the tools (optional)
+            model: LLM model to use for evaluation
+
+        Returns:
+            Tuple of (ToolSelectionResult, llm_metrics)
+        """
+        if not LANGCHAIN_GROQ_AVAILABLE:
+            logger.warning("LLM not available for evaluation, falling back to rule-based")
+            return self.evaluate(company_name, selected_tools, tool_selection_reasoning), {}
+
+        start_time = time.time()
+
+        # Build prompt
+        if PROMPTS_AVAILABLE:
+            try:
+                system_prompt, user_prompt = get_prompt_text(
+                    "tool_selection_evaluation",
+                    company_name=company_name,
+                    selected_tools=json.dumps(selected_tools, indent=2),
+                    selection_reasoning=json.dumps(tool_selection_reasoning or {}, indent=2),
+                    data_results=json.dumps(actual_data_results or {}, indent=2, default=str)[:2000],  # Truncate
+                )
+                prompt = f"{system_prompt}\n\n{user_prompt}"
+            except Exception as e:
+                logger.warning(f"Failed to get prompt from registry: {e}")
+                prompt = self._get_fallback_evaluation_prompt(
+                    company_name, selected_tools, tool_selection_reasoning, actual_data_results
+                )
+        else:
+            prompt = self._get_fallback_evaluation_prompt(
+                company_name, selected_tools, tool_selection_reasoning, actual_data_results
+            )
+
+        # Setup callbacks for cost tracking
+        callbacks = []
+        if COST_TRACKER_AVAILABLE:
+            try:
+                tracker = get_cost_tracker()
+                callbacks.append(CostTrackerCallback(tracker=tracker, call_type="tool_selection_evaluation"))
+            except Exception:
+                pass
+
+        # Call LLM
+        try:
+            llm = get_chat_groq(model=model, temperature=0.1, callbacks=callbacks)
+            if not llm:
+                raise RuntimeError("Failed to create LLM instance")
+
+            response = llm.invoke([HumanMessage(content=prompt)])
+            execution_time_ms = (time.time() - start_time) * 1000
+
+            # Extract metrics
+            usage_metadata = getattr(response, 'usage_metadata', {}) or {}
+            llm_metrics = {
+                "model": model,
+                "execution_time_ms": round(execution_time_ms, 2),
+                "prompt_tokens": usage_metadata.get('input_tokens', 0),
+                "completion_tokens": usage_metadata.get('output_tokens', 0),
+                "total_tokens": usage_metadata.get('total_tokens', 0),
+            }
+
+            # Parse response
+            evaluation = self._parse_llm_evaluation(response.content)
+
+            # Build result
+            result = ToolSelectionResult(
+                company_name=company_name,
+                expected_tools=evaluation.get("appropriate_tools", []) + evaluation.get("missing_tools", []),
+                selected_tools=selected_tools,
+                precision=evaluation.get("precision", 0.0),
+                recall=evaluation.get("recall", 0.0),
+                f1_score=evaluation.get("f1_score", 0.0),
+                is_correct=evaluation.get("overall_quality", "poor") in ["excellent", "good"],
+                reasoning_quality=self._quality_to_score(evaluation.get("overall_quality", "poor")),
+                details={
+                    "llm_evaluation": evaluation,
+                    "company_type_correct": evaluation.get("company_type_correct", False),
+                    "company_type_reasoning": evaluation.get("company_type_reasoning", ""),
+                    "appropriate_tools": evaluation.get("appropriate_tools", []),
+                    "missing_tools": evaluation.get("missing_tools", []),
+                    "unnecessary_tools": evaluation.get("unnecessary_tools", []),
+                    "suggestions": evaluation.get("suggestions", []),
+                    "execution_order_quality": evaluation.get("execution_order_quality", "unknown"),
+                    "evaluation_reasoning": evaluation.get("reasoning", ""),
+                },
+            )
+
+            self.evaluations.append(result)
+            return result, llm_metrics
+
+        except Exception as e:
+            logger.error(f"LLM evaluation failed: {e}")
+            # Fall back to rule-based evaluation
+            return self.evaluate(company_name, selected_tools, tool_selection_reasoning), {}
+
+    def _get_fallback_evaluation_prompt(
+        self,
+        company_name: str,
+        selected_tools: List[str],
+        tool_selection_reasoning: Dict[str, Any],
+        actual_data_results: Dict[str, Any],
+    ) -> str:
+        """Generate fallback evaluation prompt if registry prompt unavailable."""
+        return f"""Evaluate this tool selection for credit assessment.
+
+Company: {company_name}
+Selected Tools: {json.dumps(selected_tools)}
+Selection Reasoning: {json.dumps(tool_selection_reasoning or {})}
+Data Results: {json.dumps(actual_data_results or {}, default=str)[:1000]}
+
+Evaluate:
+1. Was the company type (public/private) correctly identified?
+2. Were the selected tools appropriate for this company?
+3. Were any important tools missed?
+4. Were any unnecessary tools selected?
+
+Return JSON:
+{{
+    "company_type_correct": true/false,
+    "company_type_reasoning": "explanation",
+    "appropriate_tools": ["list"],
+    "missing_tools": ["list"],
+    "unnecessary_tools": ["list"],
+    "precision": 0.0-1.0,
+    "recall": 0.0-1.0,
+    "f1_score": 0.0-1.0,
+    "execution_order_quality": "good" | "acceptable" | "poor",
+    "overall_quality": "excellent" | "good" | "acceptable" | "poor",
+    "reasoning": "explanation",
+    "suggestions": ["list"]
+}}
+"""
+
+    def _parse_llm_evaluation(self, response: str) -> Dict[str, Any]:
+        """Parse LLM evaluation response."""
+        try:
+            # Try to extract JSON from response
+            if "```json" in response:
+                start = response.find("```json") + 7
+                end = response.find("```", start)
+                json_str = response[start:end].strip()
+            elif "```" in response:
+                start = response.find("```") + 3
+                end = response.find("```", start)
+                json_str = response[start:end].strip()
+            else:
+                # Try to find JSON object
+                start = response.find("{")
+                end = response.rfind("}") + 1
+                json_str = response[start:end]
+
+            return json.loads(json_str)
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.error(f"Failed to parse LLM evaluation: {e}")
+            return {
+                "company_type_correct": False,
+                "precision": 0.0,
+                "recall": 0.0,
+                "f1_score": 0.0,
+                "overall_quality": "poor",
+                "reasoning": f"Failed to parse LLM response: {str(e)}",
+            }
+
+    def _quality_to_score(self, quality: str) -> float:
+        """Convert quality string to numeric score."""
+        return {
+            "excellent": 1.0,
+            "good": 0.75,
+            "acceptable": 0.5,
+            "poor": 0.25,
+        }.get(quality.lower(), 0.25)
 
     def clear(self):
         """Clear evaluations."""

@@ -1535,6 +1535,7 @@ export default function CreditIntelligenceStudio() {
                   <table className="w-full text-sm">
                     <thead className="bg-studio-panel/50">
                       <tr>
+                        <th className="text-left p-3 text-studio-muted">Run ID</th>
                         <th className="text-left p-3 text-studio-muted">Company</th>
                         <th className="text-left p-3 text-studio-muted">Status</th>
                         <th className="text-left p-3 text-studio-muted">Risk</th>
@@ -1545,6 +1546,20 @@ export default function CreditIntelligenceStudio() {
                     <tbody>
                       {batchResults.map((result) => (
                         <tr key={result.run_id} className="border-t border-studio-border hover:bg-studio-panel/30">
+                          <td className="p-3">
+                            <div className="flex items-center gap-1">
+                              <code className="text-xs font-mono text-studio-accent bg-studio-panel px-1.5 py-0.5 rounded break-all" title={result.run_id}>
+                                {result.run_id}
+                              </code>
+                              <button
+                                onClick={() => navigator.clipboard.writeText(result.run_id)}
+                                className="text-xs text-studio-muted hover:text-studio-accent px-1"
+                                title="Copy full Run ID"
+                              >
+                                Copy
+                              </button>
+                            </div>
+                          </td>
                           <td className="p-3 font-medium">{result.company_name}</td>
                           <td className="p-3">
                             <span className={`px-2 py-1 rounded text-xs ${
@@ -1589,6 +1604,7 @@ export default function CreditIntelligenceStudio() {
                     <table className="w-full text-sm">
                       <thead className="bg-studio-panel">
                         <tr>
+                          <th className="text-left p-3 text-studio-muted">Run ID</th>
                           <th className="text-left p-3 text-studio-muted">Company</th>
                           <th className="text-left p-3 text-studio-muted">Status</th>
                           <th className="text-left p-3 text-studio-muted">Risk</th>
@@ -1600,6 +1616,20 @@ export default function CreditIntelligenceStudio() {
                       <tbody>
                         {runHistory.map((run) => (
                           <tr key={run.run_id} className="border-t border-studio-border hover:bg-studio-panel/30">
+                            <td className="p-3">
+                              <div className="flex items-center gap-1">
+                                <code className="text-xs font-mono text-studio-accent bg-studio-panel px-1.5 py-0.5 rounded break-all" title={run.run_id}>
+                                  {run.run_id}
+                                </code>
+                                <button
+                                  onClick={() => navigator.clipboard.writeText(run.run_id)}
+                                  className="text-xs text-studio-muted hover:text-studio-accent px-1"
+                                  title="Copy full Run ID"
+                                >
+                                  Copy
+                                </button>
+                              </div>
+                            </td>
                             <td className="p-3 font-medium">{run.company_name}</td>
                             <td className="p-3">
                               <span className={`px-2 py-1 rounded text-xs ${
@@ -1654,10 +1684,10 @@ export default function CreditIntelligenceStudio() {
                     <table className="w-full text-sm">
                       <thead className="bg-studio-panel">
                         <tr>
+                          <th className="text-left p-3 text-studio-muted">Run ID</th>
                           <th className="text-left p-3 text-studio-muted">Company</th>
                           <th className="text-left p-3 text-studio-muted">Risk</th>
                           <th className="text-left p-3 text-studio-muted">Score</th>
-                          <th className="text-left p-3 text-studio-muted">Confidence</th>
                           <th className="text-left p-3 text-studio-muted">Time</th>
                           <th className="text-left p-3 text-studio-muted">Actions</th>
                         </tr>
@@ -1665,6 +1695,20 @@ export default function CreditIntelligenceStudio() {
                       <tbody>
                         {historicalRuns.map((run) => (
                           <tr key={run.run_id} className="border-t border-studio-border hover:bg-studio-panel/30">
+                            <td className="p-3">
+                              <div className="flex items-center gap-1">
+                                <code className="text-xs font-mono text-studio-accent bg-studio-panel px-1.5 py-0.5 rounded break-all" title={run.run_id}>
+                                  {run.run_id}
+                                </code>
+                                <button
+                                  onClick={() => navigator.clipboard.writeText(run.run_id)}
+                                  className="text-xs text-studio-muted hover:text-studio-accent px-1"
+                                  title="Copy full Run ID"
+                                >
+                                  Copy
+                                </button>
+                              </div>
+                            </td>
                             <td className="p-3 font-medium">{run.company_name}</td>
                             <td className="p-3">
                               <span className={`px-2 py-1 rounded text-xs ${getRiskColor(run.risk_level || '')}`}>
@@ -1672,7 +1716,6 @@ export default function CreditIntelligenceStudio() {
                               </span>
                             </td>
                             <td className="p-3">{run.credit_score || 'N/A'}</td>
-                            <td className="p-3 text-studio-muted">-</td>
                             <td className="p-3 text-studio-muted">
                               {new Date(run.started_at).toLocaleString()}
                             </td>

@@ -39,6 +39,10 @@ DEFAULT_PROMPTS: Dict[str, Dict[str, Any]] = {
         "description": "Parses company name to identify type, ticker, and industry",
         "category": "input",
         "variables": ["company_name"],
+        "llm_config": {
+            "model": "fast",  # Simple parsing task, use fast model
+            "temperature": 0.1,
+        },
         "system_prompt": """You are a financial data specialist. Your task is to analyze company names and identify key information about them.
 
 Given a company name, determine:
@@ -67,6 +71,10 @@ Respond in JSON format with the following structure:
         "description": "Selects appropriate data collection tools based on company type",
         "category": "planning",
         "variables": ["company_name", "context", "tool_specs"],
+        "llm_config": {
+            "model": "primary",  # Needs good reasoning for tool selection
+            "temperature": 0.1,
+        },
         "system_prompt": """You are a credit intelligence agent selecting tools for credit risk assessment.
 
 Your task is to analyze the company and select the most appropriate data collection tools.
@@ -92,12 +100,75 @@ Analyze the company and select the appropriate tools. Return your response as JS
 - execution_order_reasoning: Why you chose this order""",
     },
 
+    "tool_selection_evaluation": {
+        "id": "tool_selection_evaluation",
+        "name": "Tool Selection Evaluation",
+        "description": "LLM-as-judge evaluation of tool selection quality",
+        "category": "evaluation",
+        "variables": ["company_name", "selected_tools", "selection_reasoning", "data_results"],
+        "llm_config": {
+            "model": "fast",  # Evaluation task, use fast model
+            "temperature": 0.0,  # Deterministic for consistency
+        },
+        "system_prompt": """You are an expert credit intelligence evaluator. Your task is to evaluate whether the tool selection for credit assessment was appropriate.
+
+You have deep knowledge of:
+- Credit risk assessment data requirements
+- Data sources for public vs private companies
+- Optimal tool selection strategies
+
+Evaluate objectively based on:
+1. Was the company type (public/private) correctly identified?
+2. Were the selected tools appropriate for this company type?
+3. Were any important data sources missed?
+4. Were any unnecessary tools selected (wasting resources)?
+5. Was the execution order logical?
+
+Be fair but rigorous in your evaluation.""",
+        "user_template": """## Company Being Assessed
+{company_name}
+
+## Tools Selected
+{selected_tools}
+
+## Selection Reasoning Provided
+{selection_reasoning}
+
+## Data Results (if available)
+{data_results}
+
+## Evaluation Task
+Evaluate the quality of this tool selection. Return your evaluation as JSON:
+
+{{
+    "company_type_correct": true/false,
+    "company_type_reasoning": "Why you believe the company type identification was correct/incorrect",
+    "appropriate_tools": ["list of tools that were correctly selected"],
+    "missing_tools": ["tools that should have been selected but weren't"],
+    "unnecessary_tools": ["tools that were selected but weren't needed"],
+    "precision": 0.0-1.0,
+    "recall": 0.0-1.0,
+    "f1_score": 0.0-1.0,
+    "execution_order_quality": "good" | "acceptable" | "poor",
+    "overall_quality": "excellent" | "good" | "acceptable" | "poor",
+    "reasoning": "Detailed explanation of your evaluation",
+    "suggestions": ["suggestions for improvement"]
+}}
+
+IMPORTANT: Return ONLY the JSON object.""",
+    },
+
     "credit_synthesis": {
         "id": "credit_synthesis",
         "name": "Credit Synthesis",
         "description": "Synthesizes collected data into a final credit assessment",
         "category": "synthesis",
         "variables": ["company_name", "tool_reasoning", "tool_results"],
+        "llm_config": {
+            "model": "primary",  # Critical output, use best model
+            "temperature": 0.0,  # Deterministic for consistency
+            "max_tokens": 2000,
+        },
         "system_prompt": """You are a senior credit analyst. Analyze the collected data and provide a credit risk assessment.
 
 Your assessment should be:
@@ -143,6 +214,10 @@ IMPORTANT: Return ONLY the JSON object. Do not include any text before or after 
         "description": "Full credit risk analysis from raw company data",
         "category": "analysis",
         "variables": ["company_name", "company_data"],
+        "llm_config": {
+            "model": "primary",  # Critical analysis, use best model
+            "temperature": 0.0,  # Deterministic for consistency
+        },
         "system_prompt": """You are an expert credit analyst. Analyze the following company data and provide a credit risk assessment.
 
 Be consistent, thorough, and base your assessment on the evidence provided.
@@ -170,6 +245,10 @@ Provide a structured credit assessment with:
         "description": "Reviews and validates rule-based assessments",
         "category": "validation",
         "variables": ["assessment", "company_data"],
+        "llm_config": {
+            "model": "fast",  # Simple validation, use fast model
+            "temperature": 0.0,  # Deterministic for consistency
+        },
         "system_prompt": """You are a credit analyst reviewer. A rule-based system produced an assessment that you need to validate.
 
 Your task is to:

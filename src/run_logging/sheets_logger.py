@@ -159,10 +159,12 @@ class SheetsLogger:
                 "total_steps", "total_llm_calls", "tools_used", "evaluation_score",
                 "timestamp", "generated_by"
             ],
-            # Sheet 2: Tool execution logs
+            # Sheet 2: Tool execution logs (with hierarchy tracking)
             "tool_calls": [
                 "run_id", "company_name", "node", "node_type", "agent_name", "step_number",
                 "tool_name", "tool_input", "tool_output",
+                # Hierarchy columns for traceability
+                "parent_node", "workflow_phase", "call_depth", "parent_tool_id",
                 "execution_time_ms", "status", "error",
                 "timestamp", "generated_by"
             ],
@@ -204,6 +206,8 @@ class SheetsLogger:
             "llm_calls": [
                 "run_id", "company_name", "node", "node_type", "agent_name", "step_number",
                 "call_type", "model", "temperature", "context",
+                # Added: current_task to track which task triggered this LLM call
+                "current_task",
                 "prompt_summary", "response_summary",
                 "prompt_tokens", "completion_tokens", "total_tokens",
                 "input_cost", "output_cost", "total_cost",
@@ -346,6 +350,45 @@ class SheetsLogger:
                 # Metadata
                 "evaluation_model", "evaluation_time_ms", "status",
                 "timestamp", "generated_by"
+            ],
+            # Sheet 20: Plans - Full task plans created for each run
+            "plans": [
+                "run_id", "company_name", "node", "agent_name",
+                "num_tasks", "plan_summary",
+                # Full plan as JSON with all task details
+                "full_plan",
+                # Individual task columns for easy viewing
+                "task_1", "task_2", "task_3", "task_4", "task_5",
+                "task_6", "task_7", "task_8", "task_9", "task_10",
+                "created_at", "status", "generated_by"
+            ],
+            # Sheet 21: Prompts - All prompts used in runs
+            "prompts": [
+                "run_id", "company_name", "node", "agent_name", "step_number",
+                "prompt_id", "prompt_name", "category",
+                # Full prompt text
+                "system_prompt", "user_prompt",
+                # Variables used
+                "variables_json",
+                # Model and execution info
+                "model", "temperature",
+                "timestamp", "generated_by"
+            ],
+            # Sheet 22: Log Tests - Verification that all sheet logging worked per run
+            "log_tests": [
+                "run_id", "company_name",
+                # Per-sheet verification (count of rows logged)
+                "runs_count", "tool_calls_count", "assessments_count", "evaluations_count",
+                "tool_selections_count", "step_logs_count", "llm_calls_count",
+                "consistency_scores_count", "data_sources_count", "langgraph_events_count",
+                "llm_calls_detailed_count", "run_summaries_count", "agent_metrics_count",
+                "llm_judge_results_count", "model_consistency_count", "cross_model_eval_count",
+                "deepeval_metrics_count", "plans_count", "prompts_count",
+                # Overall verification
+                "total_sheets_with_data", "total_rows_logged", "all_expected_sheets_logged",
+                "missing_sheets", "verification_status",  # pass/fail/partial
+                "verification_notes",
+                "timestamp", "generated_by"
             ]
         }
 
@@ -477,8 +520,13 @@ class SheetsLogger:
         execution_time_ms: float = 0,
         success: bool = True,
         error: str = None,
+        # Hierarchy fields for traceability
+        parent_node: str = "",
+        workflow_phase: str = "",
+        call_depth: int = 0,
+        parent_tool_id: str = "",
     ):
-        """Log a tool call (non-blocking)."""
+        """Log a tool call with hierarchy tracking (non-blocking)."""
         if not self.is_connected():
             return
 
@@ -493,6 +541,11 @@ class SheetsLogger:
             tool_name,
             self._safe_str(tool_input),
             self._safe_str(tool_output),
+            # Hierarchy columns
+            parent_node or node or "",  # Default to current node if no parent
+            workflow_phase or "",  # e.g., "data_collection", "synthesis", "evaluation"
+            call_depth,  # 0 = top-level, 1 = nested call, etc.
+            parent_tool_id or "",  # ID of parent tool call if nested
             execution_time_ms,
             status,
             error or "",
@@ -768,12 +821,14 @@ class SheetsLogger:
         temperature: float = None,
         context: str = "",
         status: str = "ok",
+        # Task tracking
+        current_task: str = "",  # Which task triggered this LLM call
         # Original fields
         input_cost: float = 0.0,
         output_cost: float = 0.0,
         total_cost: float = 0.0,
     ):
-        """Log an LLM API call with cost tracking (non-blocking)."""
+        """Log an LLM API call with cost and task tracking (non-blocking)."""
         if not self.is_connected():
             return
 
@@ -804,6 +859,7 @@ class SheetsLogger:
             model,
             temperature if temperature is not None else 0.1,  # Default temperature
             self._safe_str(context, max_length=5000),
+            current_task or "",  # Which task triggered this call
             self._safe_str(prompt),  # Full prompt (up to 50k)
             self._safe_str(response),  # Full response (up to 50k)
             prompt_tokens,
@@ -1625,11 +1681,315 @@ class SheetsLogger:
 
         _sheets_executor.submit(_write)
 
+    def log_plan(
+        self,
+        run_id: str,
+        company_name: str,
+        task_plan: List[Dict[str, Any]],
+        # Common fields
+        node: str = "create_plan",
+        agent_name: str = "",
+        status: str = "ok",
+    ):
+        """
+        Log a full task plan to the plans sheet (non-blocking).
+
+        This creates a dedicated record of each plan created during workflow execution,
+        making it easy to see all plans at a glance.
+
+        Args:
+            run_id: Unique run identifier
+            company_name: Company being analyzed
+            task_plan: List of task dictionaries with full details
+            node: Current node (default: create_plan)
+            agent_name: Agent that created the plan
+            status: Plan status (ok, error)
+        """
+        if not self.is_connected():
+            return
+
+        num_tasks = len(task_plan)
+        plan_summary = f"Created {num_tasks} tasks for {company_name}"
+
+        # Extract individual tasks for easy viewing (up to 10)
+        task_columns = []
+        for i in range(10):
+            if i < len(task_plan):
+                task = task_plan[i]
+                # Format task as readable string
+                task_str = json.dumps(task, default=str) if isinstance(task, dict) else str(task)
+                task_columns.append(self._safe_str(task_str, max_length=5000))
+            else:
+                task_columns.append("")
+
+        row = [
+            run_id,
+            company_name,
+            node or "create_plan",
+            agent_name or "",
+            num_tasks,
+            plan_summary,
+            self._safe_str(task_plan),  # Full plan as JSON
+            *task_columns,  # task_1 through task_10
+            datetime.utcnow().isoformat(),  # created_at
+            status,
+            "Us",  # generated_by
+        ]
+
+        def _write():
+            try:
+                sheet = self._get_sheet("plans")
+                sheet.append_row(row)
+                logger.info(f"Logged plan for: {company_name} (run: {run_id}, {num_tasks} tasks)")
+            except Exception as e:
+                logger.error(f"Failed to log plan to sheets: {e}")
+
+        _sheets_executor.submit(_write)
+
+    def log_prompt(
+        self,
+        run_id: str,
+        company_name: str,
+        prompt_id: str,
+        prompt_name: str,
+        category: str,
+        system_prompt: str,
+        user_prompt: str,
+        variables: Dict[str, Any] = None,
+        # Common fields
+        node: str = "",
+        agent_name: str = "",
+        step_number: int = 0,
+        model: str = "",
+        temperature: float = None,
+    ):
+        """
+        Log a prompt used during a run (non-blocking).
+
+        Args:
+            run_id: Unique run identifier
+            company_name: Company being analyzed
+            prompt_id: ID of the prompt (e.g., "company_parser")
+            prompt_name: Human-readable name
+            category: Prompt category (input, planning, synthesis, etc.)
+            system_prompt: Full system prompt text
+            user_prompt: Full user prompt text (after variable substitution)
+            variables: Variables used in the prompt
+            node: Current workflow node
+            agent_name: Agent using the prompt
+            step_number: Step number in workflow
+            model: LLM model being used
+            temperature: LLM temperature setting
+        """
+        if not self.is_connected():
+            return
+
+        row = [
+            run_id,
+            company_name,
+            node or "",
+            agent_name or "",
+            step_number,
+            prompt_id,
+            prompt_name,
+            category,
+            self._safe_str(system_prompt),  # Full system prompt
+            self._safe_str(user_prompt),  # Full user prompt
+            json.dumps(variables or {}, default=str),  # Variables as JSON
+            model or "",
+            temperature if temperature is not None else "",
+            datetime.utcnow().isoformat(),  # timestamp
+            "Us",  # generated_by
+        ]
+
+        def _write():
+            try:
+                sheet = self._get_sheet("prompts")
+                sheet.append_row(row)
+                logger.info(f"Logged prompt {prompt_id} for: {company_name} (run: {run_id})")
+            except Exception as e:
+                logger.error(f"Failed to log prompt to sheets: {e}")
+
+        _sheets_executor.submit(_write)
+
     def get_spreadsheet_url(self) -> Optional[str]:
         """Get the URL of the spreadsheet."""
         if self.spreadsheet:
             return f"https://docs.google.com/spreadsheets/d/{self.spreadsheet.id}"
         return None
+
+    def log_verification(
+        self,
+        run_id: str,
+        company_name: str,
+        expected_sheets: List[str] = None,
+    ):
+        """
+        Log verification of all sheet logging for a run.
+
+        Counts rows in each sheet for this run_id and logs summary to log_tests sheet.
+
+        Args:
+            run_id: The run ID to verify
+            company_name: Company name for the run
+            expected_sheets: Optional list of sheets that should have data
+                           (defaults to core sheets: runs, step_logs, llm_calls, assessments, evaluations)
+        """
+        if not self.is_connected():
+            return
+
+        # Default expected sheets for a complete run
+        if expected_sheets is None:
+            expected_sheets = [
+                "runs", "step_logs", "llm_calls", "assessments",
+                "evaluations", "run_summaries"
+            ]
+
+        # All sheets to check
+        all_sheets = [
+            "runs", "tool_calls", "assessments", "evaluations",
+            "tool_selections", "step_logs", "llm_calls",
+            "consistency_scores", "data_sources", "langgraph_events",
+            "llm_calls_detailed", "run_summaries", "agent_metrics",
+            "llm_judge_results", "model_consistency", "cross_model_eval",
+            "deepeval_metrics", "plans", "prompts"
+        ]
+
+        def _verify_and_log():
+            try:
+                sheet_counts = {}
+                total_rows = 0
+                sheets_with_data = 0
+
+                for sheet_name in all_sheets:
+                    try:
+                        sheet = self._get_sheet(sheet_name)
+                        if sheet:
+                            # Get all values and count rows matching run_id
+                            all_values = sheet.get_all_values()
+                            # First column is run_id (or eval_id for some sheets)
+                            count = sum(1 for row in all_values[1:] if row and row[0] == run_id)
+                            sheet_counts[sheet_name] = count
+                            total_rows += count
+                            if count > 0:
+                                sheets_with_data += 1
+                        else:
+                            sheet_counts[sheet_name] = 0
+                    except Exception as e:
+                        logger.warning(f"Failed to check sheet {sheet_name}: {e}")
+                        sheet_counts[sheet_name] = -1  # Error
+
+                # Check which expected sheets are missing
+                missing_sheets = [s for s in expected_sheets if sheet_counts.get(s, 0) == 0]
+                all_expected_logged = len(missing_sheets) == 0
+
+                # Determine verification status
+                if all_expected_logged and sheets_with_data >= len(expected_sheets):
+                    status = "pass"
+                elif sheets_with_data > 0:
+                    status = "partial"
+                else:
+                    status = "fail"
+
+                # Build verification notes
+                notes = []
+                if missing_sheets:
+                    notes.append(f"Missing: {', '.join(missing_sheets)}")
+                if sheets_with_data > 0:
+                    logged_sheets = [s for s, c in sheet_counts.items() if c > 0]
+                    notes.append(f"Logged: {', '.join(logged_sheets)}")
+
+                # Build row for log_tests sheet
+                row = [
+                    run_id,
+                    company_name,
+                    # Per-sheet counts
+                    sheet_counts.get("runs", 0),
+                    sheet_counts.get("tool_calls", 0),
+                    sheet_counts.get("assessments", 0),
+                    sheet_counts.get("evaluations", 0),
+                    sheet_counts.get("tool_selections", 0),
+                    sheet_counts.get("step_logs", 0),
+                    sheet_counts.get("llm_calls", 0),
+                    sheet_counts.get("consistency_scores", 0),
+                    sheet_counts.get("data_sources", 0),
+                    sheet_counts.get("langgraph_events", 0),
+                    sheet_counts.get("llm_calls_detailed", 0),
+                    sheet_counts.get("run_summaries", 0),
+                    sheet_counts.get("agent_metrics", 0),
+                    sheet_counts.get("llm_judge_results", 0),
+                    sheet_counts.get("model_consistency", 0),
+                    sheet_counts.get("cross_model_eval", 0),
+                    sheet_counts.get("deepeval_metrics", 0),
+                    sheet_counts.get("plans", 0),
+                    sheet_counts.get("prompts", 0),
+                    # Overall
+                    sheets_with_data,
+                    total_rows,
+                    "Yes" if all_expected_logged else "No",
+                    ", ".join(missing_sheets) if missing_sheets else "",
+                    status,
+                    "; ".join(notes),
+                    datetime.utcnow().isoformat(),
+                    "Us",
+                ]
+
+                sheet = self._get_sheet("log_tests")
+                sheet.append_row(row)
+                logger.info(f"Log verification for run {run_id}: {status} ({sheets_with_data} sheets, {total_rows} rows)")
+
+            except Exception as e:
+                logger.error(f"Failed to log verification: {e}")
+
+        _sheets_executor.submit(_verify_and_log)
+
+    def verify_run_logging(self, run_id: str) -> Dict[str, Any]:
+        """
+        Verify logging for a specific run_id and return results.
+
+        This is a synchronous version for debugging/testing.
+
+        Args:
+            run_id: The run ID to verify
+
+        Returns:
+            Dict with verification results per sheet
+        """
+        if not self.is_connected():
+            return {"error": "Not connected to Google Sheets"}
+
+        all_sheets = [
+            "runs", "tool_calls", "assessments", "evaluations",
+            "tool_selections", "step_logs", "llm_calls",
+            "consistency_scores", "data_sources", "langgraph_events",
+            "llm_calls_detailed", "run_summaries", "agent_metrics",
+            "llm_judge_results", "model_consistency", "cross_model_eval",
+            "deepeval_metrics", "plans", "prompts"
+        ]
+
+        results = {
+            "run_id": run_id,
+            "sheets": {},
+            "total_rows": 0,
+            "sheets_with_data": 0,
+        }
+
+        for sheet_name in all_sheets:
+            try:
+                sheet = self._get_sheet(sheet_name)
+                if sheet:
+                    all_values = sheet.get_all_values()
+                    count = sum(1 for row in all_values[1:] if row and row[0] == run_id)
+                    results["sheets"][sheet_name] = count
+                    results["total_rows"] += count
+                    if count > 0:
+                        results["sheets_with_data"] += 1
+                else:
+                    results["sheets"][sheet_name] = 0
+            except Exception as e:
+                results["sheets"][sheet_name] = f"Error: {e}"
+
+        return results
 
 
 # Singleton instance
