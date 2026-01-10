@@ -62,6 +62,14 @@ except ImportError:
 
 from tools import ToolExecutor, get_tool_executor
 
+# Import MongoDB for decision persistence
+try:
+    from storage.mongodb import get_db
+    MONGODB_AVAILABLE = True
+except ImportError:
+    MONGODB_AVAILABLE = False
+    logger.debug("MongoDB not available for decision persistence")
+
 
 # Available models
 MODELS = {
@@ -106,6 +114,37 @@ class ToolSupervisor:
 
         # Logging
         self.decision_log: List[Dict[str, Any]] = []
+
+        # MongoDB connection for persistence
+        self._db = None
+        if MONGODB_AVAILABLE:
+            try:
+                self._db = get_db()
+            except Exception as e:
+                logger.debug(f"MongoDB not connected: {e}")
+
+    def _persist_decision(self, decision: Dict[str, Any]) -> bool:
+        """
+        Persist a decision to MongoDB for crash recovery and auditing.
+
+        Args:
+            decision: Decision log entry to persist
+
+        Returns:
+            True if persisted successfully, False otherwise
+        """
+        if not self._db or not self._db.is_connected():
+            return False
+
+        try:
+            # Store in a dedicated collection for supervisor decisions
+            collection = self._db.db.supervisor_decisions
+            collection.insert_one(decision.copy())
+            logger.debug(f"Persisted decision for run {decision.get('run_id', 'unknown')}")
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to persist decision: {e}")
+            return False
 
     def _get_tool_selection_prompt(self, company_name: str, context: Dict[str, Any] = None) -> str:
         """Generate prompt for tool selection."""
@@ -164,6 +203,82 @@ Only include tools that are truly needed. Be efficient.
 """
         return prompt
 
+    def _summarize_tool_results(
+        self,
+        tool_results: Dict[str, Any],
+        max_chars_per_tool: int = 5000,
+        max_total_chars: int = 30000,
+    ) -> str:
+        """
+        Summarize large tool results to fit within token budget.
+
+        This prevents token overflow when tool results contain large amounts
+        of data (e.g., full SEC filings, extensive court records).
+
+        Args:
+            tool_results: Dict of tool_name -> result data
+            max_chars_per_tool: Maximum characters per individual tool result
+            max_total_chars: Maximum total characters for all results
+
+        Returns:
+            JSON string of summarized results
+        """
+        summarized = {}
+
+        for tool_name, result in tool_results.items():
+            result_str = json.dumps(result, default=str)
+            result_len = len(result_str)
+
+            if result_len > max_chars_per_tool:
+                # Summarize large results
+                if isinstance(result, dict):
+                    # Keep key structure but truncate values
+                    summary = {
+                        "_summary": f"Large result truncated ({result_len} chars)",
+                        "_keys": list(result.keys())[:20],
+                    }
+                    # Include small values directly
+                    for key, value in result.items():
+                        value_str = json.dumps(value, default=str)
+                        if len(value_str) < 500:
+                            summary[key] = value
+                        elif isinstance(value, list) and len(value) > 0:
+                            summary[f"{key}_count"] = len(value)
+                            summary[f"{key}_sample"] = value[:2] if len(value) > 2 else value
+                        elif isinstance(value, dict):
+                            summary[f"{key}_keys"] = list(value.keys())[:10]
+                    summarized[tool_name] = summary
+                elif isinstance(result, list):
+                    summarized[tool_name] = {
+                        "_summary": f"Large list truncated ({result_len} chars)",
+                        "_count": len(result),
+                        "_sample": result[:3] if len(result) > 3 else result,
+                    }
+                else:
+                    summarized[tool_name] = {
+                        "_summary": f"Large result truncated ({result_len} chars)",
+                        "_preview": str(result)[:500],
+                    }
+            else:
+                summarized[tool_name] = result
+
+        # Check total size and further truncate if needed
+        total_str = json.dumps(summarized, default=str, indent=2)
+        if len(total_str) > max_total_chars:
+            logger.warning(f"Tool results still too large ({len(total_str)} chars), further truncating")
+            # Remove detailed data, keep only summaries
+            for tool_name in summarized:
+                if isinstance(summarized[tool_name], dict):
+                    if "_summary" not in summarized[tool_name]:
+                        summarized[tool_name] = {
+                            "_summary": f"Result available ({len(json.dumps(summarized[tool_name], default=str))} chars)",
+                            "_keys": list(summarized[tool_name].keys())[:10] if isinstance(summarized[tool_name], dict) else None,
+                        }
+            total_str = json.dumps(summarized, default=str, indent=2)
+
+        logger.debug(f"Summarized tool results: {len(total_str)} chars from {len(json.dumps(tool_results, default=str))} chars")
+        return total_str
+
     def _get_synthesis_prompt(
         self,
         company_name: str,
@@ -172,7 +287,8 @@ Only include tools that are truly needed. Be efficient.
     ) -> str:
         """Generate prompt for final credit synthesis."""
         tool_reasoning = json.dumps(tool_selection.get('company_analysis', {}), indent=2)
-        tool_results_str = json.dumps(tool_results, indent=2, default=str)
+        # Use summarized results to prevent token overflow
+        tool_results_str = self._summarize_tool_results(tool_results)
 
         # Try to use centralized prompts
         if PROMPTS_AVAILABLE:
@@ -478,6 +594,9 @@ Respond with a JSON object:
         }
         self.decision_log.append(decision_log)
 
+        # Persist to MongoDB for crash recovery
+        self._persist_decision(decision_log)
+
         logger.info(f"Tool selection for {company_name}: {[t.get('name') for t in selection.get('tools_to_use', [])]}")
 
         return {
@@ -546,6 +665,9 @@ Respond with a JSON object:
             "timestamp": datetime.utcnow().isoformat(),
         }
         self.decision_log.append(execution_log)
+
+        # Persist to MongoDB for crash recovery
+        self._persist_decision(execution_log)
 
         return {
             "run_id": run_id,
