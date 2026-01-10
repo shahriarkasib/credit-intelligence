@@ -72,10 +72,11 @@ python-multipart>=0.0.6
 # opentelemetry-exporter-otlp>=1.20.0
 
 # =============================================================================
-# Evaluation (DeepEval - LLM-powered metrics)
+# Evaluation (LLM-powered metrics)
 # =============================================================================
 deepeval>=1.0.0
 litellm>=1.0.0
+openevals>=0.0.1
 
 # =============================================================================
 # Development & Testing

@@ -132,6 +132,14 @@ except ImportError:
     DEEPEVAL_EVALUATOR_AVAILABLE = False
     evaluate_with_deepeval = None
 
+# Import OpenEvals evaluator (LangChain's LLM-as-judge, uses OpenAI)
+try:
+    from evaluation.openevals_evaluator import evaluate_with_openevals
+    OPENEVALS_EVALUATOR_AVAILABLE = True
+except ImportError:
+    OPENEVALS_EVALUATOR_AVAILABLE = False
+    evaluate_with_openevals = None
+
 # Import LangSmith integration for trace logging
 try:
     from config.langsmith_integration import get_langsmith_integration, LangSmithIntegration
@@ -2300,6 +2308,32 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
 
                 except Exception as deepeval_error:
                     logger.warning(f"DeepEval evaluation failed: {deepeval_error}")
+
+            # Run OpenEvals separately (uses OpenAI GPT-4o-mini as judge)
+            if OPENEVALS_EVALUATOR_AVAILABLE and evaluate_with_openevals:
+                try:
+                    openevals_result = evaluate_with_openevals(
+                        state=state,
+                        run_id=run_id,
+                        log_to_sheets=True,
+                    )
+
+                    # Add OpenEvals metrics to evaluation result
+                    evaluation["openevals_metrics"] = {
+                        "correctness": openevals_result.correctness,
+                        "helpfulness": openevals_result.helpfulness,
+                        "coherence": openevals_result.coherence,
+                        "relevance": openevals_result.relevance,
+                        "overall_score": openevals_result.overall_score,
+                    }
+
+                    logger.info(f"OpenEvals - Helpfulness: {openevals_result.helpfulness:.2f}, "
+                               f"Coherence: {openevals_result.coherence:.2f}, "
+                               f"Relevance: {openevals_result.relevance:.2f}, "
+                               f"Overall: {openevals_result.overall_score:.2f}")
+
+                except Exception as openevals_error:
+                    logger.warning(f"OpenEvals evaluation failed: {openevals_error}")
 
             # Fetch and log LangSmith traces for this run
             if LANGSMITH_INTEGRATION_AVAILABLE and get_langsmith_integration:
