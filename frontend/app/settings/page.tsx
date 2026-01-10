@@ -70,7 +70,21 @@ interface RuntimeConfig {
   config_path: string;
 }
 
-type TabType = 'llm' | 'credentials' | 'data-sources' | 'runtime';
+interface APIKey {
+  display_name: string;
+  category: string;
+  is_set: boolean;
+  masked: string | null;
+  source: string | null;
+  updated_at?: string;
+}
+
+interface APIKeysConfig {
+  api_keys: Record<string, APIKey>;
+  database_connected: boolean;
+}
+
+type TabType = 'llm' | 'api-keys' | 'credentials' | 'data-sources' | 'runtime';
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<TabType>('llm');
@@ -93,6 +107,12 @@ export default function SettingsPage() {
 
   // Runtime State
   const [runtimeConfig, setRuntimeConfig] = useState<RuntimeConfig | null>(null);
+
+  // API Keys State
+  const [apiKeysConfig, setApiKeysConfig] = useState<APIKeysConfig | null>(null);
+  const [apiKeyInputs, setApiKeyInputs] = useState<Record<string, string>>({});
+  const [showApiKey, setShowApiKey] = useState<Record<string, boolean>>({});
+  const [savingApiKey, setSavingApiKey] = useState<string | null>(null);
 
   // Fetch data on mount
   useEffect(() => {
@@ -122,6 +142,7 @@ export default function SettingsPage() {
         fetchCredentials(),
         fetchDataSources(),
         fetchRuntimeConfig(),
+        fetchApiKeys(),
       ]);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch configuration');
@@ -156,6 +177,13 @@ export default function SettingsPage() {
     if (!response.ok) throw new Error('Failed to fetch runtime config');
     const data = await response.json();
     setRuntimeConfig(data);
+  };
+
+  const fetchApiKeys = async () => {
+    const response = await fetch(`${API_BASE}/api-keys`);
+    if (!response.ok) throw new Error('Failed to fetch API keys');
+    const data = await response.json();
+    setApiKeysConfig(data);
   };
 
   // LLM Config Handlers
@@ -198,6 +226,51 @@ export default function SettingsPage() {
       setError(err instanceof Error ? err.message : 'Failed to update credential');
     } finally {
       setSavingCredential(null);
+    }
+  };
+
+  // API Key Handlers
+  const saveApiKey = async (keyName: string) => {
+    const value = apiKeyInputs[keyName];
+    if (!value) return;
+
+    setSavingApiKey(keyName);
+    try {
+      const response = await fetch(`${API_BASE}/api-keys/${keyName}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key_name: keyName, key_value: value }),
+      });
+      if (!response.ok) throw new Error('Failed to update API key');
+
+      await fetchApiKeys();
+      setApiKeyInputs(prev => ({ ...prev, [keyName]: '' }));
+      setSuccess(`API key ${keyName} updated - changes take effect immediately!`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update API key');
+    } finally {
+      setSavingApiKey(null);
+    }
+  };
+
+  const deleteApiKey = async (keyName: string) => {
+    if (!confirm(`Delete ${keyName} from database? Will fall back to environment variable if set.`)) {
+      return;
+    }
+
+    setSavingApiKey(keyName);
+    try {
+      const response = await fetch(`${API_BASE}/api-keys/${keyName}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) throw new Error('Failed to delete API key');
+
+      await fetchApiKeys();
+      setSuccess(`API key ${keyName} deleted from database`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete API key');
+    } finally {
+      setSavingApiKey(null);
     }
   };
 
@@ -255,7 +328,8 @@ export default function SettingsPage() {
 
   const tabs = [
     { id: 'llm' as TabType, label: 'LLM Providers', icon: Cpu },
-    { id: 'credentials' as TabType, label: 'Credentials', icon: Key },
+    { id: 'api-keys' as TabType, label: 'API Keys', icon: Key },
+    { id: 'credentials' as TabType, label: 'Credentials (File)', icon: Key },
     { id: 'data-sources' as TabType, label: 'Data Sources', icon: Database },
     { id: 'runtime' as TabType, label: 'Runtime', icon: Zap },
   ];
@@ -344,6 +418,18 @@ export default function SettingsPage() {
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 py-6">
         {activeTab === 'llm' && llmConfig && (
           <LLMTab config={llmConfig} onUpdate={updateLLMConfig} saving={saving} />
+        )}
+        {activeTab === 'api-keys' && apiKeysConfig && (
+          <APIKeysTab
+            config={apiKeysConfig}
+            inputs={apiKeyInputs}
+            setInputs={setApiKeyInputs}
+            showKey={showApiKey}
+            setShowKey={setShowApiKey}
+            onSave={saveApiKey}
+            onDelete={deleteApiKey}
+            savingKey={savingApiKey}
+          />
         )}
         {activeTab === 'credentials' && credentials && (
           <CredentialsTab
@@ -703,6 +789,171 @@ function DataSourcesTab({
                 Rate limit: {source.rate_limit}/sec
               </p>
             )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// API Keys Tab Component
+function APIKeysTab({
+  config,
+  inputs,
+  setInputs,
+  showKey,
+  setShowKey,
+  onSave,
+  onDelete,
+  savingKey,
+}: {
+  config: APIKeysConfig;
+  inputs: Record<string, string>;
+  setInputs: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  showKey: Record<string, boolean>;
+  setShowKey: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
+  onSave: (keyName: string) => void;
+  onDelete: (keyName: string) => void;
+  savingKey: string | null;
+}) {
+  const categoryIcons: Record<string, any> = {
+    llm: Cpu,
+    search: Database,
+    data: Database,
+  };
+
+  // Group keys by category
+  const keysByCategory: Record<string, [string, APIKey][]> = {};
+  Object.entries(config.api_keys).forEach(([keyName, keyInfo]) => {
+    const cat = keyInfo.category || 'other';
+    if (!keysByCategory[cat]) keysByCategory[cat] = [];
+    keysByCategory[cat].push([keyName, keyInfo]);
+  });
+
+  const categoryNames: Record<string, string> = {
+    llm: 'LLM Providers',
+    search: 'Search APIs',
+    data: 'Data Sources',
+    other: 'Other',
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Info Banner */}
+      <div className="p-4 rounded-lg border border-green-800/50 bg-green-900/20">
+        <div className="flex items-start gap-2">
+          <Zap className="w-5 h-5 text-green-400 mt-0.5" />
+          <div className="text-sm">
+            <p className="text-green-400 font-medium">Runtime API Keys</p>
+            <p className="text-green-400/80 mt-1">
+              API keys updated here are stored in the database and take effect <strong>immediately</strong> without restarting.
+              They override environment variables. Perfect for rotating keys or fixing rate limit issues.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Database Status */}
+      <div className="flex items-center gap-2 text-sm">
+        <Database className={`w-4 h-4 ${config.database_connected ? 'text-green-400' : 'text-red-400'}`} />
+        <span className={config.database_connected ? 'text-green-400' : 'text-red-400'}>
+          Database: {config.database_connected ? 'Connected' : 'Not Connected'}
+        </span>
+      </div>
+
+      {/* Keys by Category */}
+      {Object.entries(keysByCategory).map(([category, keys]) => {
+        const Icon = categoryIcons[category] || Key;
+        return (
+          <div key={category} className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+            <div className="flex items-center gap-2 mb-4">
+              <Icon className="w-5 h-5 text-studio-accent" />
+              <h3 className="font-medium">{categoryNames[category] || category}</h3>
+            </div>
+            <div className="space-y-4">
+              {keys.map(([keyName, keyInfo]) => (
+                <div key={keyName} className="py-3 border-b border-studio-border last:border-0">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-sm font-medium">{keyInfo.display_name}</span>
+                    {keyInfo.is_set ? (
+                      <span className="flex items-center gap-1 text-xs text-green-400">
+                        <Check className="w-3 h-3" /> Active
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1 text-xs text-red-400">
+                        <X className="w-3 h-3" /> Not Set
+                      </span>
+                    )}
+                    {keyInfo.source && (
+                      <span className={`text-xs px-2 py-0.5 rounded ${
+                        keyInfo.source === 'database'
+                          ? 'bg-blue-900/50 text-blue-400'
+                          : 'bg-gray-700 text-gray-400'
+                      }`}>
+                        {keyInfo.source}
+                      </span>
+                    )}
+                  </div>
+
+                  {keyInfo.masked && (
+                    <div className="text-xs text-studio-muted mb-2 font-mono">
+                      Current: {keyInfo.masked}
+                    </div>
+                  )}
+
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <input
+                        type={showKey[keyName] ? 'text' : 'password'}
+                        value={inputs[keyName] || ''}
+                        onChange={(e) =>
+                          setInputs((prev) => ({ ...prev, [keyName]: e.target.value }))
+                        }
+                        placeholder="Enter new API key..."
+                        className="w-full bg-black/50 border border-studio-border rounded px-3 py-2 text-sm focus:outline-none focus:border-studio-accent pr-10"
+                      />
+                      <button
+                        onClick={() =>
+                          setShowKey((prev) => ({
+                            ...prev,
+                            [keyName]: !prev[keyName],
+                          }))
+                        }
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-studio-muted hover:text-studio-text"
+                      >
+                        {showKey[keyName] ? (
+                          <EyeOff className="w-4 h-4" />
+                        ) : (
+                          <Eye className="w-4 h-4" />
+                        )}
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => onSave(keyName)}
+                      disabled={!inputs[keyName] || savingKey === keyName}
+                      className="flex items-center gap-1 px-4 py-2 text-sm bg-studio-accent hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors"
+                    >
+                      {savingKey === keyName ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Save className="w-4 h-4" />
+                      )}
+                      Save
+                    </button>
+                    {keyInfo.source === 'database' && (
+                      <button
+                        onClick={() => onDelete(keyName)}
+                        disabled={savingKey === keyName}
+                        className="flex items-center gap-1 px-3 py-2 text-sm bg-red-900/50 hover:bg-red-800 text-red-400 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors"
+                        title="Remove from database (will fall back to environment variable)"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         );
       })}

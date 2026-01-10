@@ -731,6 +731,120 @@ class CreditIntelligenceDB:
         results = list(self.db.assessments.aggregate(pipeline))
         return {r["_id"]: r["count"] for r in results if r["_id"]}
 
+    # ==================== API Key Management ====================
+
+    def get_api_key(self, key_name: str) -> Optional[str]:
+        """
+        Get an API key from the database.
+
+        Args:
+            key_name: The key identifier (e.g., 'GROQ_API_KEY', 'OPENAI_API_KEY')
+
+        Returns:
+            The API key value or None if not found
+        """
+        if not self.is_connected():
+            return None
+
+        try:
+            doc = self.db.api_keys.find_one({"key_name": key_name})
+            if doc:
+                return doc.get("key_value")
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get API key {key_name}: {e}")
+            return None
+
+    def set_api_key(self, key_name: str, key_value: str) -> bool:
+        """
+        Set an API key in the database (upsert).
+
+        Args:
+            key_name: The key identifier (e.g., 'GROQ_API_KEY', 'OPENAI_API_KEY')
+            key_value: The API key value
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.is_connected():
+            return False
+
+        try:
+            self.db.api_keys.update_one(
+                {"key_name": key_name},
+                {
+                    "$set": {
+                        "key_name": key_name,
+                        "key_value": key_value,
+                        "updated_at": datetime.utcnow(),
+                    },
+                    "$setOnInsert": {
+                        "created_at": datetime.utcnow(),
+                    }
+                },
+                upsert=True
+            )
+            logger.info(f"API key {key_name} updated in database")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to set API key {key_name}: {e}")
+            return False
+
+    def delete_api_key(self, key_name: str) -> bool:
+        """
+        Delete an API key from the database.
+
+        Args:
+            key_name: The key identifier to delete
+
+        Returns:
+            True if deleted, False otherwise
+        """
+        if not self.is_connected():
+            return False
+
+        try:
+            result = self.db.api_keys.delete_one({"key_name": key_name})
+            return result.deleted_count > 0
+        except Exception as e:
+            logger.error(f"Failed to delete API key {key_name}: {e}")
+            return False
+
+    def get_all_api_keys_status(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Get status of all stored API keys (masked values).
+
+        Returns:
+            Dict mapping key_name to status info (is_set, masked, updated_at)
+        """
+        if not self.is_connected():
+            return {}
+
+        try:
+            keys = {}
+            for doc in self.db.api_keys.find():
+                key_name = doc.get("key_name")
+                key_value = doc.get("key_value", "")
+                if key_name:
+                    # Mask the value
+                    if len(key_value) > 8:
+                        masked = key_value[:4] + "..." + key_value[-4:]
+                    elif key_value:
+                        masked = "****"
+                    else:
+                        masked = None
+
+                    keys[key_name] = {
+                        "is_set": bool(key_value),
+                        "masked": masked,
+                        "updated_at": doc.get("updated_at", "").isoformat() if doc.get("updated_at") else None,
+                        "source": "database",
+                    }
+            return keys
+        except Exception as e:
+            logger.error(f"Failed to get API keys status: {e}")
+            return {}
+
     def close(self):
         """Close MongoDB connection."""
         if self.client:

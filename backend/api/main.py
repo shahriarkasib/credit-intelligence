@@ -200,6 +200,12 @@ class CredentialUpdate(BaseModel):
     value: str
 
 
+class APIKeyUpdate(BaseModel):
+    """Update an API key (stored in database for runtime access)."""
+    key_name: str  # e.g., 'GROQ_API_KEY', 'OPENAI_API_KEY'
+    key_value: str
+
+
 class RuntimeConfigUpdate(BaseModel):
     """Update runtime settings."""
     hot_reload: Optional[bool] = None
@@ -1691,6 +1697,164 @@ async def update_credential(credential_id: str, request: CredentialUpdate):
         "env_key": env_key,
         "is_set": updated_status.get("is_set", False),
         "masked": updated_status.get("masked"),
+    }
+
+
+# ==================== API Keys (Runtime Updatable) ====================
+
+# Map of supported API keys with their display names
+SUPPORTED_API_KEYS = {
+    "GROQ_API_KEY": {"display_name": "Groq API Key", "category": "llm"},
+    "OPENAI_API_KEY": {"display_name": "OpenAI API Key", "category": "llm"},
+    "ANTHROPIC_API_KEY": {"display_name": "Anthropic API Key", "category": "llm"},
+    "TAVILY_API_KEY": {"display_name": "Tavily API Key", "category": "search"},
+    "FINNHUB_API_KEY": {"display_name": "Finnhub API Key", "category": "data"},
+}
+
+
+@app.get("/api-keys")
+async def get_api_keys_status():
+    """
+    Get status of all API keys (from database and environment).
+
+    Returns masked values, never actual secrets.
+    Keys in database take precedence over environment variables.
+    """
+    db = get_db()
+    result = {}
+
+    # Get keys from database
+    db_keys = {}
+    if db and db.is_connected():
+        db_keys = db.get_all_api_keys_status()
+
+    # Build combined status
+    for key_name, key_info in SUPPORTED_API_KEYS.items():
+        if key_name in db_keys:
+            # Key is in database
+            result[key_name] = {
+                **key_info,
+                **db_keys[key_name],
+            }
+        else:
+            # Check environment variable
+            env_value = os.getenv(key_name, "")
+            if env_value:
+                if len(env_value) > 8:
+                    masked = env_value[:4] + "..." + env_value[-4:]
+                else:
+                    masked = "****"
+                result[key_name] = {
+                    **key_info,
+                    "is_set": True,
+                    "masked": masked,
+                    "source": "environment",
+                }
+            else:
+                result[key_name] = {
+                    **key_info,
+                    "is_set": False,
+                    "masked": None,
+                    "source": None,
+                }
+
+    return {
+        "api_keys": result,
+        "database_connected": db.is_connected() if db else False,
+    }
+
+
+@app.put("/api-keys/{key_name}")
+async def update_api_key(key_name: str, request: APIKeyUpdate):
+    """
+    Update an API key in the database.
+
+    This allows runtime updates without restarting the application.
+    Keys are stored in MongoDB and take precedence over environment variables.
+    """
+    if key_name not in SUPPORTED_API_KEYS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown API key: {key_name}. Supported keys: {list(SUPPORTED_API_KEYS.keys())}"
+        )
+
+    if request.key_name != key_name:
+        raise HTTPException(
+            status_code=400,
+            detail="Key name in URL must match key_name in request body"
+        )
+
+    db = get_db()
+    if not db or not db.is_connected():
+        raise HTTPException(status_code=503, detail="Database not connected")
+
+    # Save to database
+    success = db.set_api_key(key_name, request.key_value)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to save API key")
+
+    # Refresh the LLM factory's cached database connection
+    try:
+        from config.langchain_llm import refresh_api_keys
+        refresh_api_keys()
+    except ImportError:
+        pass  # LLM factory not available
+
+    # Get updated status
+    key_value = request.key_value
+    if len(key_value) > 8:
+        masked = key_value[:4] + "..." + key_value[-4:]
+    else:
+        masked = "****"
+
+    logger.info(f"API key {key_name} updated successfully")
+
+    return {
+        "success": True,
+        "key_name": key_name,
+        "is_set": True,
+        "masked": masked,
+        "source": "database",
+        "message": "API key updated. Changes take effect immediately.",
+    }
+
+
+@app.delete("/api-keys/{key_name}")
+async def delete_api_key(key_name: str):
+    """
+    Delete an API key from the database.
+
+    After deletion, the system will fall back to the environment variable if set.
+    """
+    if key_name not in SUPPORTED_API_KEYS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown API key: {key_name}"
+        )
+
+    db = get_db()
+    if not db or not db.is_connected():
+        raise HTTPException(status_code=503, detail="Database not connected")
+
+    success = db.delete_api_key(key_name)
+
+    # Refresh the LLM factory's cached database connection
+    try:
+        from config.langchain_llm import refresh_api_keys
+        refresh_api_keys()
+    except ImportError:
+        pass
+
+    # Check if env var fallback exists
+    env_value = os.getenv(key_name, "")
+    has_env_fallback = bool(env_value)
+
+    return {
+        "success": success,
+        "key_name": key_name,
+        "deleted_from_database": success,
+        "has_env_fallback": has_env_fallback,
+        "message": "API key deleted from database." + (" Will now use environment variable." if has_env_fallback else " No fallback available."),
     }
 
 

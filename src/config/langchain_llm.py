@@ -6,6 +6,7 @@ Provides:
 - Support for multiple providers (Groq, OpenAI, Anthropic)
 - Automatic callback attachment for token tracking
 - LangSmith tracing integration
+- Runtime API key updates from database
 """
 
 import os
@@ -13,6 +14,59 @@ import logging
 from typing import List, Optional, Any, Dict
 
 logger = logging.getLogger(__name__)
+
+# Cache for database connection (lazy loaded)
+_db_instance = None
+
+
+def _get_db():
+    """Get MongoDB instance (lazy loaded, cached)."""
+    global _db_instance
+    if _db_instance is None:
+        try:
+            from storage.mongodb import CreditIntelligenceDB
+            _db_instance = CreditIntelligenceDB()
+        except Exception as e:
+            logger.debug(f"Could not initialize MongoDB for API keys: {e}")
+            _db_instance = False  # Mark as failed, don't retry
+    return _db_instance if _db_instance else None
+
+
+def get_api_key(env_var_name: str, default: Optional[str] = None) -> Optional[str]:
+    """
+    Get an API key, checking database first then falling back to environment variable.
+
+    This allows API keys to be updated at runtime without restarting the application.
+
+    Args:
+        env_var_name: The environment variable name (e.g., 'GROQ_API_KEY')
+        default: Default value if not found in either location
+
+    Returns:
+        The API key value or default
+    """
+    # Try database first (runtime updates)
+    db = _get_db()
+    if db and db.is_connected():
+        db_key = db.get_api_key(env_var_name)
+        if db_key:
+            logger.debug(f"Using {env_var_name} from database")
+            return db_key
+
+    # Fall back to environment variable
+    env_key = os.getenv(env_var_name)
+    if env_key:
+        logger.debug(f"Using {env_var_name} from environment")
+        return env_key
+
+    return default
+
+
+def refresh_api_keys():
+    """Force refresh of database connection for API keys."""
+    global _db_instance
+    _db_instance = None
+    logger.info("API keys cache cleared, will reload from database on next access")
 
 # Try to import LangChain Groq
 try:
@@ -113,10 +167,10 @@ def get_chat_groq(
     # Resolve model alias
     model_id = MODELS.get(model, model)
 
-    # Get API key
-    groq_api_key = api_key or os.getenv("GROQ_API_KEY")
+    # Get API key (check database first, then env var)
+    groq_api_key = api_key or get_api_key("GROQ_API_KEY")
     if not groq_api_key:
-        logger.error("GROQ_API_KEY not set")
+        logger.error("GROQ_API_KEY not set (checked database and environment)")
         return None
 
     try:
@@ -171,10 +225,10 @@ def _get_chat_openai(
     # Resolve model alias
     model_id = OPENAI_MODELS.get(model, model)
 
-    # Get API key
-    openai_api_key = api_key or os.getenv("OPENAI_API_KEY")
+    # Get API key (check database first, then env var)
+    openai_api_key = api_key or get_api_key("OPENAI_API_KEY")
     if not openai_api_key:
-        logger.error("OPENAI_API_KEY not set")
+        logger.error("OPENAI_API_KEY not set (checked database and environment)")
         return None
 
     try:
@@ -219,10 +273,10 @@ def _get_chat_anthropic(
     # Resolve model alias
     model_id = ANTHROPIC_MODELS.get(model, model)
 
-    # Get API key
-    anthropic_api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
+    # Get API key (check database first, then env var)
+    anthropic_api_key = api_key or get_api_key("ANTHROPIC_API_KEY")
     if not anthropic_api_key:
-        logger.error("ANTHROPIC_API_KEY not set")
+        logger.error("ANTHROPIC_API_KEY not set (checked database and environment)")
         return None
 
     try:
