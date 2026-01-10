@@ -2031,6 +2031,8 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
         if wf_logger:
             # Get the primary model used for this run
             primary_model = "llama-3.3-70b-versatile"  # Default primary model
+            # Get actual tool names from task_plan
+            actual_tools_used = [t.get("action", "") for t in state.get("task_plan", []) if t.get("action")]
             wf_logger.complete_run(
                 run_id=run_id,
                 final_result={
@@ -2040,6 +2042,7 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                     "evaluation_score": evaluation["overall_score"],
                     "api_data": state.get("api_data", {}),
                     "model": primary_model,
+                    "tools_used": actual_tools_used,
                 },
                 total_metrics={
                     "tool_selection_score": tool_selection_score,
@@ -2068,8 +2071,8 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                 final_decision="APPROVED" if assessment.get("overall_risk_level") in ["low", "LOW", "moderate", "MODERATE"] else "REVIEW_REQUIRED",
                 decision_reasoning=f"Risk level: {assessment.get('overall_risk_level')}, Score: {assessment.get('credit_score_estimate')}",
                 errors=state.get("errors", []),
-                tools_used=list(state.get("api_data", {}).keys()),
-                agents_used=["SupervisorAgent", "APIAgent", "SearchAgent", "LLMAnalystAgent", "EvaluationAgent"],
+                tools_used=[t.get("action", "") for t in state.get("task_plan", []) if t.get("action")],
+                agents_used=["llm_parser", "supervisor", "tool_supervisor", "api_agent", "search_agent", "llm_analyst", "workflow_evaluator"],
                 duration_ms=(time.time() - start_time) * 1000,
                 total_tokens=total_tokens,
                 total_cost=total_cost,
