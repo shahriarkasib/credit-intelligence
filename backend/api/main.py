@@ -135,6 +135,20 @@ except ImportError as e:
     get_coalition_evaluator = None
     evaluate_workflow_correctness = None
 
+# Import PostgreSQL storage
+try:
+    from storage.postgres import PostgresStorage, get_postgres_storage, init_postgres
+    from run_logging.postgres_logger import PostgresLogger, get_postgres_logger
+    POSTGRES_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"PostgreSQL storage not available: {e}")
+    POSTGRES_AVAILABLE = False
+    PostgresStorage = None
+    get_postgres_storage = None
+    init_postgres = None
+    PostgresLogger = None
+    get_postgres_logger = None
+
 # Import external configuration manager
 try:
     from config.external_config import (
@@ -2137,6 +2151,185 @@ async def get_config_status():
         "last_modified": datetime.fromtimestamp(manager._last_modified).isoformat() if manager._last_modified else None,
         "hot_reload_enabled": manager._watching,
         "callbacks_registered": len(manager._callbacks),
+    }
+
+
+# =============================================================================
+# POSTGRESQL ENDPOINTS
+# =============================================================================
+
+# Global PostgreSQL storage instance
+_postgres_storage = None
+
+
+def get_pg() -> Optional[PostgresStorage]:
+    """Get or create PostgreSQL storage instance."""
+    global _postgres_storage
+    if not POSTGRES_AVAILABLE:
+        return None
+    if _postgres_storage is None:
+        _postgres_storage = get_postgres_storage()
+    return _postgres_storage
+
+
+@app.get("/pg/status")
+async def postgres_status():
+    """Get PostgreSQL connection status."""
+    if not POSTGRES_AVAILABLE:
+        return {"available": False, "message": "PostgreSQL module not installed"}
+
+    pg = get_pg()
+    if not pg or not pg.is_connected():
+        return {"available": True, "connected": False, "message": "Not connected to PostgreSQL"}
+
+    try:
+        stats = pg.get_statistics()
+        return {
+            "available": True,
+            "connected": True,
+            "statistics": stats
+        }
+    except Exception as e:
+        return {"available": True, "connected": True, "error": str(e)}
+
+
+@app.post("/pg/init")
+async def init_postgres_schema():
+    """Initialize PostgreSQL schema and partitions."""
+    if not POSTGRES_AVAILABLE:
+        raise HTTPException(status_code=503, detail="PostgreSQL not available")
+
+    pg = get_pg()
+    if not pg:
+        raise HTTPException(status_code=503, detail="Failed to get PostgreSQL storage")
+
+    if not pg.is_connected():
+        if not pg.connect():
+            raise HTTPException(status_code=503, detail="Failed to connect to PostgreSQL")
+
+    success = pg.initialize_schema(months_ahead=12)
+
+    return {
+        "success": success,
+        "message": "Schema initialized with 12 months of partitions" if success else "Schema initialization failed"
+    }
+
+
+@app.get("/pg/runs")
+async def get_pg_runs(limit: int = 50, company_name: Optional[str] = None):
+    """Get runs from PostgreSQL."""
+    if not POSTGRES_AVAILABLE:
+        raise HTTPException(status_code=503, detail="PostgreSQL not available")
+
+    pg = get_pg()
+    if not pg or not pg.is_connected():
+        raise HTTPException(status_code=503, detail="PostgreSQL not connected")
+
+    runs = pg.get_runs(limit=limit, company_name=company_name)
+    return {"runs": runs, "count": len(runs), "source": "postgresql"}
+
+
+@app.get("/pg/runs/{run_id}")
+async def get_pg_run_details(run_id: str):
+    """Get comprehensive run details from PostgreSQL."""
+    if not POSTGRES_AVAILABLE:
+        raise HTTPException(status_code=503, detail="PostgreSQL not available")
+
+    pg = get_pg()
+    if not pg or not pg.is_connected():
+        raise HTTPException(status_code=503, detail="PostgreSQL not connected")
+
+    details = pg.get_run_details(run_id)
+    return details
+
+
+@app.get("/pg/statistics")
+async def get_pg_statistics():
+    """Get aggregate statistics from PostgreSQL."""
+    if not POSTGRES_AVAILABLE:
+        raise HTTPException(status_code=503, detail="PostgreSQL not available")
+
+    pg = get_pg()
+    if not pg or not pg.is_connected():
+        raise HTTPException(status_code=503, detail="PostgreSQL not connected")
+
+    stats = pg.get_statistics()
+    return {"statistics": stats, "source": "postgresql"}
+
+
+@app.post("/pg/retention")
+async def apply_pg_retention(months_to_keep: int = 3):
+    """
+    Apply data retention policy by dropping old partitions.
+
+    Args:
+        months_to_keep: Number of months of data to retain (default: 3)
+    """
+    if not POSTGRES_AVAILABLE:
+        raise HTTPException(status_code=503, detail="PostgreSQL not available")
+
+    pg = get_pg()
+    if not pg or not pg.is_connected():
+        raise HTTPException(status_code=503, detail="PostgreSQL not connected")
+
+    dropped = pg.drop_old_partitions(months_to_keep)
+
+    return {
+        "success": True,
+        "months_retained": months_to_keep,
+        "partitions_dropped": len(dropped),
+        "dropped_partitions": dropped
+    }
+
+
+@app.get("/pg/query/{table_name}")
+async def query_pg_table(
+    table_name: str,
+    run_id: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+):
+    """
+    Query a specific PostgreSQL table.
+
+    Valid table names:
+    - runs, wf_llm_calls, wf_tool_calls, wf_langgraph_events, wf_assessments
+    - eval_evaluations, eval_tool_selections, eval_consistency_scores, etc.
+    """
+    if not POSTGRES_AVAILABLE:
+        raise HTTPException(status_code=503, detail="PostgreSQL not available")
+
+    pg = get_pg()
+    if not pg or not pg.is_connected():
+        raise HTTPException(status_code=503, detail="PostgreSQL not connected")
+
+    # Validate table name
+    valid_tables = [
+        "runs", "wf_llm_calls", "wf_tool_calls", "wf_langgraph_events",
+        "wf_plans", "wf_prompts", "wf_data_sources", "wf_assessments",
+        "eval_evaluations", "eval_tool_selections", "eval_consistency_scores",
+        "eval_cross_model", "eval_llm_judge", "eval_agent_metrics",
+        "eval_coalition", "eval_log_tests"
+    ]
+
+    if table_name not in valid_tables:
+        raise HTTPException(status_code=400, detail=f"Invalid table name. Valid tables: {valid_tables}")
+
+    conditions = {"run_id": run_id} if run_id else None
+    results = pg.query(
+        table_name,
+        conditions=conditions,
+        order_by="timestamp DESC",
+        limit=limit,
+        offset=offset
+    )
+
+    return {
+        "table": table_name,
+        "results": results,
+        "count": len(results),
+        "limit": limit,
+        "offset": offset
     }
 
 

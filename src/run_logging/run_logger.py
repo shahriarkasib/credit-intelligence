@@ -1,4 +1,4 @@
-"""Run Logger - Logs complete workflow runs to MongoDB with local JSON fallback."""
+"""Run Logger - Logs complete workflow runs to MongoDB, PostgreSQL, and local JSON fallback."""
 
 import os
 import ssl
@@ -29,30 +29,48 @@ try:
 except ImportError:
     CERTIFI_AVAILABLE = False
 
+# Try to import PostgreSQL logger
+try:
+    from run_logging.postgres_logger import PostgresLogger, get_postgres_logger
+    POSTGRES_LOGGER_AVAILABLE = True
+except ImportError:
+    try:
+        from src.run_logging.postgres_logger import PostgresLogger, get_postgres_logger
+        POSTGRES_LOGGER_AVAILABLE = True
+    except ImportError:
+        POSTGRES_LOGGER_AVAILABLE = False
+        PostgresLogger = None
+        get_postgres_logger = None
+
 
 class RunLogger:
     """
-    Comprehensive logger that stores all run data to MongoDB with local JSON fallback.
+    Comprehensive logger that stores all run data to MongoDB, PostgreSQL, and local JSON fallback.
 
-    Collections:
+    Storage Targets:
+    - MongoDB: Primary document store (flexible schema)
+    - PostgreSQL: SQL store with partitioning for data retention
+    - Local JSON: Fallback when databases unavailable
+
+    Collections/Tables:
     - runs: Complete run summaries
     - steps: Individual step logs
     - tool_calls: Tool execution logs
     - evaluations: Evaluation results
-
-    When MongoDB is unavailable, data is saved to local JSON files in data/run_logs/
     """
 
-    def __init__(self, connection_string: Optional[str] = None):
+    def __init__(self, connection_string: Optional[str] = None, enable_postgres: bool = True):
         self.connection_string = connection_string or os.getenv("MONGODB_URI")
         self.client = None
         self.db = None
+        self._postgres_logger: Optional[PostgresLogger] = None
 
         # Local fallback directory
         self.local_log_dir = Path("data/run_logs")
         self.local_log_dir.mkdir(parents=True, exist_ok=True)
         self._local_runs: Dict[str, Dict[str, Any]] = {}  # In-memory cache for local runs
 
+        # Initialize MongoDB
         if MONGODB_AVAILABLE and self.connection_string:
             try:
                 # Connection options for MongoDB Atlas
@@ -69,6 +87,31 @@ class RunLogger:
                 logger.info("RunLogger connected to MongoDB Atlas")
             except Exception as e:
                 logger.warning(f"MongoDB connection failed: {e}")
+
+        # Initialize PostgreSQL logger
+        if enable_postgres and POSTGRES_LOGGER_AVAILABLE:
+            try:
+                self._postgres_logger = get_postgres_logger()
+                if self._postgres_logger.is_connected():
+                    logger.info("RunLogger connected to PostgreSQL")
+                else:
+                    logger.warning("PostgreSQL not connected, trying to initialize...")
+                    if self._postgres_logger.initialize():
+                        logger.info("PostgreSQL initialized successfully")
+                    else:
+                        self._postgres_logger = None
+            except Exception as e:
+                logger.warning(f"PostgreSQL logger initialization failed: {e}")
+                self._postgres_logger = None
+
+    @property
+    def postgres(self) -> Optional[PostgresLogger]:
+        """Get the PostgreSQL logger instance."""
+        return self._postgres_logger
+
+    def is_postgres_connected(self) -> bool:
+        """Check if PostgreSQL is connected."""
+        return self._postgres_logger is not None and self._postgres_logger.is_connected()
 
     def is_connected(self) -> bool:
         return self.db is not None
@@ -125,6 +168,18 @@ class RunLogger:
             self._local_runs[run_id] = run_doc
             self._save_local_run(run_id)
             logger.info(f"Saving run {run_id} locally (MongoDB unavailable)")
+
+        # Also log to PostgreSQL
+        if self.is_postgres_connected():
+            try:
+                self._postgres_logger.log_run(
+                    run_id=run_id,
+                    company_name=company_name,
+                    status="started",
+                    started_at=datetime.utcnow().isoformat(),
+                )
+            except Exception as e:
+                logger.warning(f"Failed to log run start to PostgreSQL: {e}")
 
         logger.info(f"Started run {run_id} for {company_name}")
         return run_id
@@ -217,6 +272,21 @@ class RunLogger:
             })
             self._save_local_run(run_id)
 
+        # Also log to PostgreSQL
+        if self.is_postgres_connected():
+            try:
+                self._postgres_logger.log_tool_call(
+                    run_id=run_id,
+                    company_name="",  # Get from run if available
+                    tool_name=tool_name,
+                    tool_input=input_params,
+                    tool_output=output_data,
+                    execution_time_ms=execution_time_ms,
+                    status="success" if success else "error",
+                )
+            except Exception as e:
+                logger.warning(f"Failed to log tool call to PostgreSQL: {e}")
+
         logger.debug(f"Logged tool call {tool_name} for run {run_id}")
 
     def log_tool_selection(
@@ -275,6 +345,20 @@ class RunLogger:
                 "llm_metrics": llm_metrics,
             }
             self._save_local_run(run_id)
+
+        # Also log to PostgreSQL
+        if self.is_postgres_connected():
+            try:
+                self._postgres_logger.log_assessment(
+                    run_id=run_id,
+                    company_name=company_name,
+                    risk_level=assessment.get("overall_risk_level") or assessment.get("risk_level", ""),
+                    credit_score=assessment.get("credit_score_estimate") or assessment.get("credit_score", 0),
+                    confidence=assessment.get("confidence_score") or assessment.get("confidence", 0.0),
+                    reasoning=assessment.get("llm_reasoning") or assessment.get("reasoning", ""),
+                )
+            except Exception as e:
+                logger.warning(f"Failed to log assessment to PostgreSQL: {e}")
 
         logger.info(f"Assessment logged for {company_name}: {assessment.get('risk_level')}")
 
