@@ -125,6 +125,16 @@ except ImportError as e:
     SET_LOGGER_AVAILABLE = False
     set_langgraph_event_logger = None
 
+# Import coalition evaluator for workflow correctness assessment
+try:
+    from evaluation.coalition_evaluator import get_coalition_evaluator, evaluate_workflow_correctness
+    COALITION_EVALUATOR_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Coalition evaluator not available: {e}")
+    COALITION_EVALUATOR_AVAILABLE = False
+    get_coalition_evaluator = None
+    evaluate_workflow_correctness = None
+
 # Import external configuration manager
 try:
     from config.external_config import (
@@ -1571,6 +1581,101 @@ async def get_run_statistics():
 
 
 # =============================================================================
+# COALITION EVALUATION ENDPOINTS
+# =============================================================================
+
+@app.get("/evaluate/coalition/{run_id}")
+async def evaluate_coalition(run_id: str):
+    """
+    Evaluate a run using the coalition evaluator.
+
+    The coalition evaluator combines multiple evaluation methods:
+    - Agent Efficiency (intent, plan, tools, trajectory)
+    - LLM Quality (completeness, validity)
+    - Tool Selection (precision, recall, F1)
+    - Consistency (cross-run comparison)
+
+    Returns a robust correctness estimate with confidence bounds.
+    """
+    if not COALITION_EVALUATOR_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Coalition evaluator not available")
+
+    db = get_db()
+    if not db or not db.is_connected():
+        raise HTTPException(status_code=503, detail="MongoDB not connected")
+
+    # Get the run summary
+    summary = db.get_run_summary(run_id)
+    if not summary:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
+    company_name = summary.get("company_name", "")
+
+    # Reconstruct state from stored data
+    state = {
+        "company_info": {
+            "company_name": company_name,
+            "is_public_company": summary.get("tools_used", []) and "sec_edgar" in str(summary.get("tools_used", [])),
+            "jurisdiction": "US",
+        },
+        "task_plan": summary.get("tools_used", []),
+        "api_data": {tool: True for tool in (summary.get("tools_used", []) or [])},
+        "assessment": {
+            "overall_risk_level": summary.get("risk_level", ""),
+            "credit_score": summary.get("credit_score", 0),
+            "confidence": summary.get("confidence", 0),
+            "reasoning": summary.get("reasoning", ""),
+        },
+        "executed_nodes": summary.get("agents_used", []),
+    }
+
+    # Get historical runs for consistency check
+    historical = []
+    try:
+        historical_runs = db.get_run_summaries(limit=10)
+        for run in historical_runs:
+            if run.get("company_name") == company_name and run.get("run_id") != run_id:
+                historical.append({
+                    "assessment": {
+                        "overall_risk_level": run.get("risk_level", ""),
+                        "credit_score": run.get("credit_score", 0),
+                    }
+                })
+    except Exception as e:
+        logger.warning(f"Failed to get historical runs: {e}")
+
+    # Run coalition evaluation
+    result = evaluate_workflow_correctness(run_id, company_name, state, historical)
+
+    return serialize_mongo_doc(result.to_dict())
+
+
+@app.post("/evaluate/coalition")
+async def evaluate_coalition_from_state(request: Dict[str, Any]):
+    """
+    Evaluate workflow state using the coalition evaluator.
+
+    Request body should contain:
+    - run_id: Unique run identifier
+    - company_name: Company being analyzed
+    - state: The workflow state dictionary
+    """
+    if not COALITION_EVALUATOR_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Coalition evaluator not available")
+
+    run_id = request.get("run_id", "")
+    company_name = request.get("company_name", "")
+    state = request.get("state", {})
+
+    if not run_id or not company_name or not state:
+        raise HTTPException(status_code=400, detail="Missing required fields: run_id, company_name, state")
+
+    result = evaluate_workflow_correctness(run_id, company_name, state)
+
+    return serialize_mongo_doc(result.to_dict())
+
+
+# =============================================================================
 # CONFIGURATION MANAGEMENT ENDPOINTS
 # =============================================================================
 
@@ -2082,6 +2187,70 @@ async def websocket_endpoint(websocket: WebSocket, run_id: str):
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
         manager.disconnect(websocket, run_id)
+
+
+# =============================================================================
+# GOOGLE SHEETS MANAGEMENT ENDPOINTS
+# =============================================================================
+
+@app.post("/sheets/recreate")
+async def recreate_sheets(sheet_names: List[str] = None):
+    """
+    Delete and recreate specified Google Sheets with proper column headers.
+
+    This is useful when column headers get out of sync.
+
+    Args:
+        sheet_names: List of sheet names to recreate. If not provided, recreates llm_calls and log_tests.
+
+    Returns:
+        Dict with results for each sheet
+    """
+    sheets = get_sheets()
+    if not sheets or not sheets.is_connected():
+        raise HTTPException(status_code=503, detail="Google Sheets not connected")
+
+    # Default to llm_calls and log_tests if no sheets specified
+    if not sheet_names:
+        sheet_names = ["llm_calls", "log_tests"]
+
+    results = sheets.recreate_sheets(sheet_names)
+    return {
+        "success": all(r.get("success", False) for r in results.values()),
+        "results": results
+    }
+
+
+@app.get("/sheets/status")
+async def get_sheets_status():
+    """
+    Get Google Sheets connection status and sheet information.
+    """
+    sheets = get_sheets()
+    if not sheets:
+        return {"connected": False, "message": "SheetsLogger not available"}
+
+    if not sheets.is_connected():
+        return {"connected": False, "message": "Not connected to Google Sheets"}
+
+    try:
+        worksheets = sheets.spreadsheet.worksheets()
+        sheet_info = []
+        for ws in worksheets:
+            sheet_info.append({
+                "name": ws.title,
+                "rows": ws.row_count,
+                "cols": ws.col_count
+            })
+
+        return {
+            "connected": True,
+            "spreadsheet_id": sheets.spreadsheet.id,
+            "spreadsheet_url": sheets.get_spreadsheet_url(),
+            "sheets": sheet_info
+        }
+    except Exception as e:
+        return {"connected": True, "error": str(e)}
 
 
 # =============================================================================

@@ -472,11 +472,27 @@ export default function CreditIntelligenceStudio() {
     setRunDetailsLoading(true)
     setRunDetails(null)
     try {
-      const response = await fetch(`${API_URL}/logs/runs/${runId}/details`)
-      if (response.ok) {
-        const data = await response.json()
-        setRunDetails(data)
+      // Fetch run details and coalition evaluation in parallel
+      const [detailsResponse, coalitionResponse] = await Promise.all([
+        fetch(`${API_URL}/logs/runs/${runId}/details`),
+        fetch(`${API_URL}/evaluate/coalition/${runId}`).catch(() => null)
+      ])
+
+      let data: any = {}
+      if (detailsResponse.ok) {
+        data = await detailsResponse.json()
       }
+
+      // Add coalition evaluation if available
+      if (coalitionResponse?.ok) {
+        try {
+          data.coalition = await coalitionResponse.json()
+        } catch (e) {
+          console.warn('Failed to parse coalition response')
+        }
+      }
+
+      setRunDetails(data)
     } catch (e) {
       console.error('Failed to fetch run details:', e)
     } finally {
@@ -1875,7 +1891,7 @@ function RunDetailsModal({
   loading: boolean
   onClose: () => void
 }) {
-  const [activeSection, setActiveSection] = useState<'summary' | 'evaluation' | 'llm' | 'nodes' | 'assessment'>('summary')
+  const [activeSection, setActiveSection] = useState<'summary' | 'evaluation' | 'llm' | 'nodes' | 'assessment' | 'coalition'>('summary')
 
   const formatDuration = (ms: number) => {
     if (ms < 1000) return `${ms.toFixed(0)}ms`
@@ -1936,6 +1952,7 @@ function RunDetailsModal({
                 {[
                   { id: 'summary', label: 'Summary', icon: FileText },
                   { id: 'evaluation', label: 'Evaluation', icon: BarChart3 },
+                  { id: 'coalition', label: 'Coalition', icon: CheckCircle },
                   { id: 'llm', label: 'LLM Calls', icon: Cpu },
                   { id: 'nodes', label: 'Nodes & Agents', icon: GitBranch },
                   { id: 'assessment', label: 'Assessment', icon: Shield },
@@ -2304,6 +2321,130 @@ function RunDetailsModal({
                   ) : (
                     <div className="text-center py-8 text-studio-muted border border-studio-border rounded-lg">
                       No assessment data available
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Coalition Tab */}
+              {activeSection === 'coalition' && (
+                <div className="space-y-4">
+                  {details.coalition ? (
+                    <>
+                      {/* Correctness Overview */}
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                          <div className="text-xs text-studio-muted mb-1">Correctness</div>
+                          <div className={`text-2xl font-bold ${
+                            details.coalition.correctness_category === 'high' ? 'text-green-400' :
+                            details.coalition.correctness_category === 'medium' ? 'text-yellow-400' : 'text-red-400'
+                          }`}>
+                            {details.coalition.correctness_score ? (details.coalition.correctness_score * 100).toFixed(1) + '%' : 'N/A'}
+                          </div>
+                          <div className={`text-xs mt-1 ${
+                            details.coalition.correctness_category === 'high' ? 'text-green-400' :
+                            details.coalition.correctness_category === 'medium' ? 'text-yellow-400' : 'text-red-400'
+                          }`}>
+                            {details.coalition.correctness_category?.toUpperCase()}
+                          </div>
+                        </div>
+                        <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                          <div className="text-xs text-studio-muted mb-1">Confidence</div>
+                          <div className="text-2xl font-bold">
+                            {details.coalition.confidence ? (details.coalition.confidence * 100).toFixed(1) + '%' : 'N/A'}
+                          </div>
+                        </div>
+                        <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                          <div className="text-xs text-studio-muted mb-1">Agreement</div>
+                          <div className="text-2xl font-bold">
+                            {details.coalition.agreement_score ? (details.coalition.agreement_score * 100).toFixed(1) + '%' : 'N/A'}
+                          </div>
+                        </div>
+                        <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                          <div className="text-xs text-studio-muted mb-1">Evaluators</div>
+                          <div className="text-2xl font-bold">{details.coalition.num_evaluators || 0}</div>
+                        </div>
+                      </div>
+
+                      {/* Component Scores */}
+                      <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                        <h3 className="text-sm font-medium mb-4">Component Scores</h3>
+                        <div className="space-y-3">
+                          {[
+                            { label: 'Agent Efficiency', score: details.coalition.efficiency_score, color: 'blue' },
+                            { label: 'LLM Quality', score: details.coalition.quality_score, color: 'purple' },
+                            { label: 'Tool Selection', score: details.coalition.tool_score, color: 'green' },
+                            { label: 'Consistency', score: details.coalition.consistency_score, color: 'orange' },
+                          ].map(({ label, score, color }) => (
+                            <div key={label}>
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="text-sm text-studio-muted">{label}</span>
+                                <span className="text-sm font-medium">{score ? (score * 100).toFixed(1) + '%' : 'N/A'}</span>
+                              </div>
+                              <div className="w-full bg-studio-border rounded-full h-2">
+                                <div
+                                  className={`h-2 rounded-full transition-all bg-${color}-500`}
+                                  style={{
+                                    width: `${(score || 0) * 100}%`,
+                                    backgroundColor: color === 'blue' ? '#3b82f6' :
+                                      color === 'purple' ? '#a855f7' :
+                                      color === 'green' ? '#22c55e' : '#f97316'
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Individual Votes */}
+                      {details.coalition.votes && details.coalition.votes.length > 0 && (
+                        <div className="rounded-lg border border-studio-border overflow-hidden">
+                          <div className="p-3 bg-studio-panel border-b border-studio-border">
+                            <h3 className="text-sm font-medium">Evaluator Votes</h3>
+                          </div>
+                          <table className="w-full text-sm">
+                            <thead className="bg-studio-panel/50">
+                              <tr>
+                                <th className="text-left p-3 text-studio-muted">Evaluator</th>
+                                <th className="text-left p-3 text-studio-muted">Score</th>
+                                <th className="text-left p-3 text-studio-muted">Confidence</th>
+                                <th className="text-left p-3 text-studio-muted">Weight</th>
+                                <th className="text-left p-3 text-studio-muted">Weighted</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {details.coalition.votes.map((vote: any, i: number) => (
+                                <tr key={i} className="border-t border-studio-border">
+                                  <td className="p-3 font-medium">{vote.evaluator?.replace('_', ' ')}</td>
+                                  <td className="p-3">
+                                    <span className={vote.score >= 0.7 ? 'text-green-400' : vote.score >= 0.4 ? 'text-yellow-400' : 'text-red-400'}>
+                                      {(vote.score * 100).toFixed(1)}%
+                                    </span>
+                                  </td>
+                                  <td className="p-3">{(vote.confidence * 100).toFixed(0)}%</td>
+                                  <td className="p-3">{(vote.weight * 100).toFixed(0)}%</td>
+                                  <td className="p-3">{(vote.weighted_score * 100).toFixed(2)}%</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+
+                      {/* Vote Details */}
+                      <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                        <h3 className="text-sm font-medium mb-3">Full Evaluation Details</h3>
+                        <pre className="text-xs text-studio-muted overflow-x-auto bg-black/30 p-3 rounded max-h-96 overflow-y-auto">
+                          {JSON.stringify(details.coalition, null, 2)}
+                        </pre>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-center py-8 text-studio-muted border border-studio-border rounded-lg">
+                      <AlertCircle className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                      <p>Coalition evaluation not available for this run</p>
+                      <p className="text-xs mt-1">Evaluation may still be processing</p>
                     </div>
                   )}
                 </div>

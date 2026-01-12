@@ -6,6 +6,515 @@ Credit Intelligence is a multi-agent system for automated credit risk assessment
 
 ---
 
+## System Architecture Diagram
+
+```mermaid
+flowchart TB
+    subgraph Frontend["Frontend (Next.js)"]
+        UI[Web Dashboard]
+        WS[WebSocket Client]
+    end
+
+    subgraph API["Backend API (FastAPI)"]
+        REST[REST Endpoints]
+        WSS[WebSocket Server]
+        STATIC[Static File Server]
+    end
+
+    subgraph Workflow["LangGraph Workflow"]
+        direction TB
+        ENTRY([Start]) --> PARSE
+        PARSE[parse_input<br/>llm_parser] --> VALIDATE
+        VALIDATE[validate_company<br/>supervisor] --> PLAN
+        PLAN[create_plan<br/>tool_supervisor] --> FETCH
+        FETCH[fetch_api_data<br/>api_agent] --> SEARCH
+        SEARCH[search_web<br/>search_agent] --> SYNTH
+        SYNTH[synthesize<br/>llm_analyst] --> SAVE
+        SAVE[save_to_database<br/>db_writer] --> EVAL
+        EVAL[evaluate_assessment<br/>workflow_evaluator] --> EXIT([End])
+    end
+
+    subgraph Tools["Tools Layer"]
+        SEC[SECTool]
+        FINN[FinnhubTool]
+        COURT[CourtTool]
+        WEBSRCH[WebSearchTool]
+        TAVILY[TavilyTool]
+    end
+
+    subgraph DataSources["External Data Sources"]
+        SEC_API[(SEC EDGAR API)]
+        FINN_API[(Finnhub API)]
+        COURT_API[(CourtListener API)]
+        TAV_API[(Tavily API)]
+        WEB[(Web/HTTP)]
+    end
+
+    subgraph LLM["LLM Providers"]
+        GROQ[Groq<br/>llama-3.3-70b]
+        OPENAI[OpenAI<br/>gpt-4o-mini]
+        ANTHRO[Anthropic<br/>claude-3.5-sonnet]
+    end
+
+    subgraph Storage["Storage Layer"]
+        MONGO[(MongoDB)]
+        SHEETS[(Google Sheets)]
+        LANGSMITH[(LangSmith)]
+    end
+
+    subgraph Config["Configuration"]
+        PROMPTS[Prompts Manager]
+        LLM_FAC[LLM Factory]
+        ENV[Environment Config]
+    end
+
+    %% Frontend to API connections
+    UI --> REST
+    UI --> WS
+    WS --> WSS
+
+    %% API to Workflow
+    REST --> Workflow
+    WSS --> Workflow
+
+    %% Workflow to Tools
+    FETCH --> SEC
+    FETCH --> FINN
+    FETCH --> COURT
+    SEARCH --> WEBSRCH
+    SEARCH --> TAVILY
+
+    %% Tools to Data Sources
+    SEC --> SEC_API
+    FINN --> FINN_API
+    COURT --> COURT_API
+    WEBSRCH --> WEB
+    TAVILY --> TAV_API
+
+    %% Workflow to LLM
+    PARSE --> LLM
+    PLAN --> LLM
+    SYNTH --> LLM
+    EVAL --> LLM
+
+    %% Workflow to Storage
+    SAVE --> MONGO
+    Workflow --> SHEETS
+    Workflow --> LANGSMITH
+
+    %% Config connections
+    LLM_FAC --> LLM
+    PROMPTS --> Workflow
+```
+
+---
+
+## Component Flow Diagram
+
+```mermaid
+flowchart LR
+    subgraph Input
+        USER[User Request]
+        COMPANY[Company Name]
+    end
+
+    subgraph Processing["Workflow Processing"]
+        direction TB
+        P1[1. Parse Input]
+        P2[2. Validate]
+        P3[3. Plan Tools]
+        P4[4. Fetch Data]
+        P5[5. Search Web]
+        P6[6. Synthesize]
+        P7[7. Evaluate]
+    end
+
+    subgraph DataCollection["Data Collection"]
+        D1[SEC Filings]
+        D2[Market Data]
+        D3[Court Records]
+        D4[News/Web]
+    end
+
+    subgraph Output
+        ASSESS[Credit Assessment]
+        SCORES[Evaluation Scores]
+        LOGS[Audit Logs]
+    end
+
+    USER --> COMPANY --> P1
+    P1 --> P2 --> P3
+    P3 --> P4 & P5
+    P4 --> D1 & D2 & D3
+    P5 --> D4
+    D1 & D2 & D3 & D4 --> P6
+    P6 --> P7
+    P7 --> ASSESS & SCORES & LOGS
+```
+
+---
+
+## Module Dependency Diagram
+
+```mermaid
+flowchart TB
+    subgraph EntryPoints["Entry Points"]
+        CLI[cli.py]
+        API_MAIN[backend/api/main.py]
+    end
+
+    subgraph Agents["src/agents/"]
+        GRAPH[graph.py]
+        SUP[supervisor.py]
+        TOOL_SUP[tool_supervisor.py]
+        API_AG[api_agent.py]
+        SEARCH_AG[search_agent.py]
+        LLM_AN[llm_analyst.py]
+        LLM_PAR[llm_parser.py]
+    end
+
+    subgraph ToolsModule["src/tools/"]
+        BASE_TOOL[base_tool.py]
+        TOOL_EXEC[tool_executor.py]
+        SEC_TOOL[sec_tool.py]
+        FINN_TOOL[finnhub_tool.py]
+        COURT_TOOL[court_tool.py]
+        WEB_TOOL[web_search_tool.py]
+    end
+
+    subgraph DataSourcesModule["src/data_sources/"]
+        SEC_DS[sec_edgar.py]
+        FINN_DS[finnhub.py]
+        COURT_DS[court_listener.py]
+        TAV_DS[tavily_search.py]
+        SCRAPER[web_scraper.py]
+    end
+
+    subgraph ConfigModule["src/config/"]
+        PROMPTS_CFG[prompts.py]
+        LLM_CFG[langchain_llm.py]
+        PARSERS[output_parsers.py]
+        EXT_CFG[external_config.py]
+    end
+
+    subgraph EvalModule["src/evaluation/"]
+        WF_EVAL[workflow_evaluator.py]
+    end
+
+    subgraph LoggingModule["src/run_logging/"]
+        WF_LOG[workflow_logger.py]
+        SHEETS_LOG[sheets_logger.py]
+        RUN_LOG[run_logger.py]
+    end
+
+    subgraph StorageModule["src/storage/"]
+        MONGO_DB[mongodb.py]
+    end
+
+    %% Entry point dependencies
+    CLI --> GRAPH
+    API_MAIN --> GRAPH
+    API_MAIN --> MONGO_DB
+
+    %% Graph dependencies
+    GRAPH --> SUP & TOOL_SUP & API_AG & SEARCH_AG & LLM_AN & LLM_PAR
+    GRAPH --> WF_EVAL
+    GRAPH --> WF_LOG
+
+    %% Agent dependencies
+    TOOL_SUP --> TOOL_EXEC
+    API_AG --> SEC_TOOL & FINN_TOOL & COURT_TOOL
+    SEARCH_AG --> WEB_TOOL
+    LLM_AN --> LLM_CFG & PROMPTS_CFG
+    LLM_PAR --> LLM_CFG & PROMPTS_CFG
+
+    %% Tool dependencies
+    TOOL_EXEC --> BASE_TOOL
+    SEC_TOOL --> SEC_DS
+    FINN_TOOL --> FINN_DS
+    COURT_TOOL --> COURT_DS
+    WEB_TOOL --> TAV_DS & SCRAPER
+
+    %% Config dependencies
+    LLM_CFG --> MONGO_DB
+    PROMPTS_CFG --> EXT_CFG
+
+    %% Logging dependencies
+    WF_LOG --> SHEETS_LOG & RUN_LOG
+    RUN_LOG --> MONGO_DB
+```
+
+---
+
+## Entities Hierarchy Diagram (Database Schema)
+
+```mermaid
+erDiagram
+    RUN_SUMMARIES ||--o{ LLM_CALLS : "has many"
+    RUN_SUMMARIES ||--o{ TOOL_CALLS : "has many"
+    RUN_SUMMARIES ||--o{ LANGGRAPH_EVENTS : "has many"
+    RUN_SUMMARIES ||--|| ASSESSMENTS : "has one"
+    RUN_SUMMARIES ||--|| EVALUATIONS : "has one"
+    RUN_SUMMARIES ||--o{ TOOL_SELECTIONS : "has many"
+
+    RUN_SUMMARIES {
+        ObjectId _id PK
+        string run_id UK "UUID"
+        string company_name
+        string status "pending|running|completed|failed"
+        string risk_level "low|medium|high|critical"
+        int credit_score "300-850"
+        float confidence "0.0-1.0"
+        string reasoning
+        float tool_selection_score
+        float data_quality_score
+        float synthesis_score
+        float overall_score
+        string final_decision
+        string decision_reasoning
+        array errors
+        array warnings
+        array tools_used
+        array agents_used
+        datetime started_at
+        datetime completed_at
+        float duration_ms
+        int total_tokens
+        float total_cost
+        int llm_calls_count
+        datetime timestamp
+    }
+
+    LLM_CALLS {
+        ObjectId _id PK
+        string run_id FK
+        string call_type "parse_input|tool_selection|credit_synthesis"
+        string agent_name
+        string model
+        string provider "groq|openai|anthropic"
+        text prompt
+        text response
+        int prompt_tokens
+        int completion_tokens
+        int total_tokens
+        float cost
+        float response_time_ms
+        float temperature
+        boolean success
+        string error
+        datetime timestamp
+    }
+
+    TOOL_CALLS {
+        ObjectId _id PK
+        string run_id FK
+        string tool_name "sec_edgar|finnhub|court_listener|web_search"
+        string agent_name
+        json input_params
+        json output_data
+        float execution_time_ms
+        boolean success
+        string error
+        string selection_reason
+        datetime timestamp
+    }
+
+    LANGGRAPH_EVENTS {
+        ObjectId _id PK
+        string run_id FK
+        string event_type "node_start|node_end|edge|state_update"
+        string node_name
+        string agent_name
+        int step_number
+        json state_before
+        json state_after
+        json metadata
+        float execution_time_ms
+        datetime timestamp
+    }
+
+    ASSESSMENTS {
+        ObjectId _id PK
+        string run_id FK
+        string company_name
+        string risk_level
+        int credit_score
+        float confidence
+        text reasoning
+        array risk_factors
+        array positive_factors
+        array recommendations
+        json data_quality_assessment
+        json financial_summary
+        json sources_used
+        datetime timestamp
+    }
+
+    EVALUATIONS {
+        ObjectId _id PK
+        string run_id FK
+        string evaluation_type
+        float overall_score
+        float tool_selection_precision
+        float tool_selection_recall
+        float tool_selection_f1
+        float data_quality_score
+        float synthesis_score
+        json llm_judge_results
+        json agent_metrics
+        json cross_model_comparison
+        json consistency_metrics
+        datetime timestamp
+    }
+
+    TOOL_SELECTIONS {
+        ObjectId _id PK
+        string run_id FK
+        string company_name
+        array tools_selected
+        json selection_reasoning
+        string model
+        int tokens_used
+        float execution_time_ms
+        datetime timestamp
+    }
+
+    API_KEYS {
+        ObjectId _id PK
+        string key_name UK
+        string key_value
+        datetime created_at
+        datetime updated_at
+    }
+
+    COMPANIES {
+        ObjectId _id PK
+        string name
+        string ticker
+        string industry
+        string sector
+        string jurisdiction
+        boolean is_public
+        json cached_data
+        datetime last_updated
+    }
+```
+
+---
+
+## Workflow State Machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> ParseInput: company_name
+
+    ParseInput --> ValidateCompany: company_info
+    ValidateCompany --> CreatePlan: validated
+
+    ValidateCompany --> [*]: rejected
+
+    CreatePlan --> FetchAPIData: task_plan
+    FetchAPIData --> SearchWeb: api_data
+    SearchWeb --> Synthesize: search_data
+
+    Synthesize --> SaveToDatabase: assessment
+    SaveToDatabase --> EvaluateAssessment: saved
+
+    EvaluateAssessment --> [*]: evaluation_complete
+
+    state ParseInput {
+        [*] --> LLMParsing
+        LLMParsing --> ExtractMetadata
+        ExtractMetadata --> [*]
+    }
+
+    state FetchAPIData {
+        [*] --> ParallelFetch
+        ParallelFetch --> SECEdgar
+        ParallelFetch --> Finnhub
+        ParallelFetch --> CourtListener
+        SECEdgar --> Merge
+        Finnhub --> Merge
+        CourtListener --> Merge
+        Merge --> [*]
+    }
+
+    state Synthesize {
+        [*] --> PrimaryLLM
+        PrimaryLLM --> SecondaryLLM
+        SecondaryLLM --> CrossModelEval
+        CrossModelEval --> [*]
+    }
+
+    state EvaluateAssessment {
+        [*] --> ToolSelectionEval
+        ToolSelectionEval --> DataQualityEval
+        DataQualityEval --> SynthesisEval
+        SynthesisEval --> LLMJudge
+        LLMJudge --> AgentMetrics
+        AgentMetrics --> [*]
+    }
+```
+
+---
+
+## Agent Interaction Diagram
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant API
+    participant Supervisor
+    participant LLMParser
+    participant ToolSupervisor
+    participant APIAgent
+    participant SearchAgent
+    participant LLMAnalyst
+    participant Evaluator
+    participant MongoDB
+    participant Sheets
+
+    User->>API: POST /analyze {company_name}
+    API->>Supervisor: Start workflow
+
+    Supervisor->>LLMParser: Parse company input
+    LLMParser->>LLMParser: Call LLM (company_parser prompt)
+    LLMParser-->>Supervisor: company_info
+
+    Supervisor->>ToolSupervisor: Create tool plan
+    ToolSupervisor->>ToolSupervisor: Call LLM (tool_selection prompt)
+    ToolSupervisor-->>Supervisor: task_plan
+
+    par Parallel Data Fetch
+        Supervisor->>APIAgent: Fetch API data
+        APIAgent->>APIAgent: Execute SEC, Finnhub, Court tools
+        APIAgent-->>Supervisor: api_data
+    and
+        Supervisor->>SearchAgent: Search web
+        SearchAgent->>SearchAgent: Execute Tavily, Web scraper
+        SearchAgent-->>Supervisor: search_data
+    end
+
+    Supervisor->>LLMAnalyst: Synthesize assessment
+    LLMAnalyst->>LLMAnalyst: Call LLM (credit_synthesis prompt)
+    LLMAnalyst-->>Supervisor: assessment
+
+    Supervisor->>MongoDB: Save run data
+    MongoDB-->>Supervisor: saved
+
+    Supervisor->>Evaluator: Evaluate assessment
+    Evaluator->>Evaluator: Run all evaluators
+    Evaluator-->>Supervisor: evaluation_scores
+
+    Supervisor->>Sheets: Log to Google Sheets
+    Sheets-->>Supervisor: logged
+
+    Supervisor-->>API: Complete workflow
+    API-->>User: {assessment, evaluation, run_id}
+```
+
+---
+
 ## Canonical Agent Names
 
 **IMPORTANT:** These are the exact `agent_name` values logged to Google Sheets.
