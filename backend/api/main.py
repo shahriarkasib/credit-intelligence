@@ -1553,7 +1553,27 @@ async def get_run_details(run_id: str):
     if not llm_calls_detailed:
         llm_calls_detailed = db.get_llm_calls(run_id=run_id, limit=50)
 
+    # Groq pricing per 1M tokens (for cost calculation)
+    GROQ_PRICING = {
+        "input": 0.59,  # Default for llama-3.3-70b
+        "output": 0.79,
+    }
+
+    def calculate_cost(prompt_tokens: int, completion_tokens: int) -> float:
+        """Calculate cost from tokens using Groq pricing."""
+        input_cost = (prompt_tokens / 1_000_000) * GROQ_PRICING["input"]
+        output_cost = (completion_tokens / 1_000_000) * GROQ_PRICING["output"]
+        return input_cost + output_cost
+
     if llm_calls_detailed:
+        # Calculate cost for each call if missing
+        for call in llm_calls_detailed:
+            if not call.get("total_cost"):
+                prompt_tokens = call.get("prompt_tokens", 0)
+                completion_tokens = call.get("completion_tokens", 0)
+                if prompt_tokens or completion_tokens:
+                    call["total_cost"] = calculate_cost(prompt_tokens, completion_tokens)
+
         result["llm_calls"] = serialize_mongo_doc(llm_calls_detailed)
 
         # Calculate summary from the calls
@@ -1561,6 +1581,10 @@ async def get_run_details(run_id: str):
         total_input_tokens = sum(c.get("prompt_tokens", 0) for c in llm_calls_detailed)
         total_output_tokens = sum(c.get("completion_tokens", 0) for c in llm_calls_detailed)
         total_cost = sum(c.get("total_cost", 0) for c in llm_calls_detailed)
+
+        # If total_cost is still 0, calculate from tokens
+        if total_cost == 0 and (total_input_tokens > 0 or total_output_tokens > 0):
+            total_cost = calculate_cost(total_input_tokens, total_output_tokens)
 
         result["llm_summary"] = {
             "total_calls": total_calls,
