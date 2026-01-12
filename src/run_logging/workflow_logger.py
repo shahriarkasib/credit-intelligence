@@ -284,6 +284,18 @@ class WorkflowLogger:
                 call_depth=call_depth,
                 parent_tool_id=parent_tool_id,
             )
+
+        # Log to PostgreSQL via run_logger
+        self.run_logger.log_tool_call(
+            run_id=run_id,
+            tool_name=tool_name,
+            input_params=tool_input,
+            output_data=tool_output,
+            execution_time_ms=execution_time_ms,
+            success=success,
+            selection_reason=f"node={effective_node}, agent={agent_name}",
+        )
+
         logger.debug(f"[{run_id[:8]}] Tool {tool_name}: {execution_time_ms:.0f}ms - {'OK' if success else 'FAILED'}")
 
     def log_assessment(
