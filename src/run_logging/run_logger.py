@@ -369,13 +369,15 @@ class RunLogger:
         total_metrics: Dict[str, Any],
     ):
         """Mark run as complete with final results."""
+        completed_at = datetime.utcnow()
+
         if self.is_connected():
             self.db.runs.update_one(
                 {"run_id": run_id},
                 {
                     "$set": {
                         "status": "completed",
-                        "completed_at": datetime.utcnow(),
+                        "completed_at": completed_at,
                         "final_result": final_result,
                         "metrics": total_metrics,
                     }
@@ -384,10 +386,40 @@ class RunLogger:
         elif run_id in self._local_runs:
             # Local fallback
             self._local_runs[run_id]["status"] = "completed"
-            self._local_runs[run_id]["completed_at"] = datetime.utcnow().isoformat()
+            self._local_runs[run_id]["completed_at"] = completed_at.isoformat()
             self._local_runs[run_id]["final_result"] = final_result
             self._local_runs[run_id]["metrics"] = total_metrics
             self._save_local_run(run_id)
+
+        # Log completed run to PostgreSQL
+        if self.is_postgres_connected():
+            try:
+                # Get company name from MongoDB or local cache
+                company_name = ""
+                if self.is_connected():
+                    run_doc = self.db.runs.find_one({"run_id": run_id})
+                    if run_doc:
+                        company_name = run_doc.get("company_name", "")
+                elif run_id in self._local_runs:
+                    company_name = self._local_runs[run_id].get("company_name", "")
+
+                self._postgres_logger.log_run(
+                    run_id=run_id,
+                    company_name=company_name,
+                    status="completed",
+                    risk_level=final_result.get("risk_level", ""),
+                    credit_score=final_result.get("credit_score", 0),
+                    confidence=final_result.get("confidence", 0.0),
+                    reasoning=final_result.get("reasoning", ""),
+                    overall_score=final_result.get("evaluation_score", 0.0),
+                    completed_at=completed_at.isoformat(),
+                    duration_ms=total_metrics.get("total_time_ms", 0),
+                    total_tokens=total_metrics.get("total_tokens", 0),
+                    total_cost=total_metrics.get("total_cost", 0.0),
+                )
+                logger.info(f"Logged completed run {run_id} to PostgreSQL")
+            except Exception as e:
+                logger.warning(f"Failed to log completed run to PostgreSQL: {e}")
 
         logger.info(f"Completed run {run_id}")
 
@@ -481,6 +513,24 @@ class RunLogger:
                 self._local_runs[run_id]["llm_calls"] = []
             self._local_runs[run_id]["llm_calls"].append(llm_doc)
             self._save_local_run(run_id)
+
+        # Also log to PostgreSQL
+        if self.is_postgres_connected():
+            try:
+                self._postgres_logger.log_llm_call(
+                    run_id=run_id,
+                    company_name="",
+                    call_type=call_type,
+                    model=model,
+                    prompt=prompt or "",
+                    response=response or "",
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    total_tokens=prompt_tokens + completion_tokens,
+                    execution_time_ms=execution_time_ms,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to log LLM call to PostgreSQL: {e}")
 
         logger.debug(f"Logged LLM call {call_type} for run {run_id}")
 
@@ -608,6 +658,31 @@ class RunLogger:
             self._local_runs[run_id]["llm_calls_detailed"].append(llm_doc)
             self._save_local_run(run_id)
 
+        # Also log to PostgreSQL
+        if self.is_postgres_connected():
+            try:
+                self._postgres_logger.log_llm_call(
+                    run_id=run_id,
+                    company_name=company_name,
+                    agent_name=agent_name,
+                    model=model,
+                    provider=llm_provider,
+                    prompt=prompt,
+                    context=context,
+                    response=response,
+                    reasoning=reasoning,
+                    error=error,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    total_tokens=prompt_tokens + completion_tokens,
+                    input_cost=input_cost,
+                    output_cost=output_cost,
+                    total_cost=total_cost,
+                    execution_time_ms=response_time_ms,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to log detailed LLM call to PostgreSQL: {e}")
+
         logger.debug(f"Logged detailed LLM call {agent_name}/{model} for run {run_id}")
 
     def log_run_summary_detailed(
@@ -689,6 +764,35 @@ class RunLogger:
         elif run_id in self._local_runs:
             self._local_runs[run_id]["run_summary"] = summary_doc
             self._save_local_run(run_id)
+
+        # Also log to PostgreSQL
+        if self.is_postgres_connected():
+            try:
+                self._postgres_logger.log_run(
+                    run_id=run_id,
+                    company_name=company_name,
+                    status=status,
+                    risk_level=risk_level,
+                    credit_score=credit_score,
+                    confidence=confidence,
+                    reasoning=reasoning,
+                    overall_score=overall_score,
+                    final_decision=final_decision,
+                    decision_reasoning=decision_reasoning,
+                    errors=errors,
+                    warnings=warnings,
+                    tools_used=tools_used,
+                    agents_used=agents_used,
+                    started_at=started_at,
+                    completed_at=actual_completed_at,
+                    duration_ms=duration_ms,
+                    total_tokens=total_tokens,
+                    total_cost=total_cost,
+                    llm_calls_count=llm_calls_count,
+                )
+                logger.info(f"Logged run summary to PostgreSQL for {company_name}")
+            except Exception as e:
+                logger.warning(f"Failed to log run summary to PostgreSQL: {e}")
 
         logger.info(f"Logged detailed run summary for {company_name} (run: {run_id})")
 
