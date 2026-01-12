@@ -391,6 +391,17 @@ async def run_workflow_with_streaming(
     )
     active_runs[run_id] = workflow_status
 
+    # Persist to MongoDB for background run resumption
+    db = get_db()
+    if db and db.is_connected():
+        db.save_active_run(
+            run_id=run_id,
+            company_name=company_name,
+            status="running",
+            current_step=0,
+            steps=[]
+        )
+
     # Set current run ID for API error broadcasting
     set_current_run_id(run_id)
 
@@ -442,11 +453,27 @@ async def run_workflow_with_streaming(
             "evaluate": 7,
         }
 
+        # Human-readable step descriptions for better progress visibility
+        step_descriptions = {
+            "parse_input": f"Understanding '{company_name}' and extracting company details...",
+            "validate_company": f"Verifying {company_name} exists and checking ticker symbols...",
+            "create_plan": "Planning which data sources to check based on company type...",
+            "fetch_api_data": f"Fetching SEC filings, financial data, and court records for {company_name}...",
+            "search_web": f"Searching for recent news and company information about {company_name}...",
+            "synthesize": "Analyzing all collected data and generating credit assessment...",
+            "save_to_database": "Saving assessment results to database...",
+            "evaluate": "Evaluating analysis quality and confidence scores...",
+        }
+
         async def update_step(step_idx: int, status: str, output_summary: str = None, error: str = None, output_data: dict = None):
             """Update a step's status and broadcast."""
             if step_idx < len(workflow_status.steps):
                 step = workflow_status.steps[step_idx]
                 step.status = status
+
+                # Get step description for the current step
+                step_node = step_definitions[step_idx][0] if step_idx < len(step_definitions) else ""
+                description = step_descriptions.get(step_node, "")
 
                 if status == "running":
                     step.started_at = datetime.utcnow().isoformat()
@@ -468,9 +495,20 @@ async def run_workflow_with_streaming(
                     "data": {
                         "step": step.model_dump(),
                         "step_index": step_idx,
-                        "output_data": output_data
+                        "output_data": output_data,
+                        "description": description,
+                        "total_steps": len(step_definitions),
+                        "progress_percent": int((step_idx + 1) / len(step_definitions) * 100) if status == "completed" else int(step_idx / len(step_definitions) * 100)
                     }
                 })
+
+                # Persist step update to MongoDB for background run resumption
+                if db and db.is_connected():
+                    db.update_active_run(
+                        run_id=run_id,
+                        current_step=step_idx,
+                        steps=[s.model_dump() for s in workflow_status.steps]
+                    )
 
         def extract_step_output(node_name: str, state: dict, node_output: dict = None) -> tuple:
             """Extract meaningful output data from state after a node runs.
@@ -689,6 +727,9 @@ async def run_workflow_with_streaming(
                         'ticker': ticker,
                     })
 
+                # Track current node for LLM streaming context
+                current_node = ""
+
                 async for event in graph.astream_events(
                     {
                         'company_name': company_name,
@@ -704,6 +745,35 @@ async def run_workflow_with_streaming(
 
                     # Also put node outputs in queue for UI updates
                     event_type = event.get("event", "")
+
+                    # Track current node for context in LLM streaming
+                    if event_type == "on_chain_start":
+                        node_name = event.get("name", "")
+                        if node_name and node_name in step_name_map:
+                            current_node = node_name
+
+                    # Stream LLM tokens in real-time
+                    if event_type == "on_chat_model_stream":
+                        chunk = event.get("data", {}).get("chunk", {})
+                        # Handle different chunk formats
+                        content = ""
+                        if hasattr(chunk, 'content'):
+                            content = chunk.content
+                        elif isinstance(chunk, dict):
+                            content = chunk.get("content", "")
+                        elif isinstance(chunk, str):
+                            content = chunk
+
+                        if content:
+                            await manager.broadcast(run_id, {
+                                "type": "llm_token",
+                                "data": {
+                                    "content": content,
+                                    "node": current_node,
+                                    "run_id": event.get("run_id", "")
+                                }
+                            })
+
                     if event_type == "on_chain_end":
                         node_name = event.get("name", "")
                         output = event.get("data", {}).get("output", {})
@@ -825,6 +895,15 @@ async def run_workflow_with_streaming(
 
         logger.info(f"Workflow completed for {company_name}: {workflow_status.result}")
 
+        # Update MongoDB status to completed
+        if db and db.is_connected():
+            db.update_active_run(
+                run_id=run_id,
+                status="completed",
+                steps=[s.model_dump() for s in workflow_status.steps],
+                result=workflow_status.result
+            )
+
         # Clear the global event logger
         if SET_LOGGER_AVAILABLE and set_langgraph_event_logger:
             set_langgraph_event_logger(None)
@@ -851,6 +930,15 @@ async def run_workflow_with_streaming(
                 "status": workflow_status.model_dump()
             }
         })
+
+        # Update MongoDB status to failed
+        if db and db.is_connected():
+            db.update_active_run(
+                run_id=run_id,
+                status="failed",
+                steps=[s.model_dump() for s in workflow_status.steps],
+                error=str(e)
+            )
 
         # Clear the global event logger on error too
         if SET_LOGGER_AVAILABLE and set_langgraph_event_logger:
@@ -975,6 +1063,57 @@ async def list_runs():
             }
             for run_id, status in active_runs.items()
         ]
+    }
+
+
+@app.get("/runs/active")
+async def get_active_runs():
+    """
+    Get all currently running analyses.
+
+    This is used for background run resumption - when user navigates away
+    and returns, they can reconnect to running analyses.
+    """
+    # First check in-memory active_runs
+    in_memory_runs = [
+        {
+            "run_id": run_id,
+            "company_name": status.company_name,
+            "status": status.status,
+            "started_at": status.started_at,
+            "current_step": status.current_step,
+            "steps": [s.model_dump() for s in status.steps],
+            "source": "memory"
+        }
+        for run_id, status in active_runs.items()
+        if status.status == "running"
+    ]
+
+    # Also check MongoDB for any running analyses (in case server restarted)
+    db = get_db()
+    mongodb_runs = []
+    if db and db.is_connected():
+        mongo_active = db.get_active_runs(status="running")
+        for run in mongo_active:
+            run_id = run.get("run_id")
+            # Skip if already in memory
+            if run_id in active_runs:
+                continue
+            mongodb_runs.append({
+                "run_id": run_id,
+                "company_name": run.get("company_name", ""),
+                "status": run.get("status", "running"),
+                "started_at": run.get("started_at").isoformat() if run.get("started_at") else "",
+                "current_step": run.get("current_step", 0),
+                "steps": run.get("steps", []),
+                "source": "mongodb"
+            })
+
+    all_runs = in_memory_runs + mongodb_runs
+
+    return {
+        "runs": all_runs,
+        "count": len(all_runs)
     }
 
 

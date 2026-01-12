@@ -417,6 +417,12 @@ export default function CreditIntelligenceStudio() {
   const [runDetails, setRunDetails] = useState<any>(null)
   const [runDetailsLoading, setRunDetailsLoading] = useState(false)
 
+  // Real-time LLM streaming state
+  const [streamingText, setStreamingText] = useState<string>('')
+  const [currentThinkingNode, setCurrentThinkingNode] = useState<string>('')
+  const [stepDescription, setStepDescription] = useState<string>('')
+  const [progressPercent, setProgressPercent] = useState<number>(0)
+
   const wsRef = useRef<WebSocket | null>(null)
   const logsEndRef = useRef<HTMLDivElement>(null)
 
@@ -624,14 +630,33 @@ export default function CreditIntelligenceStudio() {
             return { ...prev, steps: newSteps, current_step: message.data.step.name }
           })
           const step = message.data.step
+          // Update step description and progress
+          if (message.data.description) {
+            setStepDescription(message.data.description)
+          }
+          if (message.data.progress_percent !== undefined) {
+            setProgressPercent(message.data.progress_percent)
+          }
           if (step.status === 'running') {
             addLog('step', `Starting: ${step.name}`, step)
             setExpandedSteps(prev => new Set([...prev, step.step_id]))
+            // Clear streaming text when new step starts
+            setStreamingText('')
+            setCurrentThinkingNode(step.step_id)
           } else if (step.status === 'completed') {
             addLog('step', `Completed: ${step.name} (${step.duration_ms?.toFixed(0)}ms)`, step)
+            // Clear streaming text when step completes
+            setStreamingText('')
           } else if (step.status === 'failed') {
             addLog('error', `Failed: ${step.name} - ${step.error}`, step)
+            setStreamingText('')
           }
+          break
+
+        case 'llm_token':
+          // Real-time LLM token streaming
+          setCurrentThinkingNode(message.data.node || '')
+          setStreamingText(prev => prev + (message.data.content || ''))
           break
 
         case 'step_output':
@@ -653,12 +678,19 @@ export default function CreditIntelligenceStudio() {
         case 'workflow_completed':
           setWorkflow(message.data)
           setIsRunning(false)
+          setStreamingText('')
+          setCurrentThinkingNode('')
+          setStepDescription('')
+          setProgressPercent(100)
           addLog('success', `Workflow completed! Risk: ${message.data.result?.risk_level}, Score: ${message.data.result?.credit_score}`)
           break
 
         case 'workflow_failed':
           setWorkflow(message.data.status)
           setIsRunning(false)
+          setStreamingText('')
+          setCurrentThinkingNode('')
+          setStepDescription('')
           setError(message.data.error)
           addLog('error', `Workflow failed: ${message.data.error}`)
           break
@@ -689,6 +721,49 @@ export default function CreditIntelligenceStudio() {
 
     wsRef.current = ws
   }, [addLog])
+
+  // Check for active runs on mount (for background run resumption)
+  useEffect(() => {
+    const checkActiveRuns = async () => {
+      try {
+        const response = await fetch(`${API_URL}/runs/active`)
+        if (response.ok) {
+          const data = await response.json()
+          if (data.runs?.length > 0) {
+            // Found an active run - reconnect
+            const activeRun = data.runs[0]
+            console.log('Found active run, reconnecting:', activeRun.run_id)
+
+            // Restore workflow state
+            setWorkflow({
+              run_id: activeRun.run_id,
+              company_name: activeRun.company_name,
+              status: activeRun.status,
+              current_step: activeRun.current_step,
+              steps: activeRun.steps || [],
+              started_at: activeRun.started_at,
+            })
+            setCompanyName(activeRun.company_name)
+            setIsRunning(true)
+            setActiveTab('single')
+
+            // Connect WebSocket to resume streaming
+            connectWebSocket(activeRun.run_id)
+
+            // Log will be added when WebSocket connects
+            setLogs([{
+              timestamp: new Date().toISOString(),
+              type: 'system',
+              message: `Resumed active analysis for ${activeRun.company_name}`
+            }])
+          }
+        }
+      } catch (e) {
+        console.error('Failed to check for active runs:', e)
+      }
+    }
+    checkActiveRuns()
+  }, [connectWebSocket])
 
   // Start single analysis
   const startAnalysis = async () => {
@@ -1002,6 +1077,27 @@ export default function CreditIntelligenceStudio() {
                   Workflow Pipeline
                 </h3>
 
+                {/* Progress Bar */}
+                {isRunning && (
+                  <div className="mb-4">
+                    <div className="flex items-center justify-between text-xs text-studio-muted mb-1">
+                      <span>Progress</span>
+                      <span>{progressPercent}%</span>
+                    </div>
+                    <div className="h-2 bg-studio-border rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-studio-accent transition-all duration-500 ease-out"
+                        style={{ width: `${progressPercent}%` }}
+                      />
+                    </div>
+                    {stepDescription && (
+                      <div className="text-xs text-studio-muted mt-1 italic">
+                        {stepDescription}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {workflow?.steps && workflow.steps.length > 0 ? (
                   <div className="space-y-2">
                     {workflow.steps.map((step, idx) => (
@@ -1070,6 +1166,27 @@ export default function CreditIntelligenceStudio() {
                         )}
                       </div>
                     ))}
+
+                    {/* AI Thinking Panel - Shows when LLM is streaming */}
+                    {isRunning && streamingText && (
+                      <div className="mt-4 bg-studio-panel border border-studio-accent/50 rounded-lg p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Cpu className="w-4 h-4 text-studio-accent animate-pulse" />
+                          <span className="text-sm text-studio-accent font-medium">
+                            AI Thinking
+                            {currentThinkingNode && (
+                              <span className="text-studio-muted font-normal ml-2">
+                                ({currentThinkingNode.replace(/_/g, ' ')})
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                        <div className="font-mono text-xs text-studio-text whitespace-pre-wrap max-h-48 overflow-auto bg-black/30 rounded p-2">
+                          {streamingText}
+                          <span className="inline-block w-2 h-4 bg-studio-accent animate-pulse ml-0.5" />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="text-center py-8 text-studio-muted text-sm">

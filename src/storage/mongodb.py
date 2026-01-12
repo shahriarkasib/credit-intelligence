@@ -700,6 +700,157 @@ class CreditIntelligenceDB:
             "graph_events": graph_events,
         }
 
+    # ==================== ACTIVE RUNS OPERATIONS ====================
+
+    def save_active_run(
+        self,
+        run_id: str,
+        company_name: str,
+        status: str = "running",
+        current_step: int = 0,
+        steps: List[Dict[str, Any]] = None,
+    ) -> Optional[str]:
+        """
+        Save or update an active run.
+
+        Args:
+            run_id: Unique run identifier
+            company_name: Company being analyzed
+            status: Run status (running, completed, failed)
+            current_step: Current step index
+            steps: List of workflow steps
+
+        Returns:
+            Document ID
+        """
+        if not self.is_connected():
+            return None
+
+        doc = {
+            "run_id": run_id,
+            "company_name": company_name,
+            "status": status,
+            "current_step": current_step,
+            "steps": steps or [],
+            "updated_at": datetime.utcnow(),
+        }
+
+        result = self.db.active_runs.update_one(
+            {"run_id": run_id},
+            {"$set": doc, "$setOnInsert": {"started_at": datetime.utcnow()}},
+            upsert=True
+        )
+
+        logger.debug(f"Saved active run: {run_id} for {company_name}")
+        return str(result.upserted_id) if result.upserted_id else run_id
+
+    def get_active_run(self, run_id: str) -> Optional[Dict[str, Any]]:
+        """Get an active run by run_id."""
+        if not self.is_connected():
+            return None
+        return self.db.active_runs.find_one({"run_id": run_id})
+
+    def get_active_runs(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Get all active runs.
+
+        Args:
+            status: Filter by status (running, completed, failed)
+
+        Returns:
+            List of active run documents
+        """
+        if not self.is_connected():
+            return []
+
+        query = {}
+        if status:
+            query["status"] = status
+
+        return list(
+            self.db.active_runs.find(query)
+            .sort("started_at", -1)
+        )
+
+    def update_active_run(
+        self,
+        run_id: str,
+        status: Optional[str] = None,
+        current_step: Optional[int] = None,
+        steps: Optional[List[Dict[str, Any]]] = None,
+        result: Optional[Dict[str, Any]] = None,
+        error: Optional[str] = None,
+    ) -> bool:
+        """
+        Update an active run's status.
+
+        Args:
+            run_id: Run ID to update
+            status: New status
+            current_step: New step index
+            steps: Updated steps list
+            result: Final result (for completed runs)
+            error: Error message (for failed runs)
+
+        Returns:
+            True if updated successfully
+        """
+        if not self.is_connected():
+            return False
+
+        update = {"$set": {"updated_at": datetime.utcnow()}}
+        if status:
+            update["$set"]["status"] = status
+        if current_step is not None:
+            update["$set"]["current_step"] = current_step
+        if steps is not None:
+            update["$set"]["steps"] = steps
+        if result is not None:
+            update["$set"]["result"] = result
+        if error is not None:
+            update["$set"]["error"] = error
+
+        result_op = self.db.active_runs.update_one({"run_id": run_id}, update)
+        return result_op.modified_count > 0
+
+    def delete_active_run(self, run_id: str) -> bool:
+        """
+        Delete an active run (after completion).
+
+        Args:
+            run_id: Run ID to delete
+
+        Returns:
+            True if deleted
+        """
+        if not self.is_connected():
+            return False
+
+        result = self.db.active_runs.delete_one({"run_id": run_id})
+        return result.deleted_count > 0
+
+    def cleanup_stale_active_runs(self, max_age_hours: int = 24) -> int:
+        """
+        Clean up stale active runs that are older than max_age_hours.
+
+        Args:
+            max_age_hours: Maximum age in hours
+
+        Returns:
+            Number of deleted runs
+        """
+        if not self.is_connected():
+            return 0
+
+        from datetime import timedelta
+        cutoff = datetime.utcnow() - timedelta(hours=max_age_hours)
+
+        result = self.db.active_runs.delete_many({
+            "status": "running",
+            "updated_at": {"$lt": cutoff}
+        })
+        return result.deleted_count
+
     # ==================== STATS & UTILITIES ====================
 
     def get_stats(self) -> Dict[str, Any]:
@@ -716,6 +867,7 @@ class CreditIntelligenceDB:
             "langgraph_events_count": self.db.langgraph_events.count_documents({}),
             "llm_calls_count": self.db.llm_calls.count_documents({}),
             "run_summaries_count": self.db.run_summaries.count_documents({}),
+            "active_runs_count": self.db.active_runs.count_documents({}),
         }
 
     def get_risk_distribution(self) -> Dict[str, int]:
