@@ -322,6 +322,13 @@ class PostgresLogger:
         **kwargs,
     ) -> bool:
         """Log a tool call."""
+        # Ensure tool_input and tool_output are JSON-compatible (dict/list)
+        # Strings need to be wrapped in a dict for JSONB columns
+        if tool_input is not None and not isinstance(tool_input, (dict, list)):
+            tool_input = {"value": str(tool_input)}
+        if tool_output is not None and not isinstance(tool_output, (dict, list)):
+            tool_output = {"value": str(tool_output)}
+
         data = {
             "run_id": run_id,
             "company_name": company_name,
