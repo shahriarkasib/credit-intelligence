@@ -793,7 +793,14 @@ class PostgresStorage:
         processed_data = {}
         for key, value in data.items():
             if isinstance(value, (list, dict)):
-                processed_data[key] = json.dumps(value)
+                try:
+                    # Use default=str to handle datetime, ObjectId, etc.
+                    processed_data[key] = json.dumps(value, default=str)
+                except (TypeError, ValueError) as e:
+                    logger.warning(f"JSON serialization failed for {key}: {e}, using empty object")
+                    processed_data[key] = "{}"
+            elif value is None:
+                processed_data[key] = value
             else:
                 processed_data[key] = value
 
@@ -838,7 +845,12 @@ class PostgresStorage:
             processed = {}
             for key, value in data.items():
                 if isinstance(value, (list, dict)):
-                    processed[key] = json.dumps(value)
+                    try:
+                        processed[key] = json.dumps(value, default=str)
+                    except (TypeError, ValueError):
+                        processed[key] = "{}"
+                elif value is None:
+                    processed[key] = value
                 else:
                     processed[key] = value
             processed_list.append(processed)
