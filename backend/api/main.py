@@ -1571,14 +1571,60 @@ async def get_run_details(run_id: str):
         }
 
     # Get LangGraph events/traces
-    events = db.get_langgraph_events(run_id=run_id, limit=100)
+    events = db.get_langgraph_events(run_id=run_id, limit=500)
     if events:
-        result["langgraph_events"] = serialize_mongo_doc(events)
+        # Filter to show only node-level events (on_chain_end has output data)
+        # Group by node name to avoid duplicates
+        node_events = {}
+        for e in events:
+            event_name = e.get("event_name", "")
+            event_type = e.get("event_type", "")
 
-    # Get LangGraph run summary (nodes, agents)
+            # Skip low-level LLM events and graph-level events
+            if event_name in ["ChatGroq", "LangGraph", "ChannelWrite", "ChannelRead", ""]:
+                continue
+            if event_type in ["on_chat_model_start", "on_chat_model_end", "on_chat_model_stream"]:
+                continue
+
+            # Use node name as key, prefer end events (they have output)
+            if event_name not in node_events:
+                node_events[event_name] = e
+            elif event_type == "on_chain_end":
+                # End event has output, prefer it
+                node_events[event_name] = e
+
+        # Convert back to list, sorted by timestamp
+        filtered_events = sorted(node_events.values(), key=lambda x: x.get("timestamp", ""))
+        result["langgraph_events"] = serialize_mongo_doc(filtered_events)
+
+        # Calculate summary from events if dedicated collection is empty
+        total_events = len(events)
+        unique_nodes = set()
+        total_duration = 0
+
+        for e in events:
+            event_name = e.get("event_name", "")
+            if event_name and event_name not in ["ChatGroq", "LangGraph", "ChannelWrite", "ChannelRead"]:
+                unique_nodes.add(event_name)
+            duration = e.get("duration_ms")
+            if duration:
+                total_duration += duration
+
+        # Build summary
+        calculated_summary = {
+            "total_nodes": len(unique_nodes),
+            "total_events": total_events,
+            "total_duration_ms": total_duration,
+            "nodes": list(unique_nodes),
+        }
+
+    # Get LangGraph run summary (nodes, agents) from dedicated collection
     lg_summary = db.get_langgraph_run_summary(run_id)
     if lg_summary:
         result["langgraph_summary"] = serialize_mongo_doc(lg_summary)
+    elif events:
+        # Use calculated summary if dedicated collection is empty
+        result["langgraph_summary"] = calculated_summary
 
     # Get assessment from MongoDB first, fallback to PostgreSQL
     assessment = db.db.assessments.find_one({"run_id": run_id})
