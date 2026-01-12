@@ -2157,7 +2157,6 @@ function RunDetailsModal({
                         <thead className="bg-studio-panel">
                           <tr>
                             <th className="text-left p-3 text-studio-muted">Model</th>
-                            <th className="text-left p-3 text-studio-muted">Agent</th>
                             <th className="text-left p-3 text-studio-muted">Call Type</th>
                             <th className="text-left p-3 text-studio-muted">Tokens (In/Out)</th>
                             <th className="text-left p-3 text-studio-muted">Estimated Cost</th>
@@ -2172,7 +2171,6 @@ function RunDetailsModal({
                                   {call.model || 'Unknown'}
                                 </code>
                               </td>
-                              <td className="p-3 text-studio-muted">{call.agent_name || call.node || '-'}</td>
                               <td className="p-3">
                                 <span className="px-2 py-0.5 bg-blue-900/30 text-blue-400 rounded text-xs">
                                   {call.call_type || '-'}

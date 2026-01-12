@@ -659,7 +659,7 @@ class CreditIntelligenceDB:
 
         return list(
             self.db.langgraph_events.find(query)
-            .sort("timestamp", -1)
+            .sort("timestamp", 1)  # Ascending order (oldest first)
             .limit(limit)
         )
 

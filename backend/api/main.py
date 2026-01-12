@@ -1580,10 +1580,25 @@ async def get_run_details(run_id: str):
     if lg_summary:
         result["langgraph_summary"] = serialize_mongo_doc(lg_summary)
 
-    # Get assessment
+    # Get assessment from MongoDB first, fallback to PostgreSQL
     assessment = db.db.assessments.find_one({"run_id": run_id})
     if assessment:
         result["assessment"] = serialize_mongo_doc(assessment)
+    else:
+        # Fallback to PostgreSQL
+        try:
+            from storage.postgres import get_postgres_storage
+            pg = get_postgres_storage()
+            if pg and pg.is_connected():
+                pg_assessments = pg.query(
+                    "assessments",
+                    {"run_id": run_id},
+                    limit=1
+                )
+                if pg_assessments:
+                    result["assessment"] = pg_assessments[0]
+        except Exception as e:
+            logger.debug(f"PostgreSQL assessment fallback failed: {e}")
 
     # Build LangSmith trace URL if available
     langsmith_project = os.getenv("LANGCHAIN_PROJECT", "credit-intelligence")
