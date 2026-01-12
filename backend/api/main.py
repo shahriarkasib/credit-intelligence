@@ -1544,15 +1544,31 @@ async def get_run_details(run_id: str):
     if eval_doc:
         result["evaluation"] = serialize_mongo_doc(eval_doc)
 
-    # Get LLM calls summary
-    llm_summary = db.get_llm_calls_summary(run_id)
-    if llm_summary:
-        result["llm_summary"] = serialize_mongo_doc(llm_summary)
+    # Get individual LLM calls from detailed collection (has agent_name, cost, etc.)
+    llm_calls_detailed = list(db.db.llm_calls_detailed.find(
+        {"run_id": run_id}
+    ).sort("timestamp", 1).limit(50))
 
-    # Get individual LLM calls
-    llm_calls = db.get_llm_calls(run_id=run_id, limit=50)
-    if llm_calls:
-        result["llm_calls"] = serialize_mongo_doc(llm_calls)
+    # Fallback to basic llm_calls if detailed is empty
+    if not llm_calls_detailed:
+        llm_calls_detailed = db.get_llm_calls(run_id=run_id, limit=50)
+
+    if llm_calls_detailed:
+        result["llm_calls"] = serialize_mongo_doc(llm_calls_detailed)
+
+        # Calculate summary from the calls
+        total_calls = len(llm_calls_detailed)
+        total_input_tokens = sum(c.get("prompt_tokens", 0) for c in llm_calls_detailed)
+        total_output_tokens = sum(c.get("completion_tokens", 0) for c in llm_calls_detailed)
+        total_cost = sum(c.get("total_cost", 0) for c in llm_calls_detailed)
+
+        result["llm_summary"] = {
+            "total_calls": total_calls,
+            "total_input_tokens": total_input_tokens,
+            "total_output_tokens": total_output_tokens,
+            "total_tokens": total_input_tokens + total_output_tokens,
+            "total_cost": total_cost,
+        }
 
     # Get LangGraph events/traces
     events = db.get_langgraph_events(run_id=run_id, limit=100)

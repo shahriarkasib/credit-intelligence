@@ -2238,77 +2238,78 @@ function RunDetailsModal({
 
                   {/* LangGraph Events */}
                   {details.langgraph_events && details.langgraph_events.length > 0 ? (
-                    <div className="rounded-lg border border-studio-border overflow-hidden">
-                      <div className="p-3 bg-studio-panel border-b border-studio-border">
-                        <h3 className="text-sm font-medium">Workflow Events ({details.langgraph_events.length})</h3>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-medium">Workflow Steps ({details.langgraph_events.length})</h3>
                       </div>
-                      <div className="max-h-[500px] overflow-y-auto">
-                        {details.langgraph_events.map((event: any, i: number) => (
-                          <div key={i} className="p-4 border-b border-studio-border last:border-0 hover:bg-studio-panel/30">
-                            <div className="flex items-center gap-2 mb-2">
-                              <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                                event.event_type === 'node_start' ? 'bg-blue-900/50 text-blue-400' :
-                                event.event_type === 'node_end' ? 'bg-green-900/50 text-green-400' :
-                                event.event_type === 'edge' ? 'bg-purple-900/50 text-purple-400' :
-                                'bg-gray-700 text-gray-400'
-                              }`}>
-                                {event.event_type || 'event'}
-                              </span>
-                              <span className="font-medium text-sm">{event.node || event.node_name || 'Unknown'}</span>
-                              {event.agent_name && (
-                                <span className="px-2 py-0.5 bg-studio-accent/20 text-studio-accent rounded text-xs">
-                                  {event.agent_name}
+                      <div className="space-y-2 max-h-[600px] overflow-y-auto pr-2">
+                        {details.langgraph_events.map((event: any, i: number) => {
+                          const eventType = event.event_type || event.event_name || 'step';
+                          const nodeName = event.node || event.node_name || event.event_name || 'Unknown';
+                          const agentName = event.agent_name || '';
+                          const duration = event.duration_ms || event.execution_time_ms || 0;
+                          const status = event.status || (eventType.includes('end') || eventType.includes('exit') ? 'completed' : 'started');
+                          const output = event.output_preview || event.output || event.output_data || event.input_preview || event.input_data;
+
+                          return (
+                            <div key={i} className="p-4 rounded-lg border border-studio-border bg-studio-panel hover:border-studio-accent/50 transition-colors">
+                              {/* Header Row */}
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-lg font-mono text-studio-muted">#{i + 1}</span>
+                                <span className={`px-2 py-1 rounded text-xs font-medium ${
+                                  status === 'completed' || status === 'success' ? 'bg-green-900/50 text-green-400 border border-green-800' :
+                                  status === 'started' || status === 'running' ? 'bg-blue-900/50 text-blue-400 border border-blue-800' :
+                                  status === 'error' ? 'bg-red-900/50 text-red-400 border border-red-800' :
+                                  'bg-gray-800 text-gray-400 border border-gray-700'
+                                }`}>
+                                  {status}
                                 </span>
-                              )}
-                              {(event.duration_ms || event.execution_time_ms) && (
-                                <span className="text-xs text-studio-muted ml-auto">{formatDuration(event.duration_ms || event.execution_time_ms)}</span>
-                              )}
-                            </div>
-                            {/* Event Details */}
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs mt-2">
-                              {event.step_number !== undefined && (
-                                <div>
-                                  <span className="text-studio-muted">Step: </span>
-                                  <span className="font-medium">{event.step_number}</span>
-                                </div>
-                              )}
-                              {event.company_name && (
-                                <div>
-                                  <span className="text-studio-muted">Company: </span>
-                                  <span className="font-medium">{event.company_name}</span>
-                                </div>
-                              )}
-                              {event.status && (
-                                <div>
-                                  <span className="text-studio-muted">Status: </span>
-                                  <span className={`font-medium ${event.status === 'success' ? 'text-green-400' : event.status === 'error' ? 'text-red-400' : ''}`}>
-                                    {event.status}
+                                <span className="font-semibold text-studio-text">{nodeName}</span>
+                                {agentName && (
+                                  <span className="px-2 py-1 bg-purple-900/30 text-purple-400 border border-purple-800 rounded text-xs">
+                                    {agentName}
                                   </span>
-                                </div>
-                              )}
-                              {event.timestamp && (
-                                <div>
-                                  <span className="text-studio-muted">Time: </span>
-                                  <span className="font-medium">{new Date(event.timestamp).toLocaleTimeString()}</span>
-                                </div>
-                              )}
-                            </div>
-                            {/* Message or Output */}
-                            {(event.message || event.output || event.error) && (
-                              <div className="mt-2 p-2 bg-black/30 rounded text-xs">
-                                {event.error ? (
-                                  <p className="text-red-400">{event.error}</p>
-                                ) : event.output ? (
-                                  <pre className="text-studio-muted whitespace-pre-wrap overflow-x-auto max-h-32">
-                                    {typeof event.output === 'string' ? event.output : JSON.stringify(event.output, null, 2)}
-                                  </pre>
-                                ) : (
-                                  <p className="text-studio-muted">{event.message}</p>
+                                )}
+                                {duration > 0 && (
+                                  <span className="ml-auto text-sm text-studio-accent font-medium">{formatDuration(duration)}</span>
                                 )}
                               </div>
-                            )}
-                          </div>
-                        ))}
+
+                              {/* Details Row */}
+                              <div className="flex items-center gap-4 mt-2 text-xs text-studio-muted">
+                                {event.company_name && (
+                                  <span>Company: <span className="text-studio-text">{event.company_name}</span></span>
+                                )}
+                                {event.step_number !== undefined && (
+                                  <span>Step: <span className="text-studio-text">{event.step_number}</span></span>
+                                )}
+                                {(event.timestamp || event.logged_at) && (
+                                  <span>Time: <span className="text-studio-text">{new Date(event.timestamp || event.logged_at).toLocaleTimeString()}</span></span>
+                                )}
+                              </div>
+
+                              {/* Output Preview */}
+                              {output && (
+                                <div className="mt-3 p-3 bg-black/40 rounded border border-studio-border">
+                                  <div className="text-xs text-studio-muted mb-1 font-medium">Output Preview:</div>
+                                  <pre className="text-xs text-studio-text whitespace-pre-wrap overflow-x-auto max-h-40 overflow-y-auto">
+                                    {typeof output === 'string'
+                                      ? output.substring(0, 500) + (output.length > 500 ? '...' : '')
+                                      : JSON.stringify(output, null, 2).substring(0, 500)}
+                                  </pre>
+                                </div>
+                              )}
+
+                              {/* Error */}
+                              {event.error && (
+                                <div className="mt-3 p-3 bg-red-900/20 rounded border border-red-800">
+                                  <div className="text-xs text-red-400 font-medium">Error:</div>
+                                  <p className="text-xs text-red-300 mt-1">{event.error}</p>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   ) : (
