@@ -417,19 +417,27 @@ export default function CreditIntelligenceStudio() {
   const [runDetails, setRunDetails] = useState<any>(null)
   const [runDetailsLoading, setRunDetailsLoading] = useState(false)
 
-  // Real-time LLM streaming state
-  const [streamingText, setStreamingText] = useState<string>('')
+  // Real-time LLM streaming state - per section
+  const [streamingTextByStep, setStreamingTextByStep] = useState<Record<string, string>>({})
   const [currentThinkingNode, setCurrentThinkingNode] = useState<string>('')
   const [stepDescription, setStepDescription] = useState<string>('')
   const [progressPercent, setProgressPercent] = useState<number>(0)
 
   const wsRef = useRef<WebSocket | null>(null)
   const logsEndRef = useRef<HTMLDivElement>(null)
+  const runningStepRef = useRef<HTMLDivElement>(null)
 
   // Auto-scroll logs
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [logs])
+
+  // Auto-scroll to running step
+  useEffect(() => {
+    if (runningStepRef.current) {
+      runningStepRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [workflow?.current_step])
 
   // Fetch historical runs on mount
   useEffect(() => {
@@ -640,23 +648,28 @@ export default function CreditIntelligenceStudio() {
           if (step.status === 'running') {
             addLog('step', `Starting: ${step.name}`, step)
             setExpandedSteps(prev => new Set([...prev, step.step_id]))
-            // Clear streaming text when new step starts
-            setStreamingText('')
+            // Initialize streaming text for this step
+            setStreamingTextByStep(prev => ({ ...prev, [step.step_id]: '' }))
             setCurrentThinkingNode(step.step_id)
           } else if (step.status === 'completed') {
             addLog('step', `Completed: ${step.name} (${step.duration_ms?.toFixed(0)}ms)`, step)
-            // Clear streaming text when step completes
-            setStreamingText('')
+            // Keep the streaming text for this step (don't clear)
+            setCurrentThinkingNode('')
           } else if (step.status === 'failed') {
             addLog('error', `Failed: ${step.name} - ${step.error}`, step)
-            setStreamingText('')
+            setCurrentThinkingNode('')
           }
           break
 
         case 'llm_token':
-          // Real-time LLM token streaming
-          setCurrentThinkingNode(message.data.node || '')
-          setStreamingText(prev => prev + (message.data.content || ''))
+          // Real-time LLM token streaming - store per section
+          const node = message.data.node || currentThinkingNode
+          if (node) {
+            setStreamingTextByStep(prev => ({
+              ...prev,
+              [node]: (prev[node] || '') + (message.data.content || '')
+            }))
+          }
           break
 
         case 'step_output':
@@ -678,7 +691,6 @@ export default function CreditIntelligenceStudio() {
         case 'workflow_completed':
           setWorkflow(message.data)
           setIsRunning(false)
-          setStreamingText('')
           setCurrentThinkingNode('')
           setStepDescription('')
           setProgressPercent(100)
@@ -688,7 +700,6 @@ export default function CreditIntelligenceStudio() {
         case 'workflow_failed':
           setWorkflow(message.data.status)
           setIsRunning(false)
-          setStreamingText('')
           setCurrentThinkingNode('')
           setStepDescription('')
           setError(message.data.error)
@@ -734,18 +745,38 @@ export default function CreditIntelligenceStudio() {
             const activeRun = data.runs[0]
             console.log('Found active run, reconnecting:', activeRun.run_id)
 
+            const steps = activeRun.steps || []
+
             // Restore workflow state
             setWorkflow({
               run_id: activeRun.run_id,
               company_name: activeRun.company_name,
               status: activeRun.status,
               current_step: activeRun.current_step,
-              steps: activeRun.steps || [],
+              steps: steps,
               started_at: activeRun.started_at,
             })
             setCompanyName(activeRun.company_name)
             setIsRunning(true)
             setActiveTab('single')
+
+            // Calculate progress from completed steps
+            const completedSteps = steps.filter((s: any) => s.status === 'completed').length
+            const totalSteps = steps.length || 8  // Default to 8 steps
+            const progress = Math.round((completedSteps / totalSteps) * 100)
+            setProgressPercent(progress)
+
+            // Expand completed steps
+            const completedIds = steps
+              .filter((s: any) => s.status === 'completed' || s.status === 'running')
+              .map((s: any) => s.step_id)
+            setExpandedSteps(new Set(completedIds))
+
+            // Find current running step for description
+            const runningStep = steps.find((s: any) => s.status === 'running')
+            if (runningStep) {
+              setCurrentThinkingNode(runningStep.step_id)
+            }
 
             // Connect WebSocket to resume streaming
             connectWebSocket(activeRun.run_id)
@@ -1077,31 +1108,13 @@ export default function CreditIntelligenceStudio() {
                   Workflow Pipeline
                 </h3>
 
-                {/* Progress Bar */}
-                {isRunning && (
-                  <div className="mb-4">
-                    <div className="flex items-center justify-between text-xs text-studio-muted mb-1">
-                      <span>Progress</span>
-                      <span>{progressPercent}%</span>
-                    </div>
-                    <div className="h-2 bg-studio-border rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-studio-accent transition-all duration-500 ease-out"
-                        style={{ width: `${progressPercent}%` }}
-                      />
-                    </div>
-                    {stepDescription && (
-                      <div className="text-xs text-studio-muted mt-1 italic">
-                        {stepDescription}
-                      </div>
-                    )}
-                  </div>
-                )}
-
                 {workflow?.steps && workflow.steps.length > 0 ? (
                   <div className="space-y-2">
                     {workflow.steps.map((step, idx) => (
-                      <div key={step.step_id}>
+                      <div
+                        key={step.step_id}
+                        ref={step.status === 'running' ? runningStepRef : null}
+                      >
                         {/* Step Header */}
                         <div
                           onClick={() => toggleStep(step.step_id)}
@@ -1141,9 +1154,27 @@ export default function CreditIntelligenceStudio() {
                           )}
                         </div>
 
-                        {/* Step Details */}
+                        {/* Step Details with Section-wise AI Thinking */}
                         {expandedSteps.has(step.step_id) && step.status !== 'pending' && (
-                          <div className="border border-t-0 border-studio-border rounded-b bg-black/50 p-3 max-h-64 overflow-auto">
+                          <div className="border border-t-0 border-studio-border rounded-b bg-black/50 p-3 max-h-96 overflow-auto">
+                            {/* AI Thinking for this section - show when running or has streaming content */}
+                            {(step.status === 'running' || streamingTextByStep[step.step_id]) && (
+                              <div className="mb-3 bg-studio-panel/50 border border-studio-accent/30 rounded p-3">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <Cpu className={`w-4 h-4 text-studio-accent ${step.status === 'running' ? 'animate-pulse' : ''}`} />
+                                  <span className="text-xs text-studio-accent font-medium">
+                                    AI Thinking
+                                  </span>
+                                </div>
+                                <div className="font-mono text-xs text-studio-text whitespace-pre-wrap max-h-32 overflow-auto bg-black/30 rounded p-2">
+                                  {streamingTextByStep[step.step_id] || 'Processing...'}
+                                  {step.status === 'running' && (
+                                    <span className="inline-block w-1.5 h-3 bg-studio-accent animate-pulse ml-0.5" />
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
                             {step.output_summary && (
                               <div className="mb-2 p-2 bg-studio-accent/10 rounded border border-studio-accent/30">
                                 <div className="text-xs text-studio-accent font-medium">Summary</div>
@@ -1166,27 +1197,6 @@ export default function CreditIntelligenceStudio() {
                         )}
                       </div>
                     ))}
-
-                    {/* AI Thinking Panel - Shows when LLM is streaming */}
-                    {isRunning && streamingText && (
-                      <div className="mt-4 bg-studio-panel border border-studio-accent/50 rounded-lg p-4">
-                        <div className="flex items-center gap-2 mb-2">
-                          <Cpu className="w-4 h-4 text-studio-accent animate-pulse" />
-                          <span className="text-sm text-studio-accent font-medium">
-                            AI Thinking
-                            {currentThinkingNode && (
-                              <span className="text-studio-muted font-normal ml-2">
-                                ({currentThinkingNode.replace(/_/g, ' ')})
-                              </span>
-                            )}
-                          </span>
-                        </div>
-                        <div className="font-mono text-xs text-studio-text whitespace-pre-wrap max-h-48 overflow-auto bg-black/30 rounded p-2">
-                          {streamingText}
-                          <span className="inline-block w-2 h-4 bg-studio-accent animate-pulse ml-0.5" />
-                        </div>
-                      </div>
-                    )}
                   </div>
                 ) : (
                   <div className="text-center py-8 text-studio-muted text-sm">
@@ -1219,6 +1229,32 @@ export default function CreditIntelligenceStudio() {
                       </button>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {/* Progress Bar - Shows during analysis in center panel */}
+              {isRunning && workflow && (
+                <div className="px-4 py-3 border-b border-studio-border bg-studio-panel/50">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <Activity className="w-4 h-4 text-studio-accent animate-pulse" />
+                      <span className="text-sm font-medium text-studio-text">
+                        Analyzing {workflow.company_name}
+                      </span>
+                    </div>
+                    <span className="text-sm text-studio-accent font-mono">{progressPercent}%</span>
+                  </div>
+                  <div className="h-2 bg-studio-border rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-studio-accent to-blue-400 transition-all duration-500 ease-out"
+                      style={{ width: `${progressPercent}%` }}
+                    />
+                  </div>
+                  {stepDescription && (
+                    <div className="text-xs text-studio-muted mt-2 italic">
+                      {stepDescription}
+                    </div>
+                  )}
                 </div>
               )}
 
