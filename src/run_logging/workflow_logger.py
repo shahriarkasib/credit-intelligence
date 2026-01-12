@@ -339,6 +339,21 @@ class WorkflowLogger:
                 reasoning=reasoning,
                 recommendations=recommendations,
             )
+
+        # Log to PostgreSQL
+        if self.run_logger.is_postgres_connected():
+            try:
+                self.run_logger.postgres.log_assessment(
+                    run_id=run_id,
+                    company_name=company_name,
+                    risk_level=risk_level,
+                    credit_score=credit_score,
+                    confidence=confidence,
+                    reasoning=reasoning,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to log assessment to PostgreSQL: {e}")
+
         logger.info(f"[{run_id[:8]}] Assessment: {risk_level} (score: {credit_score})")
 
     def log_evaluation(
@@ -383,6 +398,21 @@ class WorkflowLogger:
                 data_reasoning=data_reasoning,
                 synthesis_reasoning=synthesis_reasoning,
             )
+
+        # Log to PostgreSQL
+        if self.run_logger.is_postgres_connected():
+            try:
+                self.run_logger.postgres.log_evaluation(
+                    run_id=run_id,
+                    company_name=company_name,
+                    overall_score=overall_score,
+                    tool_selection_score=tool_selection_score,
+                    data_quality_score=data_quality_score,
+                    synthesis_score=synthesis_score,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to log evaluation to PostgreSQL: {e}")
+
         logger.info(f"[{run_id[:8]}] Evaluation: {overall_score:.2f}")
 
     def log_tool_selection(
@@ -424,6 +454,22 @@ class WorkflowLogger:
                 extra_tools=extra_tools,
                 reasoning=reasoning,
             )
+
+        # Log to PostgreSQL
+        if self.run_logger.is_postgres_connected():
+            try:
+                self.run_logger.postgres.log_tool_selection(
+                    run_id=run_id,
+                    company_name=company_name,
+                    selected_tools=selected_tools,
+                    expected_tools=expected_tools,
+                    precision=precision,
+                    recall=recall,
+                    f1_score=f1_score,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to log tool selection to PostgreSQL: {e}")
+
         logger.info(f"[{run_id[:8]}] Tool selection F1: {f1_score:.2f}")
 
     def log_consistency(
@@ -872,6 +918,23 @@ class WorkflowLogger:
                 answer_details=answer_details,
             )
 
+        # Log to PostgreSQL
+        if self.run_logger.is_postgres_connected():
+            try:
+                self.run_logger.postgres.log_agent_metrics(
+                    run_id=run_id,
+                    company_name=company_name,
+                    overall_score=overall_score,
+                    intent_correctness=intent_correctness,
+                    plan_quality=plan_quality,
+                    tool_choice_correctness=tool_choice_correctness,
+                    tool_completeness=tool_completeness,
+                    trajectory_match=trajectory_match,
+                    final_answer_quality=final_answer_quality,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to log agent metrics to PostgreSQL: {e}")
+
         logger.info(f"[{run_id[:8]}] Agent metrics logged: overall_score={overall_score:.4f}")
 
     def log_unified_metrics(
@@ -1029,6 +1092,25 @@ class WorkflowLogger:
                 tokens_used=tokens_used,
                 evaluation_cost=evaluation_cost,
             )
+
+        # Log to PostgreSQL
+        if self.run_logger.is_postgres_connected():
+            try:
+                self.run_logger.postgres.log("llm_judge_results", {
+                    "run_id": run_id,
+                    "company_name": company_name,
+                    "model_used": model_used,
+                    "accuracy_score": accuracy_score,
+                    "completeness_score": completeness_score,
+                    "consistency_score": consistency_score,
+                    "actionability_score": actionability_score,
+                    "data_utilization_score": data_utilization_score,
+                    "overall_score": overall_score,
+                    "overall_reasoning": overall_reasoning,
+                    "suggestions": suggestions or [],
+                })
+            except Exception as e:
+                logger.warning(f"Failed to log LLM judge result to PostgreSQL: {e}")
 
         logger.info(f"[{run_id[:8]}] LLM Judge result logged: overall_score={overall_score:.4f}")
 
