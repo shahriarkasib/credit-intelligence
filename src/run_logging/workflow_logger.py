@@ -114,6 +114,20 @@ class WorkflowLogger:
                 error=error or "",
             )
 
+        # Log to PostgreSQL (langgraph_events table)
+        if self.run_logger.is_postgres_connected():
+            try:
+                self.run_logger.postgres.log_langgraph_event(
+                    run_id=run_id,
+                    company_name=company_name,
+                    event_type=step_name,
+                    node=effective_node,
+                    agent_name=agent_name,
+                    duration_ms=execution_time_ms,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to log step to PostgreSQL: {e}")
+
         logger.info(f"[{run_id[:8]}] Step {step_number}: {step_name} ({execution_time_ms:.0f}ms) - {'OK' if success else 'FAILED'}")
 
     def log_llm_call(
@@ -195,6 +209,63 @@ class WorkflowLogger:
 
         logger.debug(f"[{run_id[:8]}] LLM {call_type}: {prompt_tokens}+{completion_tokens} tokens, ${total_cost:.6f} ({execution_time_ms:.0f}ms)")
 
+    def log_prompt(
+        self,
+        run_id: str,
+        company_name: str,
+        prompt_id: str,
+        prompt_name: str,
+        category: str,
+        system_prompt: str,
+        user_prompt: str,
+        variables: Dict[str, Any] = None,
+        # Common fields
+        node: str = "",
+        agent_name: str = "",
+        step_number: int = 0,
+        model: str = "",
+        temperature: float = None,
+    ):
+        """Log a prompt used during a run to all storage."""
+        # Log to Google Sheets
+        if self.sheets_logger.is_connected():
+            self.sheets_logger.log_prompt(
+                run_id=run_id,
+                company_name=company_name,
+                prompt_id=prompt_id,
+                prompt_name=prompt_name,
+                category=category,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                variables=variables,
+                node=node,
+                agent_name=agent_name,
+                step_number=step_number,
+                model=model,
+                temperature=temperature,
+            )
+
+        # Log to PostgreSQL
+        if self.run_logger.is_postgres_connected():
+            try:
+                self.run_logger.postgres.log("prompts", {
+                    "run_id": run_id,
+                    "company_name": company_name,
+                    "prompt_id": prompt_id,
+                    "prompt_name": prompt_name,
+                    "category": category,
+                    "system_prompt": system_prompt[:10000] if system_prompt else "",
+                    "user_prompt": user_prompt[:10000] if user_prompt else "",
+                    "variables": variables or {},
+                    "node": node,
+                    "agent_name": agent_name,
+                    "model": model,
+                })
+            except Exception as e:
+                logger.warning(f"Failed to log prompt to PostgreSQL: {e}")
+
+        logger.debug(f"[{run_id[:8]}] Prompt {prompt_id} logged")
+
     def log_data_source(
         self,
         run_id: str,
@@ -237,6 +308,21 @@ class WorkflowLogger:
                 execution_time_ms=execution_time_ms,
                 error=error,
             )
+
+        # Log to PostgreSQL
+        if self.run_logger.is_postgres_connected():
+            try:
+                self.run_logger.postgres.log("data_sources", {
+                    "run_id": run_id,
+                    "company_name": company_name,
+                    "source_name": source_name,
+                    "success": success,
+                    "records_found": records_found,
+                    "execution_time_ms": execution_time_ms,
+                    "error": error,
+                })
+            except Exception as e:
+                logger.warning(f"Failed to log data source to PostgreSQL: {e}")
 
         logger.debug(f"[{run_id[:8]}] Data source {source_name}: {records_found} records ({execution_time_ms:.0f}ms)")
 
@@ -521,6 +607,24 @@ class WorkflowLogger:
                 risk_levels=risk_levels,
                 credit_scores=credit_scores,
             )
+
+        # Log to PostgreSQL
+        if self.run_logger.is_postgres_connected():
+            try:
+                self.run_logger.postgres.log("consistency_scores", {
+                    "run_id": run_id,
+                    "company_name": company_name,
+                    "model_name": model_name,
+                    "evaluation_type": evaluation_type,
+                    "num_runs": num_runs,
+                    "risk_level_consistency": consistency_data.get("risk_level_consistency", 0),
+                    "score_consistency": consistency_data.get("score_consistency", 0),
+                    "overall_consistency": consistency_data.get("overall_consistency", 0),
+                    "risk_levels": risk_levels,
+                    "credit_scores": credit_scores,
+                })
+            except Exception as e:
+                logger.warning(f"Failed to log consistency to PostgreSQL: {e}")
 
         logger.info(f"[{run_id[:8]}] {model_name} {evaluation_type} consistency: {consistency_data.get('overall_consistency', 0):.2f}")
 

@@ -713,6 +713,23 @@ def create_plan(state: CreditWorkflowState) -> Dict[str, Any]:
     except Exception as e:
         logger.warning(f"Failed to log plan to sheets: {e}")
 
+    # Log plan to PostgreSQL
+    try:
+        from run_logging.run_logger import get_run_logger
+        run_logger = get_run_logger()
+        if run_logger and run_logger.is_postgres_connected():
+            run_logger.postgres.log("plans", {
+                "run_id": run_id,
+                "company_name": company_name,
+                "task_plan": task_plan,
+                "num_tasks": len(task_plan) if task_plan else 0,
+                "node": "create_plan",
+                "agent_name": "tool_supervisor" if tool_selection else "supervisor",
+                "status": "ok",
+            })
+    except Exception as e:
+        logger.warning(f"Failed to log plan to PostgreSQL: {e}")
+
     # Log full plan to langgraph_events
     if event_logger:
         event_logger.log_node_exit(
