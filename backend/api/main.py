@@ -1691,12 +1691,13 @@ async def get_run_details(run_id: str):
             "tools": tools_used or [],
         }
 
-    # Get assessment from MongoDB first, fallback to PostgreSQL
+    # Get assessment from MongoDB first, fallback to PostgreSQL, then run_summaries
     assessment = db.db.assessments.find_one({"run_id": run_id})
     if assessment:
         result["assessment"] = serialize_mongo_doc(assessment)
     else:
         # Fallback to PostgreSQL
+        pg_found = False
         try:
             from storage.postgres import get_postgres_storage
             pg = get_postgres_storage()
@@ -1708,8 +1709,24 @@ async def get_run_details(run_id: str):
                 )
                 if pg_assessments:
                     result["assessment"] = pg_assessments[0]
+                    pg_found = True
         except Exception as e:
             logger.debug(f"PostgreSQL assessment fallback failed: {e}")
+
+        # Final fallback: use run_summaries which has assessment fields
+        if not pg_found and summary:
+            risk_level = summary.get("risk_level")
+            credit_score = summary.get("credit_score")
+            if risk_level or credit_score:
+                result["assessment"] = {
+                    "run_id": run_id,
+                    "company_name": summary.get("company_name", ""),
+                    "risk_level": risk_level or "",
+                    "credit_score": credit_score or 0,
+                    "confidence": summary.get("confidence", 0),
+                    "reasoning": summary.get("reasoning", ""),
+                    "source": "run_summaries",
+                }
 
     # Build LangSmith trace URL if available
     langsmith_project = os.getenv("LANGCHAIN_PROJECT", "credit-intelligence")
