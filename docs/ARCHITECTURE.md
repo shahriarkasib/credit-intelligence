@@ -58,6 +58,7 @@ flowchart TB
 
     subgraph Storage["Storage Layer"]
         MONGO[(MongoDB)]
+        POSTGRES[(PostgreSQL)]
         SHEETS[(Google Sheets)]
         LANGSMITH[(LangSmith)]
     end
@@ -99,6 +100,7 @@ flowchart TB
 
     %% Workflow to Storage
     SAVE --> MONGO
+    Workflow --> POSTGRES
     Workflow --> SHEETS
     Workflow --> LANGSMITH
 
@@ -204,11 +206,13 @@ flowchart TB
     subgraph LoggingModule["src/run_logging/"]
         WF_LOG[workflow_logger.py]
         SHEETS_LOG[sheets_logger.py]
+        PG_LOG[postgres_logger.py]
         RUN_LOG[run_logger.py]
     end
 
     subgraph StorageModule["src/storage/"]
         MONGO_DB[mongodb.py]
+        PG_STORE[postgres.py]
     end
 
     %% Entry point dependencies
@@ -240,7 +244,8 @@ flowchart TB
     PROMPTS_CFG --> EXT_CFG
 
     %% Logging dependencies
-    WF_LOG --> SHEETS_LOG & RUN_LOG
+    WF_LOG --> SHEETS_LOG & PG_LOG & RUN_LOG
+    PG_LOG --> PG_STORE
     RUN_LOG --> MONGO_DB
 ```
 
@@ -248,157 +253,294 @@ flowchart TB
 
 ## Entities Hierarchy Diagram (Database Schema)
 
+This ER diagram shows all 17 tables in PostgreSQL/Google Sheets and their relationships. All tables are linked to `RUNS` via `run_id`.
+
 ```mermaid
 erDiagram
-    RUN_SUMMARIES ||--o{ LLM_CALLS : "has many"
-    RUN_SUMMARIES ||--o{ TOOL_CALLS : "has many"
-    RUN_SUMMARIES ||--o{ LANGGRAPH_EVENTS : "has many"
-    RUN_SUMMARIES ||--|| ASSESSMENTS : "has one"
-    RUN_SUMMARIES ||--|| EVALUATIONS : "has one"
-    RUN_SUMMARIES ||--o{ TOOL_SELECTIONS : "has many"
+    %% Core run table - central entity
+    RUNS ||--o{ LLM_CALLS : "has many"
+    RUNS ||--o{ TOOL_CALLS : "has many"
+    RUNS ||--o{ LANGGRAPH_EVENTS : "has many"
+    RUNS ||--o{ DATA_SOURCES : "has many"
+    RUNS ||--o{ ASSESSMENTS : "has many"
+    RUNS ||--|| EVALUATIONS : "has one"
+    RUNS ||--|| TOOL_SELECTIONS : "has one"
+    RUNS ||--o{ PLANS : "has many"
+    RUNS ||--o{ PROMPTS : "has many"
+    RUNS ||--o{ CONSISTENCY_SCORES : "has many"
+    RUNS ||--o{ CROSS_MODEL_EVAL : "has many"
+    RUNS ||--|| LLM_JUDGE_RESULTS : "has one"
+    RUNS ||--|| AGENT_METRICS : "has one"
+    RUNS ||--|| LOG_TESTS : "has one"
 
-    RUN_SUMMARIES {
-        ObjectId _id PK
+    RUNS {
+        serial id PK
         string run_id UK "UUID"
         string company_name
         string status "pending|running|completed|failed"
         string risk_level "low|medium|high|critical"
         int credit_score "300-850"
         float confidence "0.0-1.0"
-        string reasoning
-        float tool_selection_score
-        float data_quality_score
-        float synthesis_score
+        text reasoning
         float overall_score
         string final_decision
-        string decision_reasoning
-        array errors
-        array warnings
-        array tools_used
-        array agents_used
-        datetime started_at
-        datetime completed_at
+        text decision_reasoning
+        jsonb errors "array"
+        jsonb warnings "array"
+        jsonb tools_used "array"
+        jsonb agents_used "array"
+        timestamptz started_at
+        timestamptz completed_at
         float duration_ms
         int total_tokens
         float total_cost
         int llm_calls_count
-        datetime timestamp
+        timestamptz timestamp
     }
 
     LLM_CALLS {
-        ObjectId _id PK
+        serial id PK
         string run_id FK
-        string call_type "parse_input|tool_selection|credit_synthesis"
+        string company_name
+        string node
+        string node_type
         string agent_name
+        int step_number
+        string call_type
         string model
         string provider "groq|openai|anthropic"
+        float temperature
         text prompt
         text response
+        text reasoning
+        text context
+        text current_task
         int prompt_tokens
         int completion_tokens
         int total_tokens
-        float cost
-        float response_time_ms
-        float temperature
-        boolean success
-        string error
-        datetime timestamp
+        float input_cost
+        float output_cost
+        float total_cost
+        float execution_time_ms
+        string status
+        text error
+        timestamptz timestamp
     }
 
     TOOL_CALLS {
-        ObjectId _id PK
+        serial id PK
         string run_id FK
-        string tool_name "sec_edgar|finnhub|court_listener|web_search"
-        string agent_name
-        json input_params
-        json output_data
+        string company_name
+        string tool_name
+        jsonb tool_input
+        jsonb tool_output
         float execution_time_ms
-        boolean success
-        string error
-        string selection_reason
-        datetime timestamp
+        string status
+        text error
+        timestamptz timestamp
     }
 
     LANGGRAPH_EVENTS {
-        ObjectId _id PK
+        serial id PK
         string run_id FK
-        string event_type "node_start|node_end|edge|state_update"
-        string node_name
+        string company_name
+        string event_type "node_start|node_end|edge"
+        string node
         string agent_name
-        int step_number
-        json state_before
-        json state_after
-        json metadata
+        float duration_ms
+        timestamptz timestamp
+    }
+
+    DATA_SOURCES {
+        serial id PK
+        string run_id FK
+        string company_name
+        string source_name
+        string source_type
+        string status
+        jsonb data_retrieved
         float execution_time_ms
-        datetime timestamp
+        text error
+        timestamptz timestamp
     }
 
     ASSESSMENTS {
-        ObjectId _id PK
+        serial id PK
         string run_id FK
         string company_name
+        string assessment_type
         string risk_level
         int credit_score
         float confidence
         text reasoning
-        array risk_factors
-        array positive_factors
-        array recommendations
-        json data_quality_assessment
-        json financial_summary
-        json sources_used
-        datetime timestamp
+        jsonb risk_factors
+        jsonb positive_factors
+        jsonb recommendations
+        string model
+        timestamptz timestamp
     }
 
     EVALUATIONS {
-        ObjectId _id PK
+        serial id PK
         string run_id FK
+        string company_name
         string evaluation_type
         float overall_score
-        float tool_selection_precision
-        float tool_selection_recall
-        float tool_selection_f1
+        float tool_selection_score
         float data_quality_score
         float synthesis_score
-        json llm_judge_results
-        json agent_metrics
-        json cross_model_comparison
-        json consistency_metrics
-        datetime timestamp
+        timestamptz timestamp
     }
 
     TOOL_SELECTIONS {
-        ObjectId _id PK
+        serial id PK
         string run_id FK
         string company_name
-        array tools_selected
-        json selection_reasoning
+        jsonb selected_tools "array"
+        jsonb expected_tools "array"
+        float precision_score
+        float recall_score
+        float f1_score
+        timestamptz timestamp
+    }
+
+    PLANS {
+        serial id PK
+        string run_id FK
+        string company_name
+        string plan_type
+        jsonb plan_steps "array"
         string model
-        int tokens_used
-        float execution_time_ms
-        datetime timestamp
+        text reasoning
+        timestamptz timestamp
+    }
+
+    PROMPTS {
+        serial id PK
+        string run_id FK
+        string company_name
+        string prompt_id
+        string prompt_name
+        string category
+        text system_prompt
+        text user_prompt
+        jsonb variables
+        string node
+        string agent_name
+        int step_number
+        string model
+        timestamptz timestamp
+    }
+
+    CONSISTENCY_SCORES {
+        serial id PK
+        string run_id FK
+        string company_name
+        string model
+        int run_number
+        string risk_level
+        int credit_score
+        float confidence
+        float consistency_score
+        timestamptz timestamp
+    }
+
+    CROSS_MODEL_EVAL {
+        serial id PK
+        string run_id FK
+        string company_name
+        string primary_model
+        string secondary_model
+        string primary_risk_level
+        string secondary_risk_level
+        int primary_credit_score
+        int secondary_credit_score
+        float agreement_score
+        text differences
+        timestamptz timestamp
+    }
+
+    LLM_JUDGE_RESULTS {
+        serial id PK
+        string run_id FK
+        string company_name
+        string judge_model
+        float accuracy_score
+        float completeness_score
+        float consistency_score
+        float overall_score
+        text feedback
+        jsonb detailed_scores
+        timestamptz timestamp
+    }
+
+    AGENT_METRICS {
+        serial id PK
+        string run_id FK
+        string company_name
+        string agent_name
+        float overall_score
+        float intent_correctness
+        float plan_quality
+        float tool_choice_correctness
+        float tool_completeness
+        float trajectory_match
+        float final_answer_quality
+        timestamptz timestamp
+    }
+
+    LOG_TESTS {
+        serial id PK
+        string run_id FK
+        string company_name
+        string verification_status
+        int total_tables_logged
+        jsonb tables_verified
+        timestamptz timestamp
     }
 
     API_KEYS {
-        ObjectId _id PK
+        serial id PK
         string key_name UK
-        string key_value
-        datetime created_at
-        datetime updated_at
+        text key_value
+        timestamptz created_at
+        timestamptz updated_at
     }
 
     COMPANIES {
-        ObjectId _id PK
+        serial id PK
         string name
         string ticker
         string industry
         string sector
         string jurisdiction
         boolean is_public
-        json cached_data
-        datetime last_updated
+        jsonb cached_data
+        timestamptz last_updated
     }
 ```
+
+### Table Relationships Summary
+
+| Table | Relationship | Cardinality | Description |
+|-------|-------------|-------------|-------------|
+| runs | - | 1 | Central entity, one per workflow execution |
+| llm_calls | runs.run_id | 1:N | Multiple LLM calls per run (parsing, synthesis, etc.) |
+| tool_calls | runs.run_id | 1:N | Multiple tool executions per run |
+| langgraph_events | runs.run_id | 1:N | Multiple workflow events per run |
+| data_sources | runs.run_id | 1:N | Multiple data sources fetched per run |
+| assessments | runs.run_id | 1:N | Multiple assessments (primary, secondary model) |
+| evaluations | runs.run_id | 1:1 | One evaluation summary per run |
+| tool_selections | runs.run_id | 1:1 | One tool selection decision per run |
+| plans | runs.run_id | 1:N | Task plans created during run |
+| prompts | runs.run_id | 1:N | Prompts used during run |
+| consistency_scores | runs.run_id | 1:N | Multiple consistency checks |
+| cross_model_eval | runs.run_id | 1:N | Cross-model comparisons |
+| llm_judge_results | runs.run_id | 1:1 | One LLM judge evaluation per run |
+| agent_metrics | runs.run_id | 1:1 | One agent metrics summary per run |
+| log_tests | runs.run_id | 1:1 | One log verification per run |
+| api_keys | - | - | Standalone, runtime API key storage |
+| companies | - | - | Standalone, company data cache |
 
 ---
 
@@ -472,6 +614,7 @@ sequenceDiagram
     participant LLMAnalyst
     participant Evaluator
     participant MongoDB
+    participant Postgres
     participant Sheets
 
     User->>API: POST /analyze {company_name}
@@ -506,8 +649,13 @@ sequenceDiagram
     Evaluator->>Evaluator: Run all evaluators
     Evaluator-->>Supervisor: evaluation_scores
 
-    Supervisor->>Sheets: Log to Google Sheets
-    Sheets-->>Supervisor: logged
+    par Dual-Write Logging
+        Supervisor->>Postgres: Log to PostgreSQL
+        Postgres-->>Supervisor: logged
+    and
+        Supervisor->>Sheets: Log to Google Sheets
+        Sheets-->>Supervisor: logged
+    end
 
     Supervisor-->>API: Complete workflow
     API-->>User: {assessment, evaluation, run_id}
@@ -1059,12 +1207,32 @@ Data sources are API connectors that handle authentication and data transformati
 
 **Location:** `src/run_logging/`
 
-#### 8.1 SheetsLogger
+The system uses a **dual-write architecture** where all workflow data is logged to both Google Sheets and PostgreSQL simultaneously via `WorkflowLogger`. This provides:
+- **Google Sheets**: Easy human-readable analysis and sharing
+- **PostgreSQL**: Scalable querying, data retention, and production-grade storage
+
+#### 8.1 WorkflowLogger
+
+Central coordinator that routes logs to both SheetsLogger and PostgresLogger.
+
+```python
+workflow_logger.log_run(...)      # Logs to both Sheets and PostgreSQL
+workflow_logger.log_llm_call(...) # Logs to both Sheets and PostgreSQL
+workflow_logger.log_tool_call(...) # Logs to both Sheets and PostgreSQL
+```
+
+#### 8.2 SheetsLogger
 
 Logs to Google Sheets for analysis.
 
-**15 Sheets:**
-| Sheet | Content |
+#### 8.3 PostgresLogger
+
+Logs to PostgreSQL (Heroku Postgres) with identical table structure to Google Sheets.
+
+**Database:** Heroku PostgreSQL (via `DATABASE_URL`)
+
+**15 Tables (matching Google Sheets):**
+| Table | Content |
 |-------|---------|
 | runs | Run summaries |
 | langgraph_events | LangGraph execution events |
@@ -1088,13 +1256,43 @@ Logs to Google Sheets for analysis.
 
 **Location:** `src/storage/`
 
-#### MongoDB
+#### 9.1 MongoDB
+
+Primary document store for complete run records.
 
 | Collection | Content |
 |------------|---------|
 | runs | Complete run records |
 | companies | Company data cache |
 | assessments | Credit assessments |
+
+#### 9.2 PostgreSQL
+
+Relational database for structured logging and analytics (via Heroku Postgres).
+
+| Table | Content |
+|-------|---------|
+| runs | Run summaries with metrics |
+| llm_calls | All LLM API calls |
+| tool_calls | Tool execution records |
+| langgraph_events | Workflow events |
+| assessments | Credit assessments |
+| evaluations | Evaluation scores |
+| tool_selections | Tool selection details |
+| consistency_scores | Model consistency metrics |
+| data_sources | Data source results |
+| plans | Task plans |
+| prompts | Prompts used |
+| cross_model_eval | Cross-model comparison |
+| llm_judge_results | LLM judge results |
+| agent_metrics | Agent efficiency metrics |
+| log_tests | Log verification records |
+| api_keys | Runtime API key storage |
+
+**Key Features:**
+- JSONB columns for complex data (tool_input, tool_output, etc.)
+- Indexes on run_id and timestamp for fast queries
+- Matches Google Sheets structure for easy comparison
 
 ---
 
@@ -1208,6 +1406,7 @@ OUTPUT: {
 | `FINNHUB_API_KEY` | Finnhub API key |
 | `TAVILY_API_KEY` | Tavily API key |
 | `MONGODB_URI` | MongoDB connection string |
+| `DATABASE_URL` | PostgreSQL connection string (Heroku Postgres) |
 | `GOOGLE_SPREADSHEET_ID` | Google Sheets ID |
 | `LANGSMITH_API_KEY` | LangSmith tracing key |
 
@@ -1266,12 +1465,14 @@ src/
 │   └── workflow_evaluator.py # All evaluation (workflow_evaluator)
 │
 ├── run_logging/
-│   ├── workflow_logger.py # Main logger
-│   ├── sheets_logger.py   # Google Sheets logger (15 sheets)
+│   ├── workflow_logger.py   # Main logger (coordinates dual-write)
+│   ├── sheets_logger.py     # Google Sheets logger (15 sheets)
+│   ├── postgres_logger.py   # PostgreSQL logger (15 tables)
 │   └── langgraph_logger.py
 │
 └── storage/
-    └── mongodb.py         # MongoDB storage (db_writer)
+    ├── mongodb.py           # MongoDB storage (db_writer)
+    └── postgres.py          # PostgreSQL storage (Heroku Postgres)
 ```
 
 ---
@@ -1287,6 +1488,6 @@ The Credit Intelligence system is a hierarchical multi-agent workflow:
 5. **Data Sources** connect to external APIs
 6. **LLM Calls** power analysis and decision-making
 7. **Evaluators** measure output quality (all use `workflow_evaluator`)
-8. **Loggers** record everything to 15 Google Sheets
+8. **Loggers** record everything to both PostgreSQL and Google Sheets (dual-write)
 
 Each entity has well-defined inputs, outputs, and relationships, enabling comprehensive tracing and evaluation of the credit assessment process.
