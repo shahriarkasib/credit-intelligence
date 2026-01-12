@@ -357,25 +357,22 @@ def parse_input(state: CreditWorkflowState) -> Dict[str, Any]:
             )
 
         # Log prompt used for parse_input (logs to both Google Sheets and PostgreSQL)
-        if llm_metrics:
+        if llm_metrics and wf_logger:
             try:
-                from run_logging.workflow_logger import get_workflow_logger
-                wf_logger = get_workflow_logger()
-                if wf_logger:
-                    wf_logger.log_prompt(
-                        run_id=run_id,
-                        company_name=company_name,
-                        prompt_id="company_parser",
-                        prompt_name="Company Parser",
-                        category="input",
-                        system_prompt=llm_metrics.get("system_prompt", ""),
-                        user_prompt=llm_metrics.get("prompt_used", ""),
-                        variables={"company_name": company_name},
-                        node="parse_input",
-                        agent_name="llm_parser",
-                        step_number=step_number,
-                        model=llm_metrics.get("model", ""),
-                    )
+                wf_logger.log_prompt(
+                    run_id=run_id,
+                    company_name=company_name,
+                    prompt_id="company_parser",
+                    prompt_name="Company Parser",
+                    category="input",
+                    system_prompt=llm_metrics.get("system_prompt", ""),
+                    user_prompt=llm_metrics.get("prompt_used", ""),
+                    variables={"company_name": company_name},
+                    node="parse_input",
+                    agent_name="llm_parser",
+                    step_number=step_number,
+                    model=llm_metrics.get("model", ""),
+                )
             except Exception as e:
                 logger.warning(f"Failed to log prompt: {e}")
     else:
@@ -1130,34 +1127,31 @@ def synthesize(state: CreditWorkflowState) -> Dict[str, Any]:
                             )
 
                             # Log prompt for the first synthesis call only (to avoid duplicates)
-                            if call_type == "synthesis_primary_1":
+                            if call_type == "synthesis_primary_1" and wf_logger:
                                 try:
-                                    from run_logging.workflow_logger import get_workflow_logger
-                                    wf_logger = get_workflow_logger()
-                                    if wf_logger:
-                                        wf_logger.log_prompt(
-                                            run_id=run_id,
-                                            company_name=company_name,
-                                            prompt_id="credit_synthesis",
-                                            prompt_name="Credit Synthesis",
-                                            category="synthesis",
-                                            system_prompt="You are an expert credit analyst...",
-                                            user_prompt=LLMAnalystAgent.CREDIT_ANALYSIS_PROMPT.format(
-                                                company_info=json.dumps(state.get("company_info", {}), default=str)[:500],
-                                                financial_data="(summarized)",
-                                                legal_data="(summarized)",
-                                                market_data="(summarized)",
-                                                news_data="(summarized)",
-                                            )[:2000],  # Truncate for logging
-                                            variables={
-                                                "company_name": company_name,
-                                                "api_sources": list(state.get("api_data", {}).keys()),
-                                            },
-                                            node="synthesize",
-                                            agent_name="llm_analyst",
-                                            step_number=step_number,
-                                            model=model_id,
-                                        )
+                                    wf_logger.log_prompt(
+                                        run_id=run_id,
+                                        company_name=company_name,
+                                        prompt_id="credit_synthesis",
+                                        prompt_name="Credit Synthesis",
+                                        category="synthesis",
+                                        system_prompt="You are an expert credit analyst...",
+                                        user_prompt=LLMAnalystAgent.CREDIT_ANALYSIS_PROMPT.format(
+                                            company_info=json.dumps(state.get("company_info", {}), default=str)[:500],
+                                            financial_data="(summarized)",
+                                            legal_data="(summarized)",
+                                            market_data="(summarized)",
+                                            news_data="(summarized)",
+                                        )[:2000],  # Truncate for logging
+                                        variables={
+                                            "company_name": company_name,
+                                            "api_sources": list(state.get("api_data", {}).keys()),
+                                        },
+                                        node="synthesize",
+                                        agent_name="llm_analyst",
+                                        step_number=step_number,
+                                        model=model_id,
+                                    )
                                 except Exception as e:
                                     logger.warning(f"Failed to log synthesis prompt: {e}")
 
