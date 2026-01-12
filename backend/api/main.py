@@ -1566,30 +1566,26 @@ async def get_run_details(run_id: str):
         return input_cost + output_cost
 
     if llm_calls_detailed:
-        # Calculate cost for each call if missing
-        for call in llm_calls_detailed:
-            if not call.get("total_cost"):
-                prompt_tokens = call.get("prompt_tokens", 0)
-                completion_tokens = call.get("completion_tokens", 0)
-                if prompt_tokens or completion_tokens:
-                    call["total_cost"] = calculate_cost(prompt_tokens, completion_tokens)
-
         result["llm_calls"] = serialize_mongo_doc(llm_calls_detailed)
 
-        # Calculate summary from the calls
+        # Calculate token totals from calls
         total_calls = len(llm_calls_detailed)
         total_input_tokens = sum(c.get("prompt_tokens", 0) for c in llm_calls_detailed)
         total_output_tokens = sum(c.get("completion_tokens", 0) for c in llm_calls_detailed)
-        total_cost = sum(c.get("total_cost", 0) for c in llm_calls_detailed)
 
-        # If total_cost is still 0, use summary cost or calculate from tokens
-        if total_cost == 0:
-            # First try to use summary cost (most accurate)
-            if summary and summary.get("total_cost"):
-                total_cost = summary.get("total_cost")
-            # Otherwise calculate from tokens
+        # For cost: prefer summary.total_cost (accurate runtime value)
+        # Otherwise calculate from tokens
+        if summary and summary.get("total_cost"):
+            total_cost = summary.get("total_cost")
+        else:
+            # Check if calls have stored cost
+            stored_cost = sum(c.get("total_cost", 0) for c in llm_calls_detailed)
+            if stored_cost > 0:
+                total_cost = stored_cost
             elif total_input_tokens > 0 or total_output_tokens > 0:
                 total_cost = calculate_cost(total_input_tokens, total_output_tokens)
+            else:
+                total_cost = 0
 
         result["llm_summary"] = {
             "total_calls": total_calls,
@@ -1657,15 +1653,12 @@ async def get_run_details(run_id: str):
             "nodes": list(unique_nodes),
         }
 
-    # Get LangGraph run summary from dedicated collection
-    lg_summary = db.get_langgraph_run_summary(run_id)
-    if lg_summary:
-        result["langgraph_summary"] = serialize_mongo_doc(lg_summary)
-    elif calculated_summary:
+    # Build langgraph_summary with consistent structure for frontend
+    # Priority: calculated from events > summary fallback
+    if calculated_summary:
         result["langgraph_summary"] = calculated_summary
     elif summary:
         # Fallback: use run summary data for basic stats
-        # Count LLM calls as "nodes" if no event data available
         llm_calls_count = summary.get("llm_calls_count", 0)
         agents_used = summary.get("agents_used", [])
         tools_used = summary.get("tools_used", [])
