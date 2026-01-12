@@ -91,11 +91,12 @@ class RunLogger:
         # Initialize PostgreSQL logger
         if enable_postgres and POSTGRES_LOGGER_AVAILABLE:
             try:
+                logger.info("Initializing PostgreSQL logger...")
                 self._postgres_logger = get_postgres_logger()
                 if self._postgres_logger.is_connected():
                     logger.info("RunLogger connected to PostgreSQL")
                 else:
-                    logger.warning("PostgreSQL not connected, trying to initialize...")
+                    logger.info("PostgreSQL not connected, trying to initialize...")
                     if self._postgres_logger.initialize():
                         logger.info("PostgreSQL initialized successfully")
                     else:
@@ -111,7 +112,18 @@ class RunLogger:
 
     def is_postgres_connected(self) -> bool:
         """Check if PostgreSQL is connected."""
-        return self._postgres_logger is not None and self._postgres_logger.is_connected()
+        if self._postgres_logger is None:
+            return False
+        if not self._postgres_logger.is_connected():
+            # Try to initialize/connect if not connected
+            try:
+                if self._postgres_logger.initialize():
+                    logger.info("PostgreSQL reconnected successfully")
+                    return True
+            except Exception as e:
+                logger.warning(f"Failed to reconnect to PostgreSQL: {e}")
+            return False
+        return True
 
     def is_connected(self) -> bool:
         return self.db is not None

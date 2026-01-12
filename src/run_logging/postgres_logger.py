@@ -91,7 +91,12 @@ class PostgresLogger:
     def is_connected(self) -> bool:
         """Check if connected to PostgreSQL."""
         storage = self.storage
-        return storage is not None and storage.is_connected()
+        if storage is None:
+            logger.debug("PostgresStorage is None")
+            return False
+        connected = storage.is_connected()
+        logger.debug(f"PostgresStorage.is_connected() = {connected}")
+        return connected
 
     def initialize(self) -> bool:
         """Initialize the database schema."""
@@ -157,13 +162,18 @@ class PostgresLogger:
             True if successful
         """
         if not self.is_connected():
-            logger.warning("Not connected to PostgreSQL")
+            logger.warning(f"Not connected to PostgreSQL, cannot log to {sheet_name}")
             return False
 
         table_name = self._get_table_name(sheet_name)
         normalized_data = self._normalize_columns(data)
 
-        return self.storage.insert(table_name, normalized_data)
+        result = self.storage.insert(table_name, normalized_data)
+        if result:
+            logger.info(f"Successfully logged to PostgreSQL table {table_name}")
+        else:
+            logger.warning(f"Failed to log to PostgreSQL table {table_name}")
+        return result
 
     def log_many(self, sheet_name: str, data_list: List[Dict[str, Any]]) -> int:
         """
