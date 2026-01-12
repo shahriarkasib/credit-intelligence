@@ -718,15 +718,20 @@ def create_plan(state: CreditWorkflowState) -> Dict[str, Any]:
         from run_logging.run_logger import get_run_logger
         run_logger = get_run_logger()
         if run_logger and run_logger.is_postgres_connected():
-            run_logger.postgres.log("plans", {
+            plan_data = {
                 "run_id": run_id,
                 "company_name": company_name,
-                "task_plan": task_plan,
+                "full_plan": task_plan,
                 "num_tasks": len(task_plan) if task_plan else 0,
                 "node": "create_plan",
                 "agent_name": "tool_supervisor" if tool_selection else "supervisor",
-                "status": "ok",
-            })
+                "plan_summary": f"Plan with {len(task_plan) if task_plan else 0} tasks",
+            }
+            # Add individual tasks (up to 10)
+            if task_plan:
+                for i, task in enumerate(task_plan[:10], 1):
+                    plan_data[f"task_{i}"] = str(task) if task else ""
+            run_logger.postgres.log("plans", plan_data)
     except Exception as e:
         logger.warning(f"Failed to log plan to PostgreSQL: {e}")
 

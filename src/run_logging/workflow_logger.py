@@ -316,10 +316,12 @@ class WorkflowLogger:
                     "run_id": run_id,
                     "company_name": company_name,
                     "source_name": source_name,
-                    "success": success,
+                    "status": "success" if success else "error",
                     "records_found": records_found,
                     "execution_time_ms": execution_time_ms,
                     "error": error,
+                    "node": node,
+                    "agent_name": agent_name,
                 })
             except Exception as e:
                 logger.warning(f"Failed to log data source to PostgreSQL: {e}")
