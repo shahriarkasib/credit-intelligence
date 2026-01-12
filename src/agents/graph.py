@@ -356,13 +356,13 @@ def parse_input(state: CreditWorkflowState) -> Dict[str, Any]:
                 current_task="company_parsing",
             )
 
-        # Log prompt used for parse_input
+        # Log prompt used for parse_input (logs to both Google Sheets and PostgreSQL)
         if llm_metrics:
             try:
-                from run_logging.sheets_logger import get_sheets_logger
-                sheets_logger = get_sheets_logger()
-                if sheets_logger and sheets_logger.is_connected():
-                    sheets_logger.log_prompt(
+                from run_logging.workflow_logger import get_workflow_logger
+                wf_logger = get_workflow_logger()
+                if wf_logger:
+                    wf_logger.log_prompt(
                         run_id=run_id,
                         company_name=company_name,
                         prompt_id="company_parser",
@@ -1132,10 +1132,10 @@ def synthesize(state: CreditWorkflowState) -> Dict[str, Any]:
                             # Log prompt for the first synthesis call only (to avoid duplicates)
                             if call_type == "synthesis_primary_1":
                                 try:
-                                    from run_logging.sheets_logger import get_sheets_logger
-                                    sheets_logger = get_sheets_logger()
-                                    if sheets_logger and sheets_logger.is_connected():
-                                        sheets_logger.log_prompt(
+                                    from run_logging.workflow_logger import get_workflow_logger
+                                    wf_logger = get_workflow_logger()
+                                    if wf_logger:
+                                        wf_logger.log_prompt(
                                             run_id=run_id,
                                             company_name=company_name,
                                             prompt_id="credit_synthesis",
@@ -1148,7 +1148,7 @@ def synthesize(state: CreditWorkflowState) -> Dict[str, Any]:
                                                 legal_data="(summarized)",
                                                 market_data="(summarized)",
                                                 news_data="(summarized)",
-                                            )[:2000],  # Truncate for sheet
+                                            )[:2000],  # Truncate for logging
                                             variables={
                                                 "company_name": company_name,
                                                 "api_sources": list(state.get("api_data", {}).keys()),
