@@ -183,6 +183,9 @@ class WorkflowLogger:
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
                 execution_time_ms=execution_time_ms,
+                input_cost=input_cost,
+                output_cost=output_cost,
+                total_cost=total_cost,
             )
 
         # Log to Google Sheets with cost and task tracking

@@ -515,6 +515,9 @@ class RunLogger:
         prompt_tokens: int,
         completion_tokens: int,
         execution_time_ms: float,
+        input_cost: float = 0.0,
+        output_cost: float = 0.0,
+        total_cost: float = 0.0,
     ):
         """Log an LLM API call."""
         llm_doc = {
@@ -527,6 +530,9 @@ class RunLogger:
             "completion_tokens": completion_tokens,
             "total_tokens": prompt_tokens + completion_tokens,
             "execution_time_ms": execution_time_ms,
+            "input_cost": input_cost,
+            "output_cost": output_cost,
+            "total_cost": total_cost,
             "timestamp": datetime.utcnow(),
         }
 
@@ -552,6 +558,9 @@ class RunLogger:
                     completion_tokens=completion_tokens,
                     total_tokens=prompt_tokens + completion_tokens,
                     execution_time_ms=execution_time_ms,
+                    input_cost=input_cost,
+                    output_cost=output_cost,
+                    total_cost=total_cost,
                 )
             except Exception as e:
                 logger.warning(f"Failed to log LLM call to PostgreSQL: {e}")
