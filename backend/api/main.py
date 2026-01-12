@@ -1566,19 +1566,15 @@ async def get_run_details(run_id: str):
         return input_cost + output_cost
 
     if llm_calls_detailed:
-        result["llm_calls"] = serialize_mongo_doc(llm_calls_detailed)
-
         # Calculate token totals from calls
         total_calls = len(llm_calls_detailed)
         total_input_tokens = sum(c.get("prompt_tokens", 0) for c in llm_calls_detailed)
         total_output_tokens = sum(c.get("completion_tokens", 0) for c in llm_calls_detailed)
 
-        # For cost: prefer summary.total_cost (accurate runtime value)
-        # Otherwise calculate from tokens
+        # For total cost: prefer summary.total_cost (accurate runtime value)
         if summary and summary.get("total_cost"):
             total_cost = summary.get("total_cost")
         else:
-            # Check if calls have stored cost
             stored_cost = sum(c.get("total_cost", 0) for c in llm_calls_detailed)
             if stored_cost > 0:
                 total_cost = stored_cost
@@ -1586,6 +1582,29 @@ async def get_run_details(run_id: str):
                 total_cost = calculate_cost(total_input_tokens, total_output_tokens)
             else:
                 total_cost = 0
+
+        # Calculate per-call costs for display
+        # Scale proportionally so they add up to total_cost
+        calculated_total = 0
+        for call in llm_calls_detailed:
+            prompt_tokens = call.get("prompt_tokens", 0)
+            completion_tokens = call.get("completion_tokens", 0)
+            call["_calculated_cost"] = calculate_cost(prompt_tokens, completion_tokens)
+            calculated_total += call["_calculated_cost"]
+
+        # Scale per-call costs to match total_cost if needed
+        if calculated_total > 0 and total_cost > 0:
+            scale_factor = total_cost / calculated_total
+            for call in llm_calls_detailed:
+                call["total_cost"] = call["_calculated_cost"] * scale_factor
+                del call["_calculated_cost"]
+        else:
+            for call in llm_calls_detailed:
+                call["total_cost"] = call.get("_calculated_cost", 0)
+                if "_calculated_cost" in call:
+                    del call["_calculated_cost"]
+
+        result["llm_calls"] = serialize_mongo_doc(llm_calls_detailed)
 
         result["llm_summary"] = {
             "total_calls": total_calls,
