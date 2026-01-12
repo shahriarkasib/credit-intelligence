@@ -50,6 +50,7 @@ class PostgresStorage:
 
     # Table definitions with their columns and types
     # Format: (column_name, column_type, nullable, is_partition_key)
+    # NOTE: Table names match Google Sheets exactly for simplicity
     TABLE_SCHEMAS = {
         # Main runs table - the core table that others reference
         "runs": {
@@ -86,9 +87,9 @@ class PostgresStorage:
             "indexes": ["run_id", "company_name", "status", "risk_level"],
         },
 
-        # Workflow: LLM Calls
-        "wf_llm_calls": {
-            "prefix": "wf_",
+        # LLM Calls
+        "llm_calls": {
+            "prefix": "",
             "columns": [
                 ("id", "BIGSERIAL", False, False),
                 ("run_id", "VARCHAR(64)", False, False),
@@ -122,9 +123,9 @@ class PostgresStorage:
             "foreign_keys": [("run_id", "runs", "run_id")],
         },
 
-        # Workflow: Tool Calls
-        "wf_tool_calls": {
-            "prefix": "wf_",
+        # Tool Calls
+        "tool_calls": {
+            "prefix": "",
             "columns": [
                 ("id", "BIGSERIAL", False, False),
                 ("run_id", "VARCHAR(64)", False, False),
@@ -150,9 +151,9 @@ class PostgresStorage:
             "foreign_keys": [("run_id", "runs", "run_id")],
         },
 
-        # Workflow: LangGraph Events
-        "wf_langgraph_events": {
-            "prefix": "wf_",
+        # LangGraph Events
+        "langgraph_events": {
+            "prefix": "",
             "columns": [
                 ("id", "BIGSERIAL", False, False),
                 ("run_id", "VARCHAR(64)", False, False),
@@ -181,9 +182,9 @@ class PostgresStorage:
             "foreign_keys": [("run_id", "runs", "run_id")],
         },
 
-        # Workflow: Plans
-        "wf_plans": {
-            "prefix": "wf_",
+        # Plans
+        "plans": {
+            "prefix": "",
             "columns": [
                 ("id", "BIGSERIAL", False, False),
                 ("run_id", "VARCHAR(64)", False, False),
@@ -211,9 +212,9 @@ class PostgresStorage:
             "foreign_keys": [("run_id", "runs", "run_id")],
         },
 
-        # Workflow: Prompts
-        "wf_prompts": {
-            "prefix": "wf_",
+        # Prompts
+        "prompts": {
+            "prefix": "",
             "columns": [
                 ("id", "BIGSERIAL", False, False),
                 ("run_id", "VARCHAR(64)", False, False),
@@ -236,9 +237,9 @@ class PostgresStorage:
             "foreign_keys": [("run_id", "runs", "run_id")],
         },
 
-        # Workflow: Data Sources
-        "wf_data_sources": {
-            "prefix": "wf_",
+        # Data Sources
+        "data_sources": {
+            "prefix": "",
             "columns": [
                 ("id", "BIGSERIAL", False, False),
                 ("run_id", "VARCHAR(64)", False, False),
@@ -261,9 +262,9 @@ class PostgresStorage:
             "foreign_keys": [("run_id", "runs", "run_id")],
         },
 
-        # Workflow: Assessments
-        "wf_assessments": {
-            "prefix": "wf_",
+        # Assessments
+        "assessments": {
+            "prefix": "",
             "columns": [
                 ("id", "BIGSERIAL", False, False),
                 ("run_id", "VARCHAR(64)", False, False),
@@ -293,9 +294,9 @@ class PostgresStorage:
             "foreign_keys": [("run_id", "runs", "run_id")],
         },
 
-        # Evaluation: General Evaluations
-        "eval_evaluations": {
-            "prefix": "eval_",
+        # Evaluations
+        "evaluations": {
+            "prefix": "",
             "columns": [
                 ("id", "BIGSERIAL", False, False),
                 ("run_id", "VARCHAR(64)", False, False),
@@ -323,9 +324,9 @@ class PostgresStorage:
             "foreign_keys": [("run_id", "runs", "run_id")],
         },
 
-        # Evaluation: Tool Selections
-        "eval_tool_selections": {
-            "prefix": "eval_",
+        # Tool Selections
+        "tool_selections": {
+            "prefix": "",
             "columns": [
                 ("id", "BIGSERIAL", False, False),
                 ("run_id", "VARCHAR(64)", False, False),
@@ -353,9 +354,9 @@ class PostgresStorage:
             "foreign_keys": [("run_id", "runs", "run_id")],
         },
 
-        # Evaluation: Consistency Scores
-        "eval_consistency_scores": {
-            "prefix": "eval_",
+        # Consistency Scores
+        "consistency_scores": {
+            "prefix": "",
             "columns": [
                 ("id", "BIGSERIAL", False, False),
                 ("run_id", "VARCHAR(64)", False, False),
@@ -383,9 +384,9 @@ class PostgresStorage:
             "foreign_keys": [("run_id", "runs", "run_id")],
         },
 
-        # Evaluation: Cross-Model Evaluation
-        "eval_cross_model": {
-            "prefix": "eval_",
+        # Cross-Model Evaluation
+        "cross_model_eval": {
+            "prefix": "",
             "columns": [
                 ("id", "BIGSERIAL", False, False),
                 ("run_id", "VARCHAR(64)", False, False),
@@ -418,9 +419,9 @@ class PostgresStorage:
             "foreign_keys": [("run_id", "runs", "run_id")],
         },
 
-        # Evaluation: LLM Judge Results
-        "eval_llm_judge": {
-            "prefix": "eval_",
+        # LLM Judge Results
+        "llm_judge_results": {
+            "prefix": "",
             "columns": [
                 ("id", "BIGSERIAL", False, False),
                 ("run_id", "VARCHAR(64)", False, False),
@@ -458,9 +459,9 @@ class PostgresStorage:
             "foreign_keys": [("run_id", "runs", "run_id")],
         },
 
-        # Evaluation: Agent Metrics
-        "eval_agent_metrics": {
-            "prefix": "eval_",
+        # Agent Metrics
+        "agent_metrics": {
+            "prefix": "",
             "columns": [
                 ("id", "BIGSERIAL", False, False),
                 ("run_id", "VARCHAR(64)", False, False),
@@ -494,9 +495,9 @@ class PostgresStorage:
             "foreign_keys": [("run_id", "runs", "run_id")],
         },
 
-        # Evaluation: Coalition Results
-        "eval_coalition": {
-            "prefix": "eval_",
+        # Coalition Results
+        "coalition": {
+            "prefix": "",
             "columns": [
                 ("id", "BIGSERIAL", False, False),
                 ("run_id", "VARCHAR(64)", False, False),
@@ -520,9 +521,9 @@ class PostgresStorage:
             "foreign_keys": [("run_id", "runs", "run_id")],
         },
 
-        # Evaluation: Log Tests (verification)
-        "eval_log_tests": {
-            "prefix": "eval_",
+        # Log Tests (verification)
+        "log_tests": {
+            "prefix": "",
             "columns": [
                 ("id", "BIGSERIAL", False, False),
                 ("run_id", "VARCHAR(64)", False, False),
@@ -550,9 +551,9 @@ class PostgresStorage:
             "foreign_keys": [("run_id", "runs", "run_id")],
         },
 
-        # System: API Keys (not partitioned, small table)
-        "sys_api_keys": {
-            "prefix": "sys_",
+        # API Keys (not partitioned, small table)
+        "api_keys": {
+            "prefix": "",
             "columns": [
                 ("id", "SERIAL", False, False),
                 ("key_name", "VARCHAR(100)", False, False),
@@ -950,16 +951,16 @@ class PostgresStorage:
             result["found"] = True
             result["summary"] = run
 
-        # Get related data
+        # Get related data (table names match Google Sheets)
         related_tables = {
-            "llm_calls": "wf_llm_calls",
-            "tool_calls": "wf_tool_calls",
-            "langgraph_events": "wf_langgraph_events",
-            "assessment": "wf_assessments",
-            "evaluation": "eval_evaluations",
-            "tool_selection": "eval_tool_selections",
-            "agent_metrics": "eval_agent_metrics",
-            "coalition": "eval_coalition",
+            "llm_calls": "llm_calls",
+            "tool_calls": "tool_calls",
+            "langgraph_events": "langgraph_events",
+            "assessment": "assessments",
+            "evaluation": "evaluations",
+            "tool_selection": "tool_selections",
+            "agent_metrics": "agent_metrics",
+            "coalition": "coalition",
         }
 
         for key, table in related_tables.items():

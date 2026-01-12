@@ -32,41 +32,32 @@ class PostgresLogger:
 
     Provides the same interface as SheetsLogger for easy migration.
 
-    Table Mapping (Sheet Name -> PostgreSQL Table):
-    - runs -> runs
-    - llm_calls -> wf_llm_calls
-    - tool_calls -> wf_tool_calls
-    - langgraph_events -> wf_langgraph_events
-    - plans -> wf_plans
-    - prompts -> wf_prompts
-    - data_sources -> wf_data_sources
-    - assessments -> wf_assessments
-    - evaluations -> eval_evaluations
-    - tool_selections -> eval_tool_selections
-    - consistency_scores -> eval_consistency_scores
-    - cross_model_eval -> eval_cross_model
-    - llm_judge_results -> eval_llm_judge
-    - agent_metrics -> eval_agent_metrics
-    - log_tests -> eval_log_tests
+    Table names match Google Sheets exactly:
+    - runs, llm_calls, tool_calls, langgraph_events, plans, prompts,
+    - data_sources, assessments, evaluations, tool_selections,
+    - consistency_scores, cross_model_eval, llm_judge_results,
+    - agent_metrics, log_tests, coalition, api_keys
     """
 
-    # Mapping from sheet names to PostgreSQL table names
+    # Table names match Google Sheets exactly (identity mapping)
     TABLE_MAPPING = {
         "runs": "runs",
-        "llm_calls": "wf_llm_calls",
-        "tool_calls": "wf_tool_calls",
-        "langgraph_events": "wf_langgraph_events",
-        "plans": "wf_plans",
-        "prompts": "wf_prompts",
-        "data_sources": "wf_data_sources",
-        "assessments": "wf_assessments",
-        "evaluations": "eval_evaluations",
-        "tool_selections": "eval_tool_selections",
-        "consistency_scores": "eval_consistency_scores",
-        "cross_model_eval": "eval_cross_model",
-        "llm_judge_results": "eval_llm_judge",
-        "agent_metrics": "eval_agent_metrics",
-        "log_tests": "eval_log_tests",
+        "llm_calls": "llm_calls",
+        "tool_calls": "tool_calls",
+        "langgraph_events": "langgraph_events",
+        "plans": "plans",
+        "prompts": "prompts",
+        "data_sources": "data_sources",
+        "assessments": "assessments",
+        "evaluations": "evaluations",
+        "tool_selections": "tool_selections",
+        "consistency_scores": "consistency_scores",
+        "cross_model_eval": "cross_model_eval",
+        "llm_judge_results": "llm_judge_results",
+        "agent_metrics": "agent_metrics",
+        "log_tests": "log_tests",
+        "coalition": "coalition",
+        "api_keys": "api_keys",
     }
 
     # Column mapping for field name normalization
@@ -471,10 +462,7 @@ class PostgresLogger:
             "votes": votes or [],
         }
         data.update(kwargs)
-
-        table_name = "eval_coalition"
-        normalized_data = self._normalize_columns(data)
-        return self.storage.insert(table_name, normalized_data)
+        return self.log("coalition", data)
 
     def log_log_test(
         self,

@@ -2292,9 +2292,9 @@ async def query_pg_table(
     """
     Query a specific PostgreSQL table.
 
-    Valid table names:
-    - runs, wf_llm_calls, wf_tool_calls, wf_langgraph_events, wf_assessments
-    - eval_evaluations, eval_tool_selections, eval_consistency_scores, etc.
+    Valid table names (match Google Sheets exactly):
+    - runs, llm_calls, tool_calls, langgraph_events, assessments
+    - evaluations, tool_selections, consistency_scores, etc.
     """
     if not POSTGRES_AVAILABLE:
         raise HTTPException(status_code=503, detail="PostgreSQL not available")
@@ -2303,13 +2303,13 @@ async def query_pg_table(
     if not pg or not pg.is_connected():
         raise HTTPException(status_code=503, detail="PostgreSQL not connected")
 
-    # Validate table name
+    # Validate table name (names match Google Sheets exactly)
     valid_tables = [
-        "runs", "wf_llm_calls", "wf_tool_calls", "wf_langgraph_events",
-        "wf_plans", "wf_prompts", "wf_data_sources", "wf_assessments",
-        "eval_evaluations", "eval_tool_selections", "eval_consistency_scores",
-        "eval_cross_model", "eval_llm_judge", "eval_agent_metrics",
-        "eval_coalition", "eval_log_tests"
+        "runs", "llm_calls", "tool_calls", "langgraph_events",
+        "plans", "prompts", "data_sources", "assessments",
+        "evaluations", "tool_selections", "consistency_scores",
+        "cross_model_eval", "llm_judge_results", "agent_metrics",
+        "coalition", "log_tests", "api_keys"
     ]
 
     if table_name not in valid_tables:
