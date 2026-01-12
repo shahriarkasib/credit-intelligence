@@ -442,6 +442,35 @@ class WorkflowLogger:
             except Exception as e:
                 logger.warning(f"Failed to log assessment to PostgreSQL: {e}")
 
+        # Log to MongoDB (for run details API)
+        if self.run_logger.is_connected():
+            try:
+                assessment_dict = {
+                    "overall_risk_level": risk_level,
+                    "credit_score_estimate": credit_score,
+                    "confidence_score": confidence,
+                    "llm_reasoning": reasoning,
+                    "recommendations": recommendations,
+                    "risk_factors": risk_factors,
+                    "positive_factors": positive_factors,
+                }
+                llm_metrics = {
+                    "model": model,
+                    "node": node,
+                    "agent_name": agent_name,
+                    "step_number": step_number,
+                    "temperature": temperature,
+                    "duration_ms": duration_ms,
+                }
+                self.run_logger.log_assessment(
+                    run_id=run_id,
+                    company_name=company_name,
+                    assessment=assessment_dict,
+                    llm_metrics=llm_metrics,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to log assessment to MongoDB: {e}")
+
         logger.info(f"[{run_id[:8]}] Assessment: {risk_level} (score: {credit_score})")
 
     def log_evaluation(

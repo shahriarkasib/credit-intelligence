@@ -2051,19 +2051,6 @@ function RunDetailsModal({
                     </div>
                   </div>
 
-                  {/* LangSmith Link */}
-                  {details.langsmith_url && (
-                    <a
-                      href={details.langsmith_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-2 p-4 rounded-lg border border-studio-accent/50 bg-studio-accent/10 hover:bg-studio-accent/20 transition-colors"
-                    >
-                      <ExternalLink className="w-5 h-5 text-studio-accent" />
-                      <span className="text-studio-accent font-medium">View in LangSmith</span>
-                      <span className="text-xs text-studio-muted ml-auto">Opens in new tab</span>
-                    </a>
-                  )}
                 </div>
               )}
 
@@ -2157,7 +2144,7 @@ function RunDetailsModal({
                         <div className="text-xl font-bold">{details.llm_summary.total_output_tokens?.toLocaleString() || 0}</div>
                       </div>
                       <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
-                        <div className="text-xs text-studio-muted mb-1">Total Cost</div>
+                        <div className="text-xs text-studio-muted mb-1">Estimated Cost</div>
                         <div className="text-xl font-bold">{formatCost(details.llm_summary.total_cost || 0)}</div>
                       </div>
                     </div>
@@ -2171,8 +2158,9 @@ function RunDetailsModal({
                           <tr>
                             <th className="text-left p-3 text-studio-muted">Model</th>
                             <th className="text-left p-3 text-studio-muted">Agent</th>
-                            <th className="text-left p-3 text-studio-muted">Tokens</th>
-                            <th className="text-left p-3 text-studio-muted">Cost</th>
+                            <th className="text-left p-3 text-studio-muted">Call Type</th>
+                            <th className="text-left p-3 text-studio-muted">Tokens (In/Out)</th>
+                            <th className="text-left p-3 text-studio-muted">Estimated Cost</th>
                             <th className="text-left p-3 text-studio-muted">Duration</th>
                           </tr>
                         </thead>
@@ -2184,12 +2172,17 @@ function RunDetailsModal({
                                   {call.model || 'Unknown'}
                                 </code>
                               </td>
-                              <td className="p-3 text-studio-muted">{call.agent_name || call.node_name || '-'}</td>
+                              <td className="p-3 text-studio-muted">{call.agent_name || call.node || '-'}</td>
                               <td className="p-3">
-                                {call.input_tokens || 0} / {call.output_tokens || 0}
+                                <span className="px-2 py-0.5 bg-blue-900/30 text-blue-400 rounded text-xs">
+                                  {call.call_type || '-'}
+                                </span>
                               </td>
-                              <td className="p-3">{formatCost(call.cost || 0)}</td>
-                              <td className="p-3">{call.duration_ms ? formatDuration(call.duration_ms) : '-'}</td>
+                              <td className="p-3">
+                                {(call.prompt_tokens || call.input_tokens || 0).toLocaleString()} / {(call.completion_tokens || call.output_tokens || 0).toLocaleString()}
+                              </td>
+                              <td className="p-3">{formatCost(call.total_cost || call.cost || 0)}</td>
+                              <td className="p-3">{(call.execution_time_ms || call.duration_ms) ? formatDuration(call.execution_time_ms || call.duration_ms) : '-'}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -2249,24 +2242,70 @@ function RunDetailsModal({
                       <div className="p-3 bg-studio-panel border-b border-studio-border">
                         <h3 className="text-sm font-medium">Workflow Events ({details.langgraph_events.length})</h3>
                       </div>
-                      <div className="max-h-96 overflow-y-auto">
+                      <div className="max-h-[500px] overflow-y-auto">
                         {details.langgraph_events.map((event: any, i: number) => (
-                          <div key={i} className="p-3 border-b border-studio-border last:border-0 hover:bg-studio-panel/30">
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className={`px-2 py-0.5 rounded text-xs ${
+                          <div key={i} className="p-4 border-b border-studio-border last:border-0 hover:bg-studio-panel/30">
+                            <div className="flex items-center gap-2 mb-2">
+                              <span className={`px-2 py-0.5 rounded text-xs font-medium ${
                                 event.event_type === 'node_start' ? 'bg-blue-900/50 text-blue-400' :
                                 event.event_type === 'node_end' ? 'bg-green-900/50 text-green-400' :
+                                event.event_type === 'edge' ? 'bg-purple-900/50 text-purple-400' :
                                 'bg-gray-700 text-gray-400'
                               }`}>
                                 {event.event_type || 'event'}
                               </span>
-                              <span className="font-medium text-sm">{event.node_name || event.agent_name || 'Unknown'}</span>
-                              {event.duration_ms && (
-                                <span className="text-xs text-studio-muted ml-auto">{formatDuration(event.duration_ms)}</span>
+                              <span className="font-medium text-sm">{event.node || event.node_name || 'Unknown'}</span>
+                              {event.agent_name && (
+                                <span className="px-2 py-0.5 bg-studio-accent/20 text-studio-accent rounded text-xs">
+                                  {event.agent_name}
+                                </span>
+                              )}
+                              {(event.duration_ms || event.execution_time_ms) && (
+                                <span className="text-xs text-studio-muted ml-auto">{formatDuration(event.duration_ms || event.execution_time_ms)}</span>
                               )}
                             </div>
-                            {event.message && (
-                              <p className="text-xs text-studio-muted truncate">{event.message}</p>
+                            {/* Event Details */}
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs mt-2">
+                              {event.step_number !== undefined && (
+                                <div>
+                                  <span className="text-studio-muted">Step: </span>
+                                  <span className="font-medium">{event.step_number}</span>
+                                </div>
+                              )}
+                              {event.company_name && (
+                                <div>
+                                  <span className="text-studio-muted">Company: </span>
+                                  <span className="font-medium">{event.company_name}</span>
+                                </div>
+                              )}
+                              {event.status && (
+                                <div>
+                                  <span className="text-studio-muted">Status: </span>
+                                  <span className={`font-medium ${event.status === 'success' ? 'text-green-400' : event.status === 'error' ? 'text-red-400' : ''}`}>
+                                    {event.status}
+                                  </span>
+                                </div>
+                              )}
+                              {event.timestamp && (
+                                <div>
+                                  <span className="text-studio-muted">Time: </span>
+                                  <span className="font-medium">{new Date(event.timestamp).toLocaleTimeString()}</span>
+                                </div>
+                              )}
+                            </div>
+                            {/* Message or Output */}
+                            {(event.message || event.output || event.error) && (
+                              <div className="mt-2 p-2 bg-black/30 rounded text-xs">
+                                {event.error ? (
+                                  <p className="text-red-400">{event.error}</p>
+                                ) : event.output ? (
+                                  <pre className="text-studio-muted whitespace-pre-wrap overflow-x-auto max-h-32">
+                                    {typeof event.output === 'string' ? event.output : JSON.stringify(event.output, null, 2)}
+                                  </pre>
+                                ) : (
+                                  <p className="text-studio-muted">{event.message}</p>
+                                )}
+                              </div>
                             )}
                           </div>
                         ))}
@@ -2290,27 +2329,84 @@ function RunDetailsModal({
                         <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
                           <div className="text-xs text-studio-muted mb-1">Risk Level</div>
                           <div className={`text-xl font-bold ${
-                            details.assessment.overall_risk_level === 'low' ? 'text-green-400' :
-                            details.assessment.overall_risk_level === 'medium' ? 'text-yellow-400' : 'text-red-400'
+                            (details.assessment.overall_risk_level || details.assessment.risk_level) === 'low' ? 'text-green-400' :
+                            (details.assessment.overall_risk_level || details.assessment.risk_level) === 'medium' ? 'text-yellow-400' : 'text-red-400'
                           }`}>
-                            {details.assessment.overall_risk_level || 'N/A'}
+                            {details.assessment.overall_risk_level || details.assessment.risk_level || 'N/A'}
                           </div>
                         </div>
                         <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
                           <div className="text-xs text-studio-muted mb-1">Credit Score</div>
                           <div className="text-xl font-bold text-studio-accent">
-                            {details.assessment.credit_score || 'N/A'}
+                            {details.assessment.credit_score_estimate || details.assessment.credit_score || 'N/A'}
                           </div>
                         </div>
                         <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
                           <div className="text-xs text-studio-muted mb-1">Confidence</div>
                           <div className="text-xl font-bold">
-                            {details.assessment.confidence ? (details.assessment.confidence * 100).toFixed(0) + '%' : 'N/A'}
+                            {(details.assessment.confidence_score || details.assessment.confidence)
+                              ? ((details.assessment.confidence_score || details.assessment.confidence) * 100).toFixed(0) + '%'
+                              : 'N/A'}
                           </div>
                         </div>
                       </div>
 
-                      {/* Full Assessment */}
+                      {/* Reasoning */}
+                      {(details.assessment.llm_reasoning || details.assessment.reasoning) && (
+                        <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                          <h3 className="text-sm font-medium mb-2">Analysis Reasoning</h3>
+                          <p className="text-sm text-studio-muted whitespace-pre-wrap">
+                            {details.assessment.llm_reasoning || details.assessment.reasoning}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Risk & Positive Factors */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {details.assessment.risk_factors && details.assessment.risk_factors.length > 0 && (
+                          <div className="p-4 rounded-lg border border-red-900/50 bg-red-900/10">
+                            <h3 className="text-sm font-medium text-red-400 mb-2">Risk Factors</h3>
+                            <ul className="text-sm text-studio-muted space-y-1">
+                              {details.assessment.risk_factors.map((factor: string, i: number) => (
+                                <li key={i} className="flex items-start gap-2">
+                                  <span className="text-red-400">•</span>
+                                  {factor}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {details.assessment.positive_factors && details.assessment.positive_factors.length > 0 && (
+                          <div className="p-4 rounded-lg border border-green-900/50 bg-green-900/10">
+                            <h3 className="text-sm font-medium text-green-400 mb-2">Positive Factors</h3>
+                            <ul className="text-sm text-studio-muted space-y-1">
+                              {details.assessment.positive_factors.map((factor: string, i: number) => (
+                                <li key={i} className="flex items-start gap-2">
+                                  <span className="text-green-400">•</span>
+                                  {factor}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Recommendations */}
+                      {details.assessment.recommendations && details.assessment.recommendations.length > 0 && (
+                        <div className="p-4 rounded-lg border border-studio-accent/50 bg-studio-accent/10">
+                          <h3 className="text-sm font-medium text-studio-accent mb-2">Recommendations</h3>
+                          <ul className="text-sm text-studio-muted space-y-1">
+                            {details.assessment.recommendations.map((rec: string, i: number) => (
+                              <li key={i} className="flex items-start gap-2">
+                                <span className="text-studio-accent">{i + 1}.</span>
+                                {rec}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Full Assessment JSON */}
                       <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
                         <h3 className="text-sm font-medium mb-3">Full Assessment Data</h3>
                         <pre className="text-xs text-studio-muted overflow-x-auto bg-black/30 p-3 rounded max-h-96 overflow-y-auto">
