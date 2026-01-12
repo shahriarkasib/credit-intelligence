@@ -285,11 +285,9 @@ class RunLogger:
             self._save_local_run(run_id)
 
         # Also log to PostgreSQL
-        pg_connected = self.is_postgres_connected()
-        logger.info(f"Tool call {tool_name}: PostgreSQL connected={pg_connected}")
-        if pg_connected:
+        if self.is_postgres_connected():
             try:
-                result = self._postgres_logger.log_tool_call(
+                self._postgres_logger.log_tool_call(
                     run_id=run_id,
                     company_name="",  # Get from run if available
                     tool_name=tool_name,
@@ -298,7 +296,6 @@ class RunLogger:
                     execution_time_ms=execution_time_ms,
                     status="success" if success else "error",
                 )
-                logger.info(f"Tool call {tool_name} logged to PostgreSQL: {result}")
             except Exception as e:
                 logger.warning(f"Failed to log tool call to PostgreSQL: {e}")
 
