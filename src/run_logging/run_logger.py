@@ -406,14 +406,25 @@ class RunLogger:
         # Log completed run to PostgreSQL
         if self.is_postgres_connected():
             try:
-                # Get company name from MongoDB or local cache
+                # Get company name and started_at from MongoDB or local cache
                 company_name = ""
+                started_at = None
                 if self.is_connected():
                     run_doc = self.db.runs.find_one({"run_id": run_id})
                     if run_doc:
                         company_name = run_doc.get("company_name", "")
+                        started_at = run_doc.get("started_at")
                 elif run_id in self._local_runs:
                     company_name = self._local_runs[run_id].get("company_name", "")
+                    started_at = self._local_runs[run_id].get("started_at")
+
+                # Convert started_at to ISO format if it's a datetime
+                started_at_str = ""
+                if started_at:
+                    if isinstance(started_at, datetime):
+                        started_at_str = started_at.isoformat()
+                    elif isinstance(started_at, str) and started_at:
+                        started_at_str = started_at
 
                 self._postgres_logger.log_run(
                     run_id=run_id,
@@ -424,6 +435,7 @@ class RunLogger:
                     confidence=final_result.get("confidence", 0.0),
                     reasoning=final_result.get("reasoning", ""),
                     overall_score=final_result.get("evaluation_score", 0.0),
+                    started_at=started_at_str if started_at_str else completed_at.isoformat(),
                     completed_at=completed_at.isoformat(),
                     duration_ms=total_metrics.get("total_time_ms", 0),
                     total_tokens=total_metrics.get("total_tokens", 0),
@@ -780,6 +792,10 @@ class RunLogger:
         # Also log to PostgreSQL
         if self.is_postgres_connected():
             try:
+                # Ensure timestamps are not empty strings
+                pg_started_at = started_at if started_at else now.isoformat()
+                pg_completed_at = actual_completed_at if actual_completed_at else now.isoformat()
+
                 self._postgres_logger.log_run(
                     run_id=run_id,
                     company_name=company_name,
@@ -795,8 +811,8 @@ class RunLogger:
                     warnings=warnings,
                     tools_used=tools_used,
                     agents_used=agents_used,
-                    started_at=started_at,
-                    completed_at=actual_completed_at,
+                    started_at=pg_started_at,
+                    completed_at=pg_completed_at,
                     duration_ms=duration_ms,
                     total_tokens=total_tokens,
                     total_cost=total_cost,

@@ -221,6 +221,11 @@ class PostgresLogger:
         **kwargs,
     ) -> bool:
         """Log a run summary."""
+        # Handle empty string timestamps - PostgreSQL TIMESTAMPTZ needs valid values or NULL
+        now_iso = datetime.now(timezone.utc).isoformat()
+        actual_started_at = started_at if started_at else now_iso
+        actual_completed_at = completed_at if completed_at else now_iso
+
         data = {
             "run_id": run_id,
             "company_name": company_name,
@@ -236,8 +241,8 @@ class PostgresLogger:
             "warnings": warnings or [],
             "tools_used": tools_used or [],
             "agents_used": agents_used or [],
-            "started_at": started_at,
-            "completed_at": completed_at,
+            "started_at": actual_started_at,
+            "completed_at": actual_completed_at,
             "duration_ms": duration_ms,
             "total_tokens": total_tokens,
             "total_cost": total_cost,
