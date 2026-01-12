@@ -1582,9 +1582,14 @@ async def get_run_details(run_id: str):
         total_output_tokens = sum(c.get("completion_tokens", 0) for c in llm_calls_detailed)
         total_cost = sum(c.get("total_cost", 0) for c in llm_calls_detailed)
 
-        # If total_cost is still 0, calculate from tokens
-        if total_cost == 0 and (total_input_tokens > 0 or total_output_tokens > 0):
-            total_cost = calculate_cost(total_input_tokens, total_output_tokens)
+        # If total_cost is still 0, use summary cost or calculate from tokens
+        if total_cost == 0:
+            # First try to use summary cost (most accurate)
+            if summary and summary.get("total_cost"):
+                total_cost = summary.get("total_cost")
+            # Otherwise calculate from tokens
+            elif total_input_tokens > 0 or total_output_tokens > 0:
+                total_cost = calculate_cost(total_input_tokens, total_output_tokens)
 
         result["llm_summary"] = {
             "total_calls": total_calls,
@@ -1593,9 +1598,20 @@ async def get_run_details(run_id: str):
             "total_tokens": total_input_tokens + total_output_tokens,
             "total_cost": total_cost,
         }
+    elif summary:
+        # Fallback: use summary data if no detailed llm_calls available
+        result["llm_summary"] = {
+            "total_calls": summary.get("llm_calls_count", 0),
+            "total_input_tokens": 0,
+            "total_output_tokens": 0,
+            "total_tokens": summary.get("total_tokens", 0),
+            "total_cost": summary.get("total_cost", 0),
+        }
 
     # Get LangGraph events/traces
     events = db.get_langgraph_events(run_id=run_id, limit=500)
+    calculated_summary = None
+
     if events:
         # Filter to show only node-level events (on_chain_end has output data)
         # Group by node name to avoid duplicates
@@ -1621,7 +1637,7 @@ async def get_run_details(run_id: str):
         filtered_events = sorted(node_events.values(), key=lambda x: x.get("timestamp", ""))
         result["langgraph_events"] = serialize_mongo_doc(filtered_events)
 
-        # Calculate summary from events if dedicated collection is empty
+        # Calculate summary from events
         total_events = len(events)
         unique_nodes = set()
         total_duration = 0
@@ -1634,7 +1650,6 @@ async def get_run_details(run_id: str):
             if duration:
                 total_duration += duration
 
-        # Build summary
         calculated_summary = {
             "total_nodes": len(unique_nodes),
             "total_events": total_events,
@@ -1642,13 +1657,27 @@ async def get_run_details(run_id: str):
             "nodes": list(unique_nodes),
         }
 
-    # Get LangGraph run summary (nodes, agents) from dedicated collection
+    # Get LangGraph run summary from dedicated collection
     lg_summary = db.get_langgraph_run_summary(run_id)
     if lg_summary:
         result["langgraph_summary"] = serialize_mongo_doc(lg_summary)
-    elif events:
-        # Use calculated summary if dedicated collection is empty
+    elif calculated_summary:
         result["langgraph_summary"] = calculated_summary
+    elif summary:
+        # Fallback: use run summary data for basic stats
+        # Count LLM calls as "nodes" if no event data available
+        llm_calls_count = summary.get("llm_calls_count", 0)
+        agents_used = summary.get("agents_used", [])
+        tools_used = summary.get("tools_used", [])
+        duration = summary.get("duration_ms", 0)
+
+        result["langgraph_summary"] = {
+            "total_nodes": len(agents_used) if agents_used else llm_calls_count,
+            "total_events": llm_calls_count,
+            "total_duration_ms": duration,
+            "nodes": agents_used or [],
+            "tools": tools_used or [],
+        }
 
     # Get assessment from MongoDB first, fallback to PostgreSQL
     assessment = db.db.assessments.find_one({"run_id": run_id})
