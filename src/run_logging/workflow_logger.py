@@ -9,6 +9,14 @@ from typing import Any, Callable, Dict, List, Optional
 from .run_logger import get_run_logger
 from .sheets_logger import get_sheets_logger
 
+# Try to import postgres logger
+try:
+    from .postgres_logger import get_postgres_logger
+    POSTGRES_LOGGER_AVAILABLE = True
+except ImportError:
+    POSTGRES_LOGGER_AVAILABLE = False
+    get_postgres_logger = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -26,6 +34,7 @@ class WorkflowLogger:
     def __init__(self):
         self.run_logger = get_run_logger()
         self.sheets_logger = get_sheets_logger()
+        self.postgres_logger = get_postgres_logger() if POSTGRES_LOGGER_AVAILABLE else None
         self._step_counter: Dict[str, int] = {}  # run_id -> step count
         self._llm_call_counter: Dict[str, int] = {}  # run_id -> llm call count
         self._run_info: Dict[str, Dict[str, Any]] = {}  # run_id -> run info

@@ -108,6 +108,20 @@ except ImportError:
     evaluate_with_llm_judge = None
     get_llm_judge = None
 
+# Import coalition evaluator
+try:
+    from evaluation.coalition_evaluator import (
+        CoalitionEvaluator,
+        evaluate_workflow_correctness,
+        get_coalition_evaluator,
+    )
+    COALITION_EVALUATOR_AVAILABLE = True
+except ImportError:
+    COALITION_EVALUATOR_AVAILABLE = False
+    CoalitionEvaluator = None
+    evaluate_workflow_correctness = None
+    get_coalition_evaluator = None
+
 # Import unified agent evaluator (combines DeepEval + OpenEvals + Built-in)
 try:
     from evaluation.unified_agent_evaluator import (
@@ -2351,6 +2365,86 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                 except Exception as openevals_error:
                     logger.warning(f"OpenEvals evaluation failed: {openevals_error}")
 
+            # Coalition evaluation - combines all evaluators for robust correctness assessment
+            if COALITION_EVALUATOR_AVAILABLE and evaluate_workflow_correctness:
+                try:
+                    coalition_result = evaluate_workflow_correctness(
+                        run_id=run_id,
+                        company_name=company_name,
+                        state=state,
+                        historical_runs=None,  # Could add historical runs for consistency check
+                    )
+
+                    # Add coalition results to evaluation
+                    evaluation["coalition"] = {
+                        "is_correct": coalition_result.is_correct,
+                        "correctness_score": coalition_result.correctness_score,
+                        "confidence": coalition_result.confidence,
+                        "correctness_category": coalition_result.correctness_category,
+                        "efficiency_score": coalition_result.efficiency_score,
+                        "quality_score": coalition_result.quality_score,
+                        "tool_score": coalition_result.tool_score,
+                        "consistency_score": coalition_result.consistency_score,
+                        "agreement_score": coalition_result.agreement_score,
+                        "num_evaluators": coalition_result.num_evaluators,
+                    }
+
+                    # Log coalition to Google Sheets
+                    try:
+                        from run_logging.sheets_logger import get_sheets_logger as get_sheets
+                        coalition_sheets = get_sheets()
+                        if coalition_sheets and coalition_sheets.is_connected():
+                            coalition_sheets.log_coalition(
+                                run_id=run_id,
+                                company_name=company_name,
+                                is_correct=coalition_result.is_correct,
+                                correctness_score=coalition_result.correctness_score,
+                                confidence=coalition_result.confidence,
+                                correctness_category=coalition_result.correctness_category,
+                                efficiency_score=coalition_result.efficiency_score,
+                                quality_score=coalition_result.quality_score,
+                                tool_score=coalition_result.tool_score,
+                                consistency_score=coalition_result.consistency_score,
+                                agreement_score=coalition_result.agreement_score,
+                                num_evaluators=coalition_result.num_evaluators,
+                                votes=coalition_result.votes,
+                                evaluation_time_ms=coalition_result.evaluation_time_ms,
+                            )
+                    except Exception as sheets_err:
+                        logger.debug(f"Coalition sheets logging skipped: {sheets_err}")
+
+                    # Log coalition to PostgreSQL
+                    try:
+                        from run_logging.postgres_logger import get_postgres_logger as get_pg
+                        pg_logger = get_pg()
+                        if pg_logger and pg_logger.is_connected():
+                            pg_logger.log_coalition(
+                                run_id=run_id,
+                                company_name=company_name,
+                                correctness_score=coalition_result.correctness_score,
+                                confidence=coalition_result.confidence,
+                                correctness_category=coalition_result.correctness_category,
+                                votes=coalition_result.votes,
+                                is_correct=coalition_result.is_correct,
+                                efficiency_score=coalition_result.efficiency_score,
+                                quality_score=coalition_result.quality_score,
+                                tool_score=coalition_result.tool_score,
+                                consistency_score=coalition_result.consistency_score,
+                                agreement_score=coalition_result.agreement_score,
+                                num_evaluators=coalition_result.num_evaluators,
+                                evaluation_time_ms=coalition_result.evaluation_time_ms,
+                            )
+                    except Exception as pg_err:
+                        logger.debug(f"Coalition PostgreSQL logging skipped: {pg_err}")
+
+                    logger.info(f"Coalition - Score: {coalition_result.correctness_score:.2%}, "
+                               f"Correct: {coalition_result.is_correct}, "
+                               f"Category: {coalition_result.correctness_category}, "
+                               f"Confidence: {coalition_result.confidence:.2%}")
+
+                except Exception as coalition_error:
+                    logger.warning(f"Coalition evaluation failed: {coalition_error}")
+
             # Fetch and log LangSmith traces for this run
             if LANGSMITH_INTEGRATION_AVAILABLE and get_langsmith_integration:
                 try:
@@ -2377,6 +2471,31 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                     )
             except Exception as verify_error:
                 logger.debug(f"Log verification skipped: {verify_error}")
+
+            # Also log to PostgreSQL log_tests table
+            try:
+                from run_logging.postgres_logger import get_postgres_logger as get_pg_log
+                pg_log = get_pg_log()
+                if pg_log and pg_log.is_connected():
+                    # Count what we logged to determine status
+                    tables_logged = 0
+                    # Check common tables that should have data
+                    for table in ["runs", "llm_calls", "assessments", "evaluations"]:
+                        try:
+                            count = pg_log.storage.query(f"SELECT COUNT(*) FROM {table} WHERE run_id = %s", (run_id,))
+                            if count and count[0][0] > 0:
+                                tables_logged += 1
+                        except:
+                            pass
+                    status = "pass" if tables_logged >= 3 else ("partial" if tables_logged > 0 else "fail")
+                    pg_log.log_log_test(
+                        run_id=run_id,
+                        company_name=company_name,
+                        verification_status=status,
+                        total_tables_logged=tables_logged,
+                    )
+            except Exception as pg_verify_error:
+                logger.debug(f"PostgreSQL log verification skipped: {pg_verify_error}")
 
         return {
             "evaluation": evaluation,
