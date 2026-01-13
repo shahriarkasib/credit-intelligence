@@ -1183,6 +1183,17 @@ export default function CreditIntelligenceStudio() {
                               )}
                             </div>
                           </div>
+                          {/* Show description when step is running */}
+                          {step.status === 'running' && stepDescription && (
+                            <div className="mt-2 ml-6 flex items-center gap-2">
+                              <div className="flex gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-studio-accent animate-pulse" />
+                                <span className="w-1.5 h-1.5 rounded-full bg-studio-accent animate-pulse" style={{ animationDelay: '0.2s' }} />
+                                <span className="w-1.5 h-1.5 rounded-full bg-studio-accent animate-pulse" style={{ animationDelay: '0.4s' }} />
+                              </div>
+                              <span className="text-xs text-studio-accent italic">{stepDescription}</span>
+                            </div>
+                          )}
                           {step.error && (
                             <div className="text-xs text-red-400 mt-2 ml-6">{step.error}</div>
                           )}
