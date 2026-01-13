@@ -1075,6 +1075,10 @@ class WorkflowLogger:
                 self.run_logger.postgres.log_agent_metrics(
                     run_id=run_id,
                     company_name=company_name,
+                    agent_name=agent_name,
+                    node=node,
+                    node_type="agent",
+                    model=model,
                     overall_score=overall_score,
                     intent_correctness=intent_correctness,
                     plan_quality=plan_quality,
@@ -1082,6 +1086,14 @@ class WorkflowLogger:
                     tool_completeness=tool_completeness,
                     trajectory_match=trajectory_match,
                     final_answer_quality=final_answer_quality,
+                    step_count=step_count,
+                    tool_calls_count=tool_calls,  # Schema uses tool_calls_count
+                    latency_ms=latency_ms,
+                    intent_details=intent_details,
+                    plan_details=plan_details,
+                    tool_details=tool_details,
+                    trajectory_details=trajectory_details,
+                    answer_details=answer_details,
                 )
             except Exception as e:
                 logger.warning(f"Failed to log agent metrics to PostgreSQL: {e}")
