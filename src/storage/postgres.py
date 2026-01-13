@@ -1227,6 +1227,9 @@ class PostgresStorage:
         """
         Migrate data from old tables to new tables and optionally drop old tables.
 
+        Uses separate transactions for each table to prevent one failure from
+        rolling back all changes.
+
         Args:
             dry_run: If True, only report what would be done without making changes
 
@@ -1241,16 +1244,21 @@ class PostgresStorage:
             "tables_checked": [],
             "data_migrated": [],
             "tables_dropped": [],
+            "partitions_dropped": [],
             "errors": [],
         }
 
-        try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
+        # Known old table names (without prefixes)
+        old_table_names = set(self.TABLE_ALIASES.keys())
 
-                # Check each old table -> new table mapping
-                for old_name, new_name in self.TABLE_ALIASES.items():
-                    check_result = {"old_table": old_name, "new_table": new_name}
+        # Check each old table -> new table mapping
+        for old_name, new_name in self.TABLE_ALIASES.items():
+            check_result = {"old_table": old_name, "new_table": new_name}
+
+            try:
+                # Use separate connection/transaction for each table
+                with self.get_connection() as conn:
+                    cursor = conn.cursor()
 
                     # Check if old table exists
                     cursor.execute("""
@@ -1279,47 +1287,46 @@ class PostgresStorage:
                         old_count = cursor.fetchone()["count"]
                         check_result["old_row_count"] = old_count
 
-                        if old_count > 0 and new_exists:
-                            # Migrate data if not dry run
-                            if not dry_run:
-                                try:
-                                    # Get column names from old table
+                        if old_count > 0 and new_exists and not dry_run:
+                            # Migrate data - skip if no data
+                            try:
+                                # Get column names from old table
+                                cursor.execute(f"""
+                                    SELECT column_name FROM information_schema.columns
+                                    WHERE table_name = %s AND table_schema = 'public'
+                                """, (old_name,))
+                                old_columns = [row["column_name"] for row in cursor.fetchall()]
+
+                                # Get column names from new table
+                                cursor.execute(f"""
+                                    SELECT column_name FROM information_schema.columns
+                                    WHERE table_name = %s AND table_schema = 'public'
+                                """, (new_name,))
+                                new_columns = [row["column_name"] for row in cursor.fetchall()]
+
+                                # Find common columns (excluding 'id' which is auto-generated)
+                                common_cols = [c for c in old_columns if c in new_columns and c != 'id']
+
+                                if common_cols:
+                                    cols_str = ", ".join(common_cols)
+                                    # Insert from old to new
                                     cursor.execute(f"""
-                                        SELECT column_name FROM information_schema.columns
-                                        WHERE table_name = %s AND table_schema = 'public'
-                                    """, (old_name,))
-                                    old_columns = [row["column_name"] for row in cursor.fetchall()]
-
-                                    # Get column names from new table
-                                    cursor.execute(f"""
-                                        SELECT column_name FROM information_schema.columns
-                                        WHERE table_name = %s AND table_schema = 'public'
-                                    """, (new_name,))
-                                    new_columns = [row["column_name"] for row in cursor.fetchall()]
-
-                                    # Find common columns (excluding 'id' which is auto-generated)
-                                    common_cols = [c for c in old_columns if c in new_columns and c != 'id']
-
-                                    if common_cols:
-                                        cols_str = ", ".join(common_cols)
-                                        # Insert from old to new
-                                        cursor.execute(f"""
-                                            INSERT INTO {new_name} ({cols_str})
-                                            SELECT {cols_str} FROM {old_name}
-                                            ON CONFLICT DO NOTHING
-                                        """)
-                                        migrated_count = cursor.rowcount
-                                        check_result["rows_migrated"] = migrated_count
-                                        result["data_migrated"].append({
-                                            "from": old_name,
-                                            "to": new_name,
-                                            "rows": migrated_count
-                                        })
-                                except Exception as e:
-                                    check_result["migration_error"] = str(e)
-                                    result["errors"].append(f"Migration {old_name} -> {new_name}: {e}")
-                            else:
-                                check_result["would_migrate"] = old_count
+                                        INSERT INTO {new_name} ({cols_str})
+                                        SELECT {cols_str} FROM {old_name}
+                                        ON CONFLICT DO NOTHING
+                                    """)
+                                    migrated_count = cursor.rowcount
+                                    check_result["rows_migrated"] = migrated_count
+                                    result["data_migrated"].append({
+                                        "from": old_name,
+                                        "to": new_name,
+                                        "rows": migrated_count
+                                    })
+                            except Exception as e:
+                                check_result["migration_error"] = str(e)
+                                result["errors"].append(f"Migration {old_name} -> {new_name}: {e}")
+                        elif dry_run and old_count > 0:
+                            check_result["would_migrate"] = old_count
 
                         # Drop old table if not dry run
                         if not dry_run:
@@ -1334,11 +1341,55 @@ class PostgresStorage:
                         else:
                             check_result["would_drop"] = True
 
-                    result["tables_checked"].append(check_result)
+            except Exception as e:
+                check_result["error"] = str(e)
+                result["errors"].append(f"Table {old_name}: {e}")
+
+            result["tables_checked"].append(check_result)
+
+        # Drop orphaned partition tables (partitions of old tables)
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Find all partition tables
+                cursor.execute("""
+                    SELECT tablename FROM pg_tables
+                    WHERE schemaname = 'public'
+                    AND tablename ~ '_[0-9]{4}_[0-9]{2}$'
+                    ORDER BY tablename
+                """)
+
+                for row in cursor.fetchall():
+                    partition_name = row["tablename"]
+                    # Extract base table name (everything before _YYYY_MM)
+                    parts = partition_name.rsplit('_', 2)
+                    if len(parts) >= 3:
+                        base_name = '_'.join(parts[:-2])
+                        # If base name is an old table name, this is an orphaned partition
+                        if base_name in old_table_names:
+                            if dry_run:
+                                result["partitions_dropped"].append({
+                                    "partition": partition_name,
+                                    "would_drop": True
+                                })
+                            else:
+                                try:
+                                    cursor.execute(f"DROP TABLE IF EXISTS {partition_name}")
+                                    result["partitions_dropped"].append({
+                                        "partition": partition_name,
+                                        "dropped": True
+                                    })
+                                    logger.info(f"Dropped orphaned partition: {partition_name}")
+                                except Exception as e:
+                                    result["partitions_dropped"].append({
+                                        "partition": partition_name,
+                                        "error": str(e)
+                                    })
+                                    result["errors"].append(f"Drop partition {partition_name}: {e}")
 
         except Exception as e:
-            logger.error(f"Migration failed: {e}")
-            result["errors"].append(str(e))
+            result["errors"].append(f"Partition cleanup: {e}")
 
         return result
 
