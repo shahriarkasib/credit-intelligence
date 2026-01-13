@@ -33,6 +33,7 @@ import {
   GitBranch,
   Shield,
   AlertCircle,
+  Database,
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -2106,7 +2107,9 @@ function RunDetailsModal({
   loading: boolean
   onClose: () => void
 }) {
-  const [activeSection, setActiveSection] = useState<'summary' | 'evaluation' | 'llm' | 'nodes' | 'assessment' | 'coalition'>('summary')
+  const [activeSection, setActiveSection] = useState<'summary' | 'evaluation' | 'llm' | 'nodes' | 'assessment' | 'coalition' | 'state'>('summary')
+  const [stateDump, setStateDump] = useState<any>(null)
+  const [stateLoading, setStateLoading] = useState(false)
 
   const formatDuration = (ms: number) => {
     if (ms < 1000) return `${ms.toFixed(0)}ms`
@@ -2171,6 +2174,7 @@ function RunDetailsModal({
                   { id: 'llm', label: 'LLM Calls', icon: Cpu },
                   { id: 'nodes', label: 'Nodes & Agents', icon: GitBranch },
                   { id: 'assessment', label: 'Assessment', icon: Shield },
+                  { id: 'state', label: 'State', icon: Database },
                 ].map((tab) => (
                   <button
                     key={tab.id}
@@ -2755,6 +2759,176 @@ function RunDetailsModal({
                       <AlertCircle className="w-8 h-8 mx-auto mb-2 opacity-50" />
                       <p>Coalition evaluation not available for this run</p>
                       <p className="text-xs mt-1">Evaluation may still be processing</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* State Tab */}
+              {activeSection === 'state' && (
+                <div className="space-y-4">
+                  {/* Load State Button */}
+                  {!stateDump && !stateLoading && (
+                    <div className="text-center py-8">
+                      <button
+                        onClick={async () => {
+                          setStateLoading(true)
+                          try {
+                            const res = await fetch(`${API_URL}/pg/state-dump/${runId}`)
+                            if (res.ok) {
+                              const data = await res.json()
+                              setStateDump(data)
+                            }
+                          } catch (err) {
+                            console.error('Failed to load state dump:', err)
+                          } finally {
+                            setStateLoading(false)
+                          }
+                        }}
+                        className="px-4 py-2 bg-studio-accent text-white rounded hover:opacity-80 transition-opacity"
+                      >
+                        Load Full State Dump
+                      </button>
+                      <p className="text-xs text-studio-muted mt-2">
+                        Click to fetch the complete workflow state
+                      </p>
+                    </div>
+                  )}
+
+                  {stateLoading && (
+                    <div className="text-center py-8">
+                      <Loader2 className="w-6 h-6 animate-spin mx-auto text-studio-muted" />
+                      <p className="text-studio-muted mt-2">Loading state dump...</p>
+                    </div>
+                  )}
+
+                  {stateDump && (
+                    <>
+                      {/* State Metadata */}
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                          <div className="text-xs text-studio-muted mb-1">Total Size</div>
+                          <div className="font-semibold">
+                            {stateDump.metadata?.total_state_size_bytes
+                              ? `${(stateDump.metadata.total_state_size_bytes / 1024).toFixed(1)} KB`
+                              : 'N/A'}
+                          </div>
+                        </div>
+                        <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                          <div className="text-xs text-studio-muted mb-1">Duration</div>
+                          <div className="font-semibold">
+                            {stateDump.metadata?.duration_ms
+                              ? `${(stateDump.metadata.duration_ms / 1000).toFixed(2)}s`
+                              : 'N/A'}
+                          </div>
+                        </div>
+                        <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                          <div className="text-xs text-studio-muted mb-1">Coalition Score</div>
+                          <div className="font-semibold text-studio-accent">
+                            {stateDump.scores?.coalition_score
+                              ? `${(stateDump.scores.coalition_score * 100).toFixed(1)}%`
+                              : 'N/A'}
+                          </div>
+                        </div>
+                        <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                          <div className="text-xs text-studio-muted mb-1">Agent Score</div>
+                          <div className="font-semibold">
+                            {stateDump.scores?.agent_metrics_score
+                              ? `${(stateDump.scores.agent_metrics_score * 100).toFixed(1)}%`
+                              : 'N/A'}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Company Info */}
+                      {stateDump.state?.company_info && Object.keys(stateDump.state.company_info).length > 0 && (
+                        <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                          <h3 className="text-sm font-medium mb-3">Company Info</h3>
+                          <pre className="text-xs text-studio-muted overflow-x-auto bg-black/30 p-3 rounded max-h-48 overflow-y-auto">
+                            {JSON.stringify(stateDump.state.company_info, null, 2)}
+                          </pre>
+                        </div>
+                      )}
+
+                      {/* Plan */}
+                      {stateDump.state?.plan && stateDump.state.plan.length > 0 && (
+                        <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                          <h3 className="text-sm font-medium mb-3">Task Plan ({stateDump.state.plan.length} tasks)</h3>
+                          <pre className="text-xs text-studio-muted overflow-x-auto bg-black/30 p-3 rounded max-h-48 overflow-y-auto">
+                            {JSON.stringify(stateDump.state.plan, null, 2)}
+                          </pre>
+                        </div>
+                      )}
+
+                      {/* API Data */}
+                      {stateDump.state?.api_data && Object.keys(stateDump.state.api_data).length > 0 && (
+                        <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                          <h3 className="text-sm font-medium mb-3">API Data ({Object.keys(stateDump.state.api_data).length} sources)</h3>
+                          <div className="flex flex-wrap gap-2 mb-3">
+                            {Object.keys(stateDump.state.api_data).map((source: string) => (
+                              <span key={source} className="px-2 py-1 bg-blue-900/30 text-blue-400 rounded text-xs">
+                                {source}
+                              </span>
+                            ))}
+                          </div>
+                          <pre className="text-xs text-studio-muted overflow-x-auto bg-black/30 p-3 rounded max-h-64 overflow-y-auto">
+                            {JSON.stringify(stateDump.state.api_data, null, 2)}
+                          </pre>
+                        </div>
+                      )}
+
+                      {/* Search Data */}
+                      {stateDump.state?.search_data && Object.keys(stateDump.state.search_data).length > 0 && (
+                        <div className="p-4 rounded-lg border border-studio-border bg-studio-panel">
+                          <h3 className="text-sm font-medium mb-3">Search Data</h3>
+                          <pre className="text-xs text-studio-muted overflow-x-auto bg-black/30 p-3 rounded max-h-48 overflow-y-auto">
+                            {JSON.stringify(stateDump.state.search_data, null, 2)}
+                          </pre>
+                        </div>
+                      )}
+
+                      {/* Assessment */}
+                      {stateDump.state?.assessment && Object.keys(stateDump.state.assessment).length > 0 && (
+                        <div className="p-4 rounded-lg border border-green-900/50 bg-green-900/10">
+                          <h3 className="text-sm font-medium text-green-400 mb-3">Assessment</h3>
+                          <pre className="text-xs text-studio-muted overflow-x-auto bg-black/30 p-3 rounded max-h-48 overflow-y-auto">
+                            {JSON.stringify(stateDump.state.assessment, null, 2)}
+                          </pre>
+                        </div>
+                      )}
+
+                      {/* Evaluation */}
+                      {stateDump.state?.evaluation && Object.keys(stateDump.state.evaluation).length > 0 && (
+                        <div className="p-4 rounded-lg border border-purple-900/50 bg-purple-900/10">
+                          <h3 className="text-sm font-medium text-purple-400 mb-3">Evaluation</h3>
+                          <pre className="text-xs text-studio-muted overflow-x-auto bg-black/30 p-3 rounded max-h-48 overflow-y-auto">
+                            {JSON.stringify(stateDump.state.evaluation, null, 2)}
+                          </pre>
+                        </div>
+                      )}
+
+                      {/* Errors */}
+                      {stateDump.state?.errors && stateDump.state.errors.length > 0 && (
+                        <div className="p-4 rounded-lg border border-red-900/50 bg-red-900/10">
+                          <h3 className="text-sm font-medium text-red-400 mb-3">Errors ({stateDump.state.errors.length})</h3>
+                          <ul className="text-sm text-studio-muted space-y-1">
+                            {stateDump.state.errors.map((error: string, i: number) => (
+                              <li key={i} className="flex items-start gap-2">
+                                <span className="text-red-400">•</span>
+                                {error}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {!stateLoading && stateDump === null && (
+                    <div className="text-center py-8 text-studio-muted border border-studio-border rounded-lg">
+                      <Database className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                      <p>State dump available on demand</p>
+                      <p className="text-xs mt-1">Full state includes all workflow data</p>
                     </div>
                   )}
                 </div>
