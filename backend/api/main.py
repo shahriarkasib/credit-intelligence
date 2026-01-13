@@ -2678,7 +2678,7 @@ async def query_pg_table(
         "plans", "prompts", "data_sources", "assessments",
         "evaluations", "tool_selections", "consistency_scores",
         "cross_model_eval", "llm_judge_results", "agent_metrics",
-        "coalition", "log_tests", "api_keys"
+        "coalition", "log_tests", "api_keys", "state_dumps"
     ]
 
     if table_name not in valid_tables:
@@ -2699,6 +2699,68 @@ async def query_pg_table(
         "count": len(results),
         "limit": limit,
         "offset": offset
+    }
+
+
+@app.get("/pg/state-dump/{run_id}")
+async def get_state_dump(run_id: str):
+    """
+    Get the full state dump for a specific run.
+
+    Returns the complete workflow state including:
+    - company_info: Parsed company information
+    - plan: Task plan
+    - api_data: Data from API sources
+    - search_data: Web search results
+    - assessment: Credit assessment
+    - evaluation: Evaluation results
+    - errors: Any errors encountered
+    - metadata: Timing, sizes, scores
+    """
+    if not POSTGRES_AVAILABLE:
+        raise HTTPException(status_code=503, detail="PostgreSQL not available")
+
+    pg = get_pg()
+    if not pg or not pg.is_connected():
+        raise HTTPException(status_code=503, detail="PostgreSQL not connected")
+
+    # Query state_dumps table for this run
+    results = pg.query(
+        "state_dumps",
+        conditions={"run_id": run_id},
+        order_by="timestamp DESC",
+        limit=1
+    )
+
+    if not results:
+        raise HTTPException(status_code=404, detail=f"No state dump found for run {run_id}")
+
+    state_dump = results[0]
+
+    # Format response
+    return {
+        "run_id": run_id,
+        "company_name": state_dump.get("company_name", ""),
+        "state": {
+            "company_info": state_dump.get("company_info", {}),
+            "plan": state_dump.get("plan", []),
+            "api_data": state_dump.get("api_data", {}),
+            "search_data": state_dump.get("search_data", {}),
+            "assessment": state_dump.get("assessment", {}),
+            "evaluation": state_dump.get("evaluation", {}),
+            "errors": state_dump.get("errors", []),
+        },
+        "scores": {
+            "coalition_score": state_dump.get("coalition_score", 0),
+            "agent_metrics_score": state_dump.get("agent_metrics_score", 0),
+        },
+        "metadata": {
+            "total_state_size_bytes": state_dump.get("total_state_size_bytes", 0),
+            "duration_ms": state_dump.get("duration_ms", 0),
+            "status": state_dump.get("status", "unknown"),
+            "timestamp": state_dump.get("timestamp", ""),
+        },
+        "source": "postgresql"
     }
 
 
