@@ -427,6 +427,7 @@ export default function CreditIntelligenceStudio() {
   const logsEndRef = useRef<HTMLDivElement>(null)
   const runningStepRef = useRef<HTMLDivElement>(null)
   const resultSectionRef = useRef<HTMLDivElement>(null)
+  const pipelineScrollRef = useRef<HTMLDivElement>(null)
 
   // Auto-scroll logs
   useEffect(() => {
@@ -438,8 +439,16 @@ export default function CreditIntelligenceStudio() {
     if (workflow?.current_step) {
       // Small delay to ensure React has rendered the new running step
       const timer = setTimeout(() => {
-        if (runningStepRef.current) {
-          runningStepRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        if (runningStepRef.current && pipelineScrollRef.current) {
+          // Get the position of the running step relative to the scroll container
+          const container = pipelineScrollRef.current
+          const element = runningStepRef.current
+          const containerRect = container.getBoundingClientRect()
+          const elementRect = element.getBoundingClientRect()
+
+          // Calculate scroll position to center the element
+          const scrollTop = element.offsetTop - container.offsetTop - (containerRect.height / 2) + (elementRect.height / 2)
+          container.scrollTo({ top: Math.max(0, scrollTop), behavior: 'smooth' })
         }
       }, 200)
       return () => clearTimeout(timer)
@@ -660,13 +669,18 @@ export default function CreditIntelligenceStudio() {
             setCurrentThinkingNode(step.step_id)
             // Auto-scroll to running step after React re-renders
             const scrollToRunningStep = () => {
-              if (runningStepRef.current) {
-                runningStepRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+              if (runningStepRef.current && pipelineScrollRef.current) {
+                const container = pipelineScrollRef.current
+                const element = runningStepRef.current
+                const containerRect = container.getBoundingClientRect()
+                const elementRect = element.getBoundingClientRect()
+                const scrollTop = element.offsetTop - container.offsetTop - (containerRect.height / 2) + (elementRect.height / 2)
+                container.scrollTo({ top: Math.max(0, scrollTop), behavior: 'smooth' })
               }
             }
             // Try multiple times to ensure ref is attached after re-render
-            setTimeout(scrollToRunningStep, 150)
-            setTimeout(scrollToRunningStep, 400)
+            setTimeout(scrollToRunningStep, 200)
+            setTimeout(scrollToRunningStep, 500)
           } else if (step.status === 'completed') {
             addLog('step', `Completed: ${step.name} (${step.duration_ms?.toFixed(0)}ms)`, step)
             // Keep the streaming text for this step (don't clear)
@@ -1125,7 +1139,7 @@ export default function CreditIntelligenceStudio() {
               </div>
 
               {/* Workflow Pipeline */}
-              <div className="flex-1 overflow-auto p-4">
+              <div ref={pipelineScrollRef} className="flex-1 overflow-auto p-4">
                 <h3 className="text-sm font-medium text-studio-muted mb-3 flex items-center gap-2">
                   <Layers className="w-4 h-4" />
                   Workflow Pipeline
@@ -1230,7 +1244,7 @@ export default function CreditIntelligenceStudio() {
             </div>
 
             {/* Main Content */}
-            <div className="flex-1 flex flex-col overflow-hidden">
+            <div className="flex-1 flex flex-col min-h-0">
               {/* Detail Tabs */}
               {workflow && (
                 <div className="border-b border-studio-border px-4">
