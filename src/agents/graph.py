@@ -1811,6 +1811,7 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
 
             if consistency_config.get("cross_model", False):
                 logger.info("Running cross-model evaluation...")
+                cross_model_start = time.time()
 
                 # Get primary assessment
                 primary_risk = assessment.get("overall_risk_level", "unknown")
@@ -1914,6 +1915,9 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                                 "model_b_risk": secondary_risk,
                                 "winner": best_model,
                             }]
+                            # Calculate duration and status
+                            cross_model_duration = (time.time() - cross_model_start) * 1000
+                            cross_model_status = "agree" if cross_model_agreement >= 0.8 else ("partial" if cross_model_agreement >= 0.5 else "disagree")
                             pg_cross.log_cross_model_eval(
                                 run_id=run_id,
                                 company_name=company_name,
@@ -1938,6 +1942,8 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                                     secondary_model: {"risk_level": secondary_risk, "credit_score": secondary_score, "confidence": secondary_confidence},
                                 },
                                 pairwise_comparisons=pairwise,
+                                duration_ms=cross_model_duration,
+                                status=cross_model_status,
                             )
                     except Exception as pg_cross_err:
                         logger.debug(f"PostgreSQL cross-model eval logging skipped: {pg_cross_err}")
