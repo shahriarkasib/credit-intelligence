@@ -433,10 +433,16 @@ export default function CreditIntelligenceStudio() {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [logs])
 
-  // Auto-scroll to running step
+  // Auto-scroll to running step when current_step changes
   useEffect(() => {
-    if (runningStepRef.current) {
-      runningStepRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    if (workflow?.current_step) {
+      // Small delay to ensure React has rendered the new running step
+      const timer = setTimeout(() => {
+        if (runningStepRef.current) {
+          runningStepRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+      }, 200)
+      return () => clearTimeout(timer)
     }
   }, [workflow?.current_step])
 
@@ -652,10 +658,15 @@ export default function CreditIntelligenceStudio() {
             // Initialize streaming text for this step
             setStreamingTextByStep(prev => ({ ...prev, [step.step_id]: '' }))
             setCurrentThinkingNode(step.step_id)
-            // Auto-scroll to running step after state update
-            setTimeout(() => {
-              runningStepRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-            }, 100)
+            // Auto-scroll to running step after React re-renders
+            const scrollToRunningStep = () => {
+              if (runningStepRef.current) {
+                runningStepRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+              }
+            }
+            // Try multiple times to ensure ref is attached after re-render
+            setTimeout(scrollToRunningStep, 150)
+            setTimeout(scrollToRunningStep, 400)
           } else if (step.status === 'completed') {
             addLog('step', `Completed: ${step.name} (${step.duration_ms?.toFixed(0)}ms)`, step)
             // Keep the streaming text for this step (don't clear)
@@ -1244,47 +1255,48 @@ export default function CreditIntelligenceStudio() {
                 </div>
               )}
 
-              {/* Progress Bar - Shows during analysis in center panel (sticky) */}
-              {isRunning && workflow && (
-                <div className="sticky top-0 z-10 px-4 py-3 border-b border-studio-border bg-studio-panel/95 backdrop-blur-sm shadow-lg">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <Activity className="w-4 h-4 text-studio-accent animate-pulse" />
-                      <span className="text-sm font-medium text-studio-text">
-                        Analyzing {workflow.company_name}
-                      </span>
-                      {/* Step indicator */}
-                      {workflow.steps && workflow.steps.length > 0 && (
-                        <span className="text-xs bg-studio-accent/20 text-studio-accent px-2 py-0.5 rounded-full">
-                          Step {(workflow.steps.findIndex(s => s.status === 'running') + 1) || workflow.steps.filter(s => s.status === 'completed').length} of {workflow.steps.length}
-                        </span>
-                      )}
-                    </div>
-                    <span className="text-sm text-studio-accent font-mono">{progressPercent}%</span>
-                  </div>
-                  <div className="h-2 bg-studio-border rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-studio-accent to-blue-400 transition-all duration-500 ease-out"
-                      style={{ width: `${progressPercent}%` }}
-                    />
-                  </div>
-                  {/* Current step name */}
-                  {workflow.current_step && (
-                    <div className="text-xs text-studio-accent mt-2 font-medium">
-                      {workflow.current_step}
-                    </div>
-                  )}
-                  {stepDescription && (
-                    <div className="text-xs text-studio-muted mt-1 italic">
-                      {stepDescription}
-                    </div>
-                  )}
-                </div>
-              )}
-
               {/* Tab Content */}
-              <div className="flex-1 overflow-auto p-4">
+              <div className="flex-1 overflow-auto">
+                {/* Progress Bar - Shows during analysis (sticky inside scroll container) */}
+                {isRunning && workflow && (
+                  <div className="sticky top-0 z-10 px-4 py-3 border-b border-studio-border bg-studio-panel/95 backdrop-blur-sm shadow-lg">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <Activity className="w-4 h-4 text-studio-accent animate-pulse" />
+                        <span className="text-sm font-medium text-studio-text">
+                          Analyzing {workflow.company_name}
+                        </span>
+                        {/* Step indicator */}
+                        {workflow.steps && workflow.steps.length > 0 && (
+                          <span className="text-xs bg-studio-accent/20 text-studio-accent px-2 py-0.5 rounded-full">
+                            Step {(workflow.steps.findIndex(s => s.status === 'running') + 1) || workflow.steps.filter(s => s.status === 'completed').length} of {workflow.steps.length}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-sm text-studio-accent font-mono">{progressPercent}%</span>
+                    </div>
+                    <div className="h-2 bg-studio-border rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-studio-accent to-blue-400 transition-all duration-500 ease-out"
+                        style={{ width: `${progressPercent}%` }}
+                      />
+                    </div>
+                    {/* Current step name */}
+                    {workflow.current_step && (
+                      <div className="text-xs text-studio-accent mt-2 font-medium">
+                        {workflow.current_step}
+                      </div>
+                    )}
+                    {stepDescription && (
+                      <div className="text-xs text-studio-muted mt-1 italic">
+                        {stepDescription}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Result Tab */}
+                <div className="p-4">
                 {detailTab === 'result' && workflow?.result && (
                   <div ref={resultSectionRef} className="space-y-4">
                     <div className="flex items-center justify-between">
@@ -1708,6 +1720,7 @@ export default function CreditIntelligenceStudio() {
                     </div>
                   </div>
                 )}
+                </div>
               </div>
             </div>
           </>
