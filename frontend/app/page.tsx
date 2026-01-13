@@ -1249,6 +1249,12 @@ export default function CreditIntelligenceStudio() {
                       <span className="text-sm font-medium text-studio-text">
                         Analyzing {workflow.company_name}
                       </span>
+                      {/* Step indicator */}
+                      {workflow.steps && workflow.steps.length > 0 && (
+                        <span className="text-xs bg-studio-accent/20 text-studio-accent px-2 py-0.5 rounded-full">
+                          Step {(workflow.steps.findIndex(s => s.status === 'running') + 1) || workflow.steps.filter(s => s.status === 'completed').length} of {workflow.steps.length}
+                        </span>
+                      )}
                     </div>
                     <span className="text-sm text-studio-accent font-mono">{progressPercent}%</span>
                   </div>
@@ -1258,8 +1264,14 @@ export default function CreditIntelligenceStudio() {
                       style={{ width: `${progressPercent}%` }}
                     />
                   </div>
+                  {/* Current step name */}
+                  {workflow.current_step && (
+                    <div className="text-xs text-studio-accent mt-2 font-medium">
+                      {workflow.current_step}
+                    </div>
+                  )}
                   {stepDescription && (
-                    <div className="text-xs text-studio-muted mt-2 italic">
+                    <div className="text-xs text-studio-muted mt-1 italic">
                       {stepDescription}
                     </div>
                   )}
