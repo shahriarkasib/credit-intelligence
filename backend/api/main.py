@@ -2773,6 +2773,50 @@ async def get_state_dump(run_id: str):
     }
 
 
+@app.get("/pg/tables")
+async def list_tables():
+    """
+    List all tables in the PostgreSQL database.
+
+    Returns tables categorized as:
+    - new_tables: Tables with prefixes (wf_, eval_, lg_, meta_)
+    - old_tables: Legacy tables without prefixes
+    - partition_tables: Monthly partition tables
+    - other_tables: Any other tables
+    """
+    if not POSTGRES_AVAILABLE:
+        raise HTTPException(status_code=503, detail="PostgreSQL not available")
+
+    pg = get_pg()
+    if not pg or not pg.is_connected():
+        raise HTTPException(status_code=503, detail="PostgreSQL not connected")
+
+    return pg.list_tables()
+
+
+@app.post("/pg/migrate")
+async def migrate_tables(dry_run: bool = True):
+    """
+    Migrate data from old tables to new tables and optionally drop old tables.
+
+    Args:
+        dry_run: If True (default), only report what would be done without changes
+
+    This endpoint:
+    1. Checks for old tables (without prefixes like wf_, eval_, lg_, meta_)
+    2. Migrates any data from old tables to corresponding new tables
+    3. Drops the old tables (if dry_run=False)
+    """
+    if not POSTGRES_AVAILABLE:
+        raise HTTPException(status_code=503, detail="PostgreSQL not available")
+
+    pg = get_pg()
+    if not pg or not pg.is_connected():
+        raise HTTPException(status_code=503, detail="PostgreSQL not connected")
+
+    return pg.migrate_and_cleanup(dry_run=dry_run)
+
+
 # =============================================================================
 # WEBSOCKET ENDPOINT
 # =============================================================================

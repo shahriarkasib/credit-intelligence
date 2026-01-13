@@ -1171,6 +1171,177 @@ class PostgresStorage:
 
         return dropped
 
+    def list_tables(self) -> Dict[str, Any]:
+        """
+        List all tables in the database.
+
+        Returns:
+            Dictionary with table information
+        """
+        if not self.is_connected():
+            return {"error": "Not connected"}
+
+        result = {
+            "new_tables": [],  # Tables with prefixes (wf_, eval_, lg_, meta_)
+            "old_tables": [],  # Tables without prefixes (legacy)
+            "partition_tables": [],  # Monthly partition tables
+            "other_tables": [],  # Any other tables
+        }
+
+        # Known old table names (without prefixes)
+        old_table_names = set(self.TABLE_ALIASES.keys())
+        # Known new table names (with prefixes)
+        new_table_names = set(self.TABLE_SCHEMAS.keys())
+
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT tablename FROM pg_tables
+                    WHERE schemaname = 'public'
+                    ORDER BY tablename
+                """)
+
+                for row in cursor.fetchall():
+                    table_name = row["tablename"]
+
+                    # Check if it's a partition (ends with _YYYY_MM)
+                    if table_name[-7:].replace('_', '').isdigit() and len(table_name) > 7:
+                        result["partition_tables"].append(table_name)
+                    # Check if it's a new table (with prefix)
+                    elif table_name in new_table_names:
+                        result["new_tables"].append(table_name)
+                    # Check if it's an old table (without prefix)
+                    elif table_name in old_table_names:
+                        result["old_tables"].append(table_name)
+                    else:
+                        result["other_tables"].append(table_name)
+
+        except Exception as e:
+            logger.error(f"Failed to list tables: {e}")
+            result["error"] = str(e)
+
+        return result
+
+    def migrate_and_cleanup(self, dry_run: bool = True) -> Dict[str, Any]:
+        """
+        Migrate data from old tables to new tables and optionally drop old tables.
+
+        Args:
+            dry_run: If True, only report what would be done without making changes
+
+        Returns:
+            Dictionary with migration results
+        """
+        if not self.is_connected():
+            return {"error": "Not connected"}
+
+        result = {
+            "dry_run": dry_run,
+            "tables_checked": [],
+            "data_migrated": [],
+            "tables_dropped": [],
+            "errors": [],
+        }
+
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Check each old table -> new table mapping
+                for old_name, new_name in self.TABLE_ALIASES.items():
+                    check_result = {"old_table": old_name, "new_table": new_name}
+
+                    # Check if old table exists
+                    cursor.execute("""
+                        SELECT EXISTS (
+                            SELECT FROM pg_tables
+                            WHERE schemaname = 'public' AND tablename = %s
+                        )
+                    """, (old_name,))
+                    old_exists = cursor.fetchone()["exists"]
+
+                    # Check if new table exists
+                    cursor.execute("""
+                        SELECT EXISTS (
+                            SELECT FROM pg_tables
+                            WHERE schemaname = 'public' AND tablename = %s
+                        )
+                    """, (new_name,))
+                    new_exists = cursor.fetchone()["exists"]
+
+                    check_result["old_exists"] = old_exists
+                    check_result["new_exists"] = new_exists
+
+                    if old_exists:
+                        # Count rows in old table
+                        cursor.execute(f"SELECT COUNT(*) as count FROM {old_name}")
+                        old_count = cursor.fetchone()["count"]
+                        check_result["old_row_count"] = old_count
+
+                        if old_count > 0 and new_exists:
+                            # Migrate data if not dry run
+                            if not dry_run:
+                                try:
+                                    # Get column names from old table
+                                    cursor.execute(f"""
+                                        SELECT column_name FROM information_schema.columns
+                                        WHERE table_name = %s AND table_schema = 'public'
+                                    """, (old_name,))
+                                    old_columns = [row["column_name"] for row in cursor.fetchall()]
+
+                                    # Get column names from new table
+                                    cursor.execute(f"""
+                                        SELECT column_name FROM information_schema.columns
+                                        WHERE table_name = %s AND table_schema = 'public'
+                                    """, (new_name,))
+                                    new_columns = [row["column_name"] for row in cursor.fetchall()]
+
+                                    # Find common columns (excluding 'id' which is auto-generated)
+                                    common_cols = [c for c in old_columns if c in new_columns and c != 'id']
+
+                                    if common_cols:
+                                        cols_str = ", ".join(common_cols)
+                                        # Insert from old to new
+                                        cursor.execute(f"""
+                                            INSERT INTO {new_name} ({cols_str})
+                                            SELECT {cols_str} FROM {old_name}
+                                            ON CONFLICT DO NOTHING
+                                        """)
+                                        migrated_count = cursor.rowcount
+                                        check_result["rows_migrated"] = migrated_count
+                                        result["data_migrated"].append({
+                                            "from": old_name,
+                                            "to": new_name,
+                                            "rows": migrated_count
+                                        })
+                                except Exception as e:
+                                    check_result["migration_error"] = str(e)
+                                    result["errors"].append(f"Migration {old_name} -> {new_name}: {e}")
+                            else:
+                                check_result["would_migrate"] = old_count
+
+                        # Drop old table if not dry run
+                        if not dry_run:
+                            try:
+                                cursor.execute(f"DROP TABLE IF EXISTS {old_name} CASCADE")
+                                check_result["dropped"] = True
+                                result["tables_dropped"].append(old_name)
+                                logger.info(f"Dropped old table: {old_name}")
+                            except Exception as e:
+                                check_result["drop_error"] = str(e)
+                                result["errors"].append(f"Drop {old_name}: {e}")
+                        else:
+                            check_result["would_drop"] = True
+
+                    result["tables_checked"].append(check_result)
+
+        except Exception as e:
+            logger.error(f"Migration failed: {e}")
+            result["errors"].append(str(e))
+
+        return result
+
 
 # Global instance
 _postgres_storage: Optional[PostgresStorage] = None
