@@ -1078,6 +1078,7 @@ class WorkflowLogger:
                     agent_name=agent_name,
                     node=node,
                     node_type="agent",
+                    step_number=8,  # Always evaluate step (step 8)
                     model=model,
                     overall_score=overall_score,
                     intent_correctness=intent_correctness,
