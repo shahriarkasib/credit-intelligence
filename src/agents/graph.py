@@ -1901,6 +1901,19 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                         from run_logging.postgres_logger import get_postgres_logger as get_pg_cross
                         pg_cross = get_pg_cross()
                         if pg_cross and pg_cross.is_connected():
+                            # Build pairwise comparison
+                            pairwise = [{
+                                "model_a": primary_model,
+                                "model_b": secondary_model,
+                                "risk_agreement": primary_risk == secondary_risk,
+                                "score_diff": abs(primary_score - secondary_score),
+                                "confidence_diff": abs(primary_confidence - secondary_confidence),
+                                "model_a_score": primary_score,
+                                "model_b_score": secondary_score,
+                                "model_a_risk": primary_risk,
+                                "model_b_risk": secondary_risk,
+                                "winner": best_model,
+                            }]
                             pg_cross.log_cross_model_eval(
                                 run_id=run_id,
                                 company_name=company_name,
@@ -1924,6 +1937,7 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                                     primary_model: {"risk_level": primary_risk, "credit_score": primary_score, "confidence": primary_confidence},
                                     secondary_model: {"risk_level": secondary_risk, "credit_score": secondary_score, "confidence": secondary_confidence},
                                 },
+                                pairwise_comparisons=pairwise,
                             )
                     except Exception as pg_cross_err:
                         logger.debug(f"PostgreSQL cross-model eval logging skipped: {pg_cross_err}")
