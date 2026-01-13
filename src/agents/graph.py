@@ -907,6 +907,7 @@ def search_web(state: CreditWorkflowState) -> Dict[str, Any]:
     start_time = time.time()
     run_id = state.get("run_id", "unknown")
     company_name = state["company_info"]["company_name"]
+    step_number = 5  # search_web is step 5 in workflow
 
     # Get event logger for tool tracking
     event_logger = get_current_event_logger()

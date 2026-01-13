@@ -581,6 +581,9 @@ class PostgresStorage:
                 # Evaluation
                 ("evaluation", "JSONB", True, False),
                 ("evaluation_scores", "JSONB", True, False),
+                # Scores (direct fields for API access)
+                ("coalition_score", "DECIMAL(5,4)", True, False),
+                ("agent_metrics_score", "DECIMAL(5,4)", True, False),
                 # Errors
                 ("errors", "JSONB", True, False),
                 ("error_count", "INTEGER", True, False),

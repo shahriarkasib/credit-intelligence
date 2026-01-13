@@ -570,11 +570,22 @@ class PostgresLogger:
 
         # Build evaluation scores summary
         eval_scores = {}
+        coalition_score = 0.0
+        agent_metrics_score = 0.0
         if evaluation:
             if "coalition" in evaluation:
-                eval_scores["coalition"] = evaluation["coalition"].get("correctness_score", 0)
+                coalition_score = evaluation["coalition"].get("correctness_score", 0)
+                eval_scores["coalition"] = coalition_score
             if "agent_metrics" in evaluation:
-                eval_scores["agent_metrics"] = evaluation["agent_metrics"].get("overall_agent_score", 0)
+                agent_metrics_score = evaluation["agent_metrics"].get("overall_agent_score", 0)
+                eval_scores["agent_metrics"] = agent_metrics_score
+            # Also check overall_score as fallback for agent_metrics
+            if agent_metrics_score == 0 and "overall_score" in evaluation:
+                agent_metrics_score = evaluation.get("overall_score", 0)
+
+        # Allow kwargs to override scores (from graph.py)
+        coalition_score = kwargs.pop("coalition_score", coalition_score)
+        agent_metrics_score = kwargs.pop("agent_metrics_score", agent_metrics_score)
 
         data = {
             "run_id": run_id,
@@ -601,6 +612,9 @@ class PostgresLogger:
             # Evaluation
             "evaluation": evaluation or {},
             "evaluation_scores": eval_scores,
+            # Direct score fields for API access
+            "coalition_score": coalition_score,
+            "agent_metrics_score": agent_metrics_score,
             # Errors
             "errors": errors or [],
             "error_count": len(errors) if errors else 0,
