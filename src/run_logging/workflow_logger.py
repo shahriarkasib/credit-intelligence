@@ -1321,6 +1321,118 @@ class WorkflowLogger:
 
         logger.info(f"[{run_id[:8]}] LLM Judge result logged: overall_score={overall_score:.4f}")
 
+    def log_state_dump(
+        self,
+        run_id: str,
+        company_name: str,
+        # State components
+        company_info: Dict[str, Any] = None,
+        plan: List[Dict] = None,
+        api_data: Dict[str, Any] = None,
+        search_data: Dict[str, Any] = None,
+        assessment: Dict[str, Any] = None,
+        evaluation: Dict[str, Any] = None,
+        errors: List[str] = None,
+        # Scores
+        coalition_score: float = 0.0,
+        agent_metrics_score: float = 0.0,
+        # Metadata
+        duration_ms: float = 0.0,
+        status: str = "completed",
+        # Node tracking
+        node: str = "evaluate",
+        step_number: int = 0,
+    ):
+        """
+        Log a full workflow state dump to all storage targets.
+
+        This captures the complete state of the workflow at a given point,
+        similar to LangSmith's state tracking.
+
+        Args:
+            run_id: Unique run identifier
+            company_name: Company being analyzed
+            company_info: Parsed company information
+            plan: Task plan list
+            api_data: Data from API sources
+            search_data: Web search results
+            assessment: Credit assessment
+            evaluation: Evaluation results
+            errors: List of errors
+            coalition_score: Coalition evaluator score
+            agent_metrics_score: Agent efficiency score
+            duration_ms: Time to reach this state
+            status: Status (completed/failed)
+            node: Graph node where state was captured
+            step_number: Step number in workflow
+        """
+        import json
+
+        # Calculate total state size
+        state_parts = {
+            "company_info": company_info or {},
+            "plan": plan or [],
+            "api_data": api_data or {},
+            "search_data": search_data or {},
+            "assessment": assessment or {},
+            "evaluation": evaluation or {},
+            "errors": errors or [],
+        }
+        total_state_size = sum(
+            len(json.dumps(v, default=str).encode('utf-8'))
+            for v in state_parts.values()
+        )
+
+        # Log to Google Sheets
+        if self.sheets_logger.is_connected():
+            try:
+                self.sheets_logger.log_state_dump(
+                    run_id=run_id,
+                    company_name=company_name,
+                    node=node,
+                    step_number=step_number,
+                    company_info=company_info,
+                    plan=plan,
+                    plan_tasks_count=len(plan or []),
+                    api_data=api_data,
+                    api_sources=list((api_data or {}).keys()),
+                    search_data=search_data,
+                    risk_level=assessment.get("overall_risk_level", "") if assessment else "",
+                    credit_score=assessment.get("credit_score_estimate", 0) if assessment else 0,
+                    confidence=assessment.get("confidence_score", 0) if assessment else 0,
+                    assessment=assessment,
+                    coalition_score=coalition_score,
+                    agent_metrics_score=agent_metrics_score,
+                    evaluation=evaluation,
+                    errors=errors,
+                    total_state_size_bytes=total_state_size,
+                    duration_ms=duration_ms,
+                    status=status,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to log state dump to sheets: {e}")
+
+        # Log to PostgreSQL
+        if self.run_logger.is_postgres_connected():
+            try:
+                self.run_logger.postgres.log_state_dump(
+                    run_id=run_id,
+                    company_name=company_name,
+                    company_info=company_info,
+                    plan=plan,
+                    api_data=api_data,
+                    search_data=search_data,
+                    assessment=assessment,
+                    evaluation=evaluation,
+                    errors=errors,
+                    duration_ms=duration_ms,
+                    status=status,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to log state dump to PostgreSQL: {e}")
+
+        logger.info(f"[{run_id[:8]}] State dump logged: {total_state_size} bytes, {len(errors or [])} errors")
+
 
 # Singleton instance
 _workflow_logger: Optional[WorkflowLogger] = None

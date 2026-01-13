@@ -1239,6 +1239,135 @@ class SheetsLogger:
 
         _sheets_executor.submit(_write)
 
+    def log_state_dump(
+        self,
+        run_id: str,
+        company_name: str,
+        node: str = "evaluate",
+        step_number: int = 0,
+        # Company info
+        company_info: Dict[str, Any] = None,
+        # Plan
+        plan: List[Dict[str, Any]] = None,
+        plan_tasks_count: int = 0,
+        # API data
+        api_data: Dict[str, Any] = None,
+        api_sources: List[str] = None,
+        # Search data
+        search_data: Dict[str, Any] = None,
+        # Assessment
+        risk_level: str = "",
+        credit_score: int = 0,
+        confidence: float = 0.0,
+        assessment: Dict[str, Any] = None,
+        # Evaluation scores
+        coalition_score: float = 0.0,
+        agent_metrics_score: float = 0.0,
+        evaluation: Dict[str, Any] = None,
+        # Errors
+        errors: List[str] = None,
+        # Metadata
+        total_state_size_bytes: int = 0,
+        duration_ms: float = 0.0,
+        status: str = "completed",
+    ):
+        """
+        Log a full workflow state dump to the state_dumps sheet (non-blocking).
+
+        This captures the complete state of the workflow at a given point,
+        similar to LangSmith's state tracking but with full visibility.
+
+        Args:
+            run_id: Unique run identifier
+            company_name: Company being analyzed
+            node: Graph node where state was captured
+            step_number: Step number in workflow
+            company_info: Parsed company information
+            plan: Task plan list
+            plan_tasks_count: Number of tasks in plan
+            api_data: Data from API sources
+            api_sources: List of API sources used
+            search_data: Web search results
+            risk_level: Assessed risk level
+            credit_score: Credit score estimate
+            confidence: Confidence score
+            assessment: Full assessment dict
+            coalition_score: Coalition evaluator score
+            agent_metrics_score: Agent efficiency score
+            evaluation: Full evaluation dict
+            errors: List of errors
+            total_state_size_bytes: Total size of state in bytes
+            duration_ms: Time to reach this state
+            status: Status (completed/failed)
+        """
+        if not self.is_connected():
+            return
+
+        # Calculate sizes
+        company_info_json = self._safe_str(company_info or {}, max_length=5000)
+        plan_json = self._safe_str(plan or [], max_length=10000)
+        plan_size = len(json.dumps(plan or [], default=str).encode('utf-8'))
+
+        api_data_summary = self._safe_str({k: f"{len(str(v))} bytes" for k, v in (api_data or {}).items()}, max_length=5000)
+        api_data_size = len(json.dumps(api_data or {}, default=str).encode('utf-8'))
+
+        search_data_summary = self._safe_str({"keys": list((search_data or {}).keys()), "size": f"{len(json.dumps(search_data or {}, default=str))} bytes"} if search_data else {}, max_length=5000)
+        search_data_size = len(json.dumps(search_data or {}, default=str).encode('utf-8'))
+
+        assessment_json = self._safe_str(assessment or {}, max_length=10000)
+        evaluation_json = self._safe_str(evaluation or {}, max_length=10000)
+        errors_json = self._safe_str(errors or [], max_length=5000)
+
+        # state_dumps sheet columns:
+        # run_id, company_name, node, step_number,
+        # company_info_json, plan_json, plan_size_bytes, plan_tasks_count,
+        # api_data_summary, api_data_size_bytes, api_sources_count,
+        # search_data_summary, search_data_size_bytes,
+        # risk_level, credit_score, confidence, assessment_json,
+        # coalition_score, agent_metrics_score, evaluation_json,
+        # errors_json, error_count,
+        # total_state_size_bytes, duration_ms, status,
+        # timestamp, generated_by
+        row = [
+            run_id,
+            company_name,
+            node or "evaluate",
+            step_number,
+            company_info_json,
+            plan_json,
+            plan_size,
+            plan_tasks_count,
+            api_data_summary,
+            api_data_size,
+            len(api_sources or []),
+            search_data_summary,
+            search_data_size,
+            risk_level or "",
+            credit_score or 0,
+            round(confidence or 0, 4),
+            assessment_json,
+            round(coalition_score or 0, 4),
+            round(agent_metrics_score or 0, 4),
+            evaluation_json,
+            errors_json,
+            len(errors or []),
+            total_state_size_bytes or 0,
+            round(duration_ms or 0, 2),
+            status,
+            datetime.utcnow().isoformat(),
+            "Us",
+        ]
+
+        def _write():
+            try:
+                sheet = self._get_sheet("state_dumps")
+                sheet.append_row(row)
+                logger.info(f"Logged state dump for run {run_id}: {total_state_size_bytes} bytes, {len(errors or [])} errors")
+            except Exception as e:
+                logger.error(f"Failed to log state dump: {e}")
+
+        _sheets_executor.submit(_write)
+
     def log_model_consistency(self, *args, **kwargs):
         """DEPRECATED: Model consistency now logged via consistency_scores sheet."""
         pass

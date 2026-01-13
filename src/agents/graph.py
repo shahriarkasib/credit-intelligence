@@ -2578,6 +2578,32 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
             except Exception as pg_verify_error:
                 logger.debug(f"PostgreSQL log verification skipped: {pg_verify_error}")
 
+            # Log full state dump - captures complete workflow state for debugging/analysis
+            try:
+                duration_ms = (time.time() - start_time) * 1000
+                coalition_sc = coalition_result.correctness_score if 'coalition_result' in dir() and coalition_result else 0.0
+                agent_sc = overall_score or 0.0
+
+                wf_logger.log_state_dump(
+                    run_id=run_id,
+                    company_name=company_name,
+                    company_info=company_info,
+                    plan=task_plan,
+                    api_data=api_data,
+                    search_data=search_data,
+                    assessment=assessment,
+                    evaluation=evaluation,
+                    errors=state.get("errors", []),
+                    coalition_score=coalition_sc,
+                    agent_metrics_score=agent_sc,
+                    duration_ms=duration_ms,
+                    status="completed",
+                    node="evaluate",
+                    step_number=8,
+                )
+            except Exception as state_dump_error:
+                logger.debug(f"State dump logging skipped: {state_dump_error}")
+
         return {
             "evaluation": evaluation,
             "tool_selection_score": tool_selection_score,
