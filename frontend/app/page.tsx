@@ -421,6 +421,7 @@ export default function CreditIntelligenceStudio() {
   const [streamingTextByStep, setStreamingTextByStep] = useState<Record<string, string>>({})
   const [currentThinkingNode, setCurrentThinkingNode] = useState<string>('')
   const [stepDescription, setStepDescription] = useState<string>('')
+  const [stepDescriptionByStep, setStepDescriptionByStep] = useState<Record<string, string>>({})
   const [progressPercent, setProgressPercent] = useState<number>(0)
 
   const wsRef = useRef<WebSocket | null>(null)
@@ -653,6 +654,8 @@ export default function CreditIntelligenceStudio() {
           // Update step description and progress
           if (message.data.description) {
             setStepDescription(message.data.description)
+            // Store description per step for reliable display
+            setStepDescriptionByStep(prev => ({ ...prev, [step.step_id]: message.data.description }))
           }
           if (message.data.progress_percent !== undefined) {
             setProgressPercent(message.data.progress_percent)
@@ -1184,14 +1187,14 @@ export default function CreditIntelligenceStudio() {
                             </div>
                           </div>
                           {/* Show description when step is running */}
-                          {step.status === 'running' && stepDescription && (
+                          {step.status === 'running' && stepDescriptionByStep[step.step_id] && (
                             <div className="mt-2 ml-6 flex items-center gap-2">
                               <div className="flex gap-1">
                                 <span className="w-1.5 h-1.5 rounded-full bg-studio-accent animate-pulse" />
                                 <span className="w-1.5 h-1.5 rounded-full bg-studio-accent animate-pulse" style={{ animationDelay: '0.2s' }} />
                                 <span className="w-1.5 h-1.5 rounded-full bg-studio-accent animate-pulse" style={{ animationDelay: '0.4s' }} />
                               </div>
-                              <span className="text-xs text-studio-accent italic">{stepDescription}</span>
+                              <span className="text-xs text-studio-accent italic">{stepDescriptionByStep[step.step_id]}</span>
                             </div>
                           )}
                           {step.error && (
