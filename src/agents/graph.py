@@ -2588,7 +2588,7 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                         coalition_sc = coalition_result.correctness_score
                 except NameError:
                     pass  # coalition_result not defined
-                agent_sc = overall_score or 0.0
+                agent_sc = evaluation.get("overall_score", 0.0) if evaluation else 0.0
 
                 if wf_logger:
                     wf_logger.log_state_dump(
