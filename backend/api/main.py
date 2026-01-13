@@ -527,7 +527,13 @@ async def run_workflow_with_streaming(
 
             if node_name == "parse_input":
                 company_info = source.get("company_info", state.get("company_info", {}))
-                company_name = state.get("company_name", source.get("company_name", "Unknown"))
+                # Get company_name from multiple possible locations
+                company_name = (
+                    company_info.get("company_name") or  # First check inside company_info
+                    state.get("company_name") or  # Then check state
+                    source.get("company_name") or  # Then check source
+                    "Unknown"
+                )
                 output_summary = f"Company: {company_name}"
                 if company_info:
                     output_summary += f" | Public: {company_info.get('is_public_company', 'Unknown')}"
