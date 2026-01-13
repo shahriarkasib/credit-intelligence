@@ -734,7 +734,8 @@ class PostgresStorage:
                 cursor = conn.cursor()
 
                 # Create tables in order (runs first, then others that reference it)
-                tables_order = ["runs"] + [t for t in self.TABLE_SCHEMAS.keys() if t != "runs"]
+                # Create wf_runs first (other tables have foreign keys to it)
+                tables_order = ["wf_runs"] + [t for t in self.TABLE_SCHEMAS.keys() if t != "wf_runs"]
 
                 for table_name in tables_order:
                     schema = self.TABLE_SCHEMAS[table_name]
