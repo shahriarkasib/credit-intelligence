@@ -437,20 +437,13 @@ export default function CreditIntelligenceStudio() {
   // Auto-scroll to running step when current_step changes
   useEffect(() => {
     if (workflow?.current_step) {
-      // Small delay to ensure React has rendered the new running step
+      // Delay to ensure React has rendered the new running step
       const timer = setTimeout(() => {
-        if (runningStepRef.current && pipelineScrollRef.current) {
-          // Get the position of the running step relative to the scroll container
-          const container = pipelineScrollRef.current
-          const element = runningStepRef.current
-          const containerRect = container.getBoundingClientRect()
-          const elementRect = element.getBoundingClientRect()
-
-          // Calculate scroll position to center the element
-          const scrollTop = element.offsetTop - container.offsetTop - (containerRect.height / 2) + (elementRect.height / 2)
-          container.scrollTo({ top: Math.max(0, scrollTop), behavior: 'smooth' })
+        const runningElement = document.querySelector('[data-step-status="running"]') as HTMLElement
+        if (runningElement) {
+          runningElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
         }
-      }, 200)
+      }, 300)
       return () => clearTimeout(timer)
     }
   }, [workflow?.current_step])
@@ -669,18 +662,19 @@ export default function CreditIntelligenceStudio() {
             setCurrentThinkingNode(step.step_id)
             // Auto-scroll to running step after React re-renders
             const scrollToRunningStep = () => {
-              if (runningStepRef.current && pipelineScrollRef.current) {
-                const container = pipelineScrollRef.current
-                const element = runningStepRef.current
-                const containerRect = container.getBoundingClientRect()
-                const elementRect = element.getBoundingClientRect()
-                const scrollTop = element.offsetTop - container.offsetTop - (containerRect.height / 2) + (elementRect.height / 2)
-                container.scrollTo({ top: Math.max(0, scrollTop), behavior: 'smooth' })
+              // Try using querySelector to find the running step by data attribute
+              const runningElement = document.querySelector('[data-step-status="running"]') as HTMLElement
+              const container = pipelineScrollRef.current
+
+              if (runningElement && container) {
+                // Use scrollIntoView on the element
+                runningElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
               }
             }
-            // Try multiple times to ensure ref is attached after re-render
-            setTimeout(scrollToRunningStep, 200)
-            setTimeout(scrollToRunningStep, 500)
+            // Try multiple times with increasing delays
+            setTimeout(scrollToRunningStep, 300)
+            setTimeout(scrollToRunningStep, 600)
+            setTimeout(scrollToRunningStep, 1000)
           } else if (step.status === 'completed') {
             addLog('step', `Completed: ${step.name} (${step.duration_ms?.toFixed(0)}ms)`, step)
             // Keep the streaming text for this step (don't clear)
@@ -1150,6 +1144,8 @@ export default function CreditIntelligenceStudio() {
                     {workflow.steps.map((step, idx) => (
                       <div
                         key={step.step_id}
+                        data-step-status={step.status}
+                        data-step-id={step.step_id}
                         ref={step.status === 'running' ? runningStepRef : null}
                       >
                         {/* Step Header */}
