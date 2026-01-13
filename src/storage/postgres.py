@@ -4,11 +4,11 @@ PostgreSQL Storage Module for Credit Intelligence Logs.
 This module provides PostgreSQL-based storage for all workflow logs,
 replacing Google Sheets for better scalability, querying, and retention.
 
-Table Naming Convention:
-- runs: Main runs table (core)
-- wf_*: Workflow logs (llm_calls, tool_calls, langgraph_events, etc.)
-- eval_*: Evaluation results (evaluations, consistency_scores, etc.)
-- langsmith_*: Framework-specific traces
+Table Naming Convention (per PRD Appendix B):
+- wf_*: Workflow execution logs (wf_runs, wf_llm_calls, wf_tool_calls, etc.)
+- eval_*: Evaluation results (eval_results, eval_consistency, eval_coalition, etc.)
+- lg_*: LangGraph framework tables (lg_events)
+- meta_*: Metadata tables (meta_prompts, meta_api_keys)
 
 All tables are partitioned by timestamp (monthly) for efficient retention management.
 """
@@ -50,10 +50,10 @@ class PostgresStorage:
 
     # Table definitions with their columns and types
     # Format: (column_name, column_type, nullable, is_partition_key)
-    # NOTE: Table names match Google Sheets exactly for simplicity
+    # Naming convention per PRD: wf_* (workflow), eval_* (evaluation), lg_* (langgraph), meta_* (metadata)
     TABLE_SCHEMAS = {
         # Main runs table - the core table that others reference
-        "runs": {
+        "wf_runs": {
             "prefix": "",
             "columns": [
                 ("id", "BIGSERIAL", False, False),
@@ -87,8 +87,8 @@ class PostgresStorage:
             "indexes": ["run_id", "company_name", "status", "risk_level"],
         },
 
-        # LLM Calls
-        "llm_calls": {
+        # LLM Calls (workflow execution)
+        "wf_llm_calls": {
             "prefix": "",
             "columns": [
                 ("id", "BIGSERIAL", False, False),
@@ -120,11 +120,11 @@ class PostgresStorage:
             ],
             "primary_key": ["id", "timestamp"],
             "indexes": ["run_id", "agent_name", "model", "call_type"],
-            "foreign_keys": [("run_id", "runs", "run_id")],
+            "foreign_keys": [("run_id", "wf_runs", "run_id")],
         },
 
-        # Tool Calls
-        "tool_calls": {
+        # Tool Calls (workflow execution)
+        "wf_tool_calls": {
             "prefix": "",
             "columns": [
                 ("id", "BIGSERIAL", False, False),
@@ -148,11 +148,11 @@ class PostgresStorage:
             ],
             "primary_key": ["id", "timestamp"],
             "indexes": ["run_id", "tool_name", "agent_name"],
-            "foreign_keys": [("run_id", "runs", "run_id")],
+            "foreign_keys": [("run_id", "wf_runs", "run_id")],
         },
 
-        # LangGraph Events
-        "langgraph_events": {
+        # LangGraph Events (framework)
+        "lg_events": {
             "prefix": "",
             "columns": [
                 ("id", "BIGSERIAL", False, False),
@@ -179,11 +179,11 @@ class PostgresStorage:
             ],
             "primary_key": ["id", "timestamp"],
             "indexes": ["run_id", "event_type", "node", "agent_name"],
-            "foreign_keys": [("run_id", "runs", "run_id")],
+            "foreign_keys": [("run_id", "wf_runs", "run_id")],
         },
 
-        # Plans
-        "plans": {
+        # Plans (workflow execution)
+        "wf_plans": {
             "prefix": "",
             "columns": [
                 ("id", "BIGSERIAL", False, False),
@@ -209,11 +209,11 @@ class PostgresStorage:
             ],
             "primary_key": ["id", "timestamp"],
             "indexes": ["run_id", "agent_name"],
-            "foreign_keys": [("run_id", "runs", "run_id")],
+            "foreign_keys": [("run_id", "wf_runs", "run_id")],
         },
 
-        # Prompts
-        "prompts": {
+        # Prompts (metadata)
+        "meta_prompts": {
             "prefix": "",
             "columns": [
                 ("id", "BIGSERIAL", False, False),
@@ -234,11 +234,11 @@ class PostgresStorage:
             ],
             "primary_key": ["id", "timestamp"],
             "indexes": ["run_id", "prompt_name", "category"],
-            "foreign_keys": [("run_id", "runs", "run_id")],
+            "foreign_keys": [("run_id", "wf_runs", "run_id")],
         },
 
-        # Data Sources
-        "data_sources": {
+        # Data Sources (workflow execution)
+        "wf_data_sources": {
             "prefix": "",
             "columns": [
                 ("id", "BIGSERIAL", False, False),
@@ -259,11 +259,11 @@ class PostgresStorage:
             ],
             "primary_key": ["id", "timestamp"],
             "indexes": ["run_id", "source_name"],
-            "foreign_keys": [("run_id", "runs", "run_id")],
+            "foreign_keys": [("run_id", "wf_runs", "run_id")],
         },
 
-        # Assessments
-        "assessments": {
+        # Assessments (workflow execution)
+        "wf_assessments": {
             "prefix": "",
             "columns": [
                 ("id", "BIGSERIAL", False, False),
@@ -291,11 +291,11 @@ class PostgresStorage:
             ],
             "primary_key": ["id", "timestamp"],
             "indexes": ["run_id", "risk_level", "company_name"],
-            "foreign_keys": [("run_id", "runs", "run_id")],
+            "foreign_keys": [("run_id", "wf_runs", "run_id")],
         },
 
-        # Evaluations
-        "evaluations": {
+        # Evaluations (eval results)
+        "eval_results": {
             "prefix": "",
             "columns": [
                 ("id", "BIGSERIAL", False, False),
@@ -321,11 +321,11 @@ class PostgresStorage:
             ],
             "primary_key": ["id", "timestamp"],
             "indexes": ["run_id", "evaluation_type", "overall_score"],
-            "foreign_keys": [("run_id", "runs", "run_id")],
+            "foreign_keys": [("run_id", "wf_runs", "run_id")],
         },
 
-        # Tool Selections
-        "tool_selections": {
+        # Tool Selections (evaluation)
+        "eval_tool_selection": {
             "prefix": "",
             "columns": [
                 ("id", "BIGSERIAL", False, False),
@@ -351,11 +351,11 @@ class PostgresStorage:
             ],
             "primary_key": ["id", "timestamp"],
             "indexes": ["run_id", "f1_score"],
-            "foreign_keys": [("run_id", "runs", "run_id")],
+            "foreign_keys": [("run_id", "wf_runs", "run_id")],
         },
 
-        # Consistency Scores
-        "consistency_scores": {
+        # Consistency Scores (evaluation)
+        "eval_consistency": {
             "prefix": "",
             "columns": [
                 ("id", "BIGSERIAL", False, False),
@@ -381,11 +381,11 @@ class PostgresStorage:
             ],
             "primary_key": ["id", "timestamp"],
             "indexes": ["run_id", "overall_consistency"],
-            "foreign_keys": [("run_id", "runs", "run_id")],
+            "foreign_keys": [("run_id", "wf_runs", "run_id")],
         },
 
         # Cross-Model Evaluation
-        "cross_model_eval": {
+        "eval_cross_model": {
             "prefix": "",
             "columns": [
                 ("id", "BIGSERIAL", False, False),
@@ -416,11 +416,11 @@ class PostgresStorage:
             ],
             "primary_key": ["id", "timestamp"],
             "indexes": ["run_id", "cross_model_agreement"],
-            "foreign_keys": [("run_id", "runs", "run_id")],
+            "foreign_keys": [("run_id", "wf_runs", "run_id")],
         },
 
-        # LLM Judge Results
-        "llm_judge_results": {
+        # LLM Judge Results (evaluation)
+        "eval_llm_judge": {
             "prefix": "",
             "columns": [
                 ("id", "BIGSERIAL", False, False),
@@ -456,11 +456,11 @@ class PostgresStorage:
             ],
             "primary_key": ["id", "timestamp"],
             "indexes": ["run_id", "overall_score"],
-            "foreign_keys": [("run_id", "runs", "run_id")],
+            "foreign_keys": [("run_id", "wf_runs", "run_id")],
         },
 
-        # Agent Metrics
-        "agent_metrics": {
+        # Agent Metrics (evaluation)
+        "eval_agent_metrics": {
             "prefix": "",
             "columns": [
                 ("id", "BIGSERIAL", False, False),
@@ -492,11 +492,11 @@ class PostgresStorage:
             ],
             "primary_key": ["id", "timestamp"],
             "indexes": ["run_id", "agent_name", "overall_score"],
-            "foreign_keys": [("run_id", "runs", "run_id")],
+            "foreign_keys": [("run_id", "wf_runs", "run_id")],
         },
 
-        # Coalition Results
-        "coalition": {
+        # Coalition Results (evaluation)
+        "eval_coalition": {
             "prefix": "",
             "columns": [
                 ("id", "BIGSERIAL", False, False),
@@ -518,11 +518,11 @@ class PostgresStorage:
             ],
             "primary_key": ["id", "timestamp"],
             "indexes": ["run_id", "correctness_score", "correctness_category"],
-            "foreign_keys": [("run_id", "runs", "run_id")],
+            "foreign_keys": [("run_id", "wf_runs", "run_id")],
         },
 
-        # Log Tests (verification)
-        "log_tests": {
+        # Log Tests (evaluation/verification)
+        "eval_log_tests": {
             "prefix": "",
             "columns": [
                 ("id", "BIGSERIAL", False, False),
@@ -549,11 +549,11 @@ class PostgresStorage:
             ],
             "primary_key": ["id", "timestamp"],
             "indexes": ["run_id", "verification_status"],
-            "foreign_keys": [("run_id", "runs", "run_id")],
+            "foreign_keys": [("run_id", "wf_runs", "run_id")],
         },
 
-        # State Dumps (full workflow state snapshots)
-        "state_dumps": {
+        # State Dumps (workflow execution snapshots)
+        "wf_state_dumps": {
             "prefix": "",
             "columns": [
                 ("id", "BIGSERIAL", False, False),
@@ -592,11 +592,11 @@ class PostgresStorage:
             ],
             "primary_key": ["id", "timestamp"],
             "indexes": ["run_id", "company_name", "status"],
-            "foreign_keys": [("run_id", "runs", "run_id")],
+            "foreign_keys": [("run_id", "wf_runs", "run_id")],
         },
 
-        # API Keys (not partitioned, small table)
-        "api_keys": {
+        # API Keys (metadata, not partitioned)
+        "meta_api_keys": {
             "prefix": "",
             "columns": [
                 ("id", "SERIAL", False, False),
@@ -611,6 +611,31 @@ class PostgresStorage:
             "partitioned": False,  # Small table, no partitioning needed
         },
     }
+
+    # Table name aliases for backward compatibility (old_name -> new_name)
+    TABLE_ALIASES = {
+        "runs": "wf_runs",
+        "llm_calls": "wf_llm_calls",
+        "tool_calls": "wf_tool_calls",
+        "langgraph_events": "lg_events",
+        "plans": "wf_plans",
+        "prompts": "meta_prompts",
+        "data_sources": "wf_data_sources",
+        "assessments": "wf_assessments",
+        "evaluations": "eval_results",
+        "tool_selections": "eval_tool_selection",
+        "consistency_scores": "eval_consistency",
+        "cross_model_eval": "eval_cross_model",
+        "llm_judge_results": "eval_llm_judge",
+        "agent_metrics": "eval_agent_metrics",
+        "coalition": "eval_coalition",
+        "log_tests": "eval_log_tests",
+        "state_dumps": "wf_state_dumps",
+        "api_keys": "meta_api_keys",
+    }
+
+    # Reverse mapping (new_name -> old_name) for display
+    TABLE_REVERSE_ALIASES = {v: k for k, v in TABLE_ALIASES.items()}
 
     def __init__(self, database_url: Optional[str] = None, min_conn: int = 1, max_conn: int = 10):
         """
@@ -814,12 +839,28 @@ class PostgresStorage:
                 # Partition might already exist
                 logger.debug(f"Partition {p_name} note: {e}")
 
+    def _resolve_table_name(self, table_name: str) -> str:
+        """
+        Resolve table name, supporting both old and new naming conventions.
+
+        Args:
+            table_name: Either old name (e.g., 'runs') or new name (e.g., 'wf_runs')
+
+        Returns:
+            The actual table name to use (new naming convention)
+        """
+        # If it's an old name, convert to new name
+        if table_name in self.TABLE_ALIASES:
+            return self.TABLE_ALIASES[table_name]
+        # If it's already a new name or unknown, return as-is
+        return table_name
+
     def insert(self, table_name: str, data: Dict[str, Any]) -> bool:
         """
         Insert a single row into a table.
 
         Args:
-            table_name: Name of the table
+            table_name: Name of the table (supports both old and new naming)
             data: Dictionary of column names to values
 
         Returns:
@@ -828,6 +869,9 @@ class PostgresStorage:
         if not self.is_connected():
             logger.warning("Not connected to PostgreSQL")
             return False
+
+        # Resolve table name (supports old naming for backward compatibility)
+        table_name = self._resolve_table_name(table_name)
 
         # Ensure timestamp is set
         if "timestamp" not in data:
@@ -871,7 +915,7 @@ class PostgresStorage:
         Insert multiple rows into a table.
 
         Args:
-            table_name: Name of the table
+            table_name: Name of the table (supports both old and new naming)
             data_list: List of dictionaries
 
         Returns:
@@ -879,6 +923,9 @@ class PostgresStorage:
         """
         if not self.is_connected() or not data_list:
             return 0
+
+        # Resolve table name (supports old naming for backward compatibility)
+        table_name = self._resolve_table_name(table_name)
 
         # Process all rows
         processed_list = []
@@ -929,7 +976,7 @@ class PostgresStorage:
         Query rows from a table.
 
         Args:
-            table_name: Name of the table
+            table_name: Name of the table (supports both old and new naming)
             conditions: WHERE conditions as dict
             order_by: ORDER BY clause
             limit: Maximum rows to return
@@ -940,6 +987,9 @@ class PostgresStorage:
         """
         if not self.is_connected():
             return []
+
+        # Resolve table name (supports old naming for backward compatibility)
+        table_name = self._resolve_table_name(table_name)
 
         query_parts = [f"SELECT * FROM {table_name}"]
         params = []
@@ -1007,16 +1057,16 @@ class PostgresStorage:
             result["found"] = True
             result["summary"] = run
 
-        # Get related data (table names match Google Sheets)
+        # Get related data (using new table names with prefixes)
         related_tables = {
-            "llm_calls": "llm_calls",
-            "tool_calls": "tool_calls",
-            "langgraph_events": "langgraph_events",
-            "assessment": "assessments",
-            "evaluation": "evaluations",
-            "tool_selection": "tool_selections",
-            "agent_metrics": "agent_metrics",
-            "coalition": "coalition",
+            "llm_calls": "wf_llm_calls",
+            "tool_calls": "wf_tool_calls",
+            "langgraph_events": "lg_events",
+            "assessment": "wf_assessments",
+            "evaluation": "eval_results",
+            "tool_selection": "eval_tool_selection",
+            "agent_metrics": "eval_agent_metrics",
+            "coalition": "eval_coalition",
         }
 
         for key, table in related_tables.items():
@@ -1037,14 +1087,14 @@ class PostgresStorage:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
 
-                # Total runs
-                cursor.execute("SELECT COUNT(*) as count FROM runs")
+                # Total runs (using new table name wf_runs)
+                cursor.execute("SELECT COUNT(*) as count FROM wf_runs")
                 stats["total_runs"] = cursor.fetchone()["count"]
 
                 # Runs by status
                 cursor.execute("""
                     SELECT status, COUNT(*) as count
-                    FROM runs
+                    FROM wf_runs
                     GROUP BY status
                 """)
                 stats["by_status"] = {row["status"]: row["count"] for row in cursor.fetchall()}
@@ -1052,7 +1102,7 @@ class PostgresStorage:
                 # Runs by risk level
                 cursor.execute("""
                     SELECT risk_level, COUNT(*) as count
-                    FROM runs
+                    FROM wf_runs
                     WHERE risk_level IS NOT NULL
                     GROUP BY risk_level
                 """)
@@ -1065,7 +1115,7 @@ class PostgresStorage:
                         AVG(credit_score) as avg_credit_score,
                         AVG(confidence) as avg_confidence,
                         AVG(duration_ms) as avg_duration_ms
-                    FROM runs
+                    FROM wf_runs
                 """)
                 row = cursor.fetchone()
                 stats["averages"] = {

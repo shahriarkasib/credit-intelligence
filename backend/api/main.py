@@ -2673,7 +2673,16 @@ async def query_pg_table(
         raise HTTPException(status_code=503, detail="PostgreSQL not connected")
 
     # Validate table name (names match Google Sheets exactly)
+    # Support both old and new table naming conventions
+    # New naming: wf_* (workflow), eval_* (evaluation), lg_* (langgraph), meta_* (metadata)
     valid_tables = [
+        # New names (preferred)
+        "wf_runs", "wf_llm_calls", "wf_tool_calls", "lg_events",
+        "wf_plans", "meta_prompts", "wf_data_sources", "wf_assessments",
+        "eval_results", "eval_tool_selection", "eval_consistency",
+        "eval_cross_model", "eval_llm_judge", "eval_agent_metrics",
+        "eval_coalition", "eval_log_tests", "meta_api_keys", "wf_state_dumps",
+        # Old names (backward compatibility - will be resolved to new names)
         "runs", "llm_calls", "tool_calls", "langgraph_events",
         "plans", "prompts", "data_sources", "assessments",
         "evaluations", "tool_selections", "consistency_scores",
