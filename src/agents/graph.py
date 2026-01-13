@@ -2581,28 +2581,38 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
             # Log full state dump - captures complete workflow state for debugging/analysis
             try:
                 duration_ms = (time.time() - start_time) * 1000
-                coalition_sc = coalition_result.correctness_score if 'coalition_result' in dir() and coalition_result else 0.0
+                # Check if coalition_result exists and has a score
+                coalition_sc = 0.0
+                try:
+                    if coalition_result and hasattr(coalition_result, 'correctness_score'):
+                        coalition_sc = coalition_result.correctness_score
+                except NameError:
+                    pass  # coalition_result not defined
                 agent_sc = overall_score or 0.0
 
-                wf_logger.log_state_dump(
-                    run_id=run_id,
-                    company_name=company_name,
-                    company_info=company_info,
-                    plan=task_plan,
-                    api_data=api_data,
-                    search_data=search_data,
-                    assessment=assessment,
-                    evaluation=evaluation,
-                    errors=state.get("errors", []),
-                    coalition_score=coalition_sc,
-                    agent_metrics_score=agent_sc,
-                    duration_ms=duration_ms,
-                    status="completed",
-                    node="evaluate",
-                    step_number=8,
-                )
+                if wf_logger:
+                    wf_logger.log_state_dump(
+                        run_id=run_id,
+                        company_name=company_name,
+                        company_info=company_info,
+                        plan=task_plan,
+                        api_data=api_data,
+                        search_data=search_data,
+                        assessment=assessment,
+                        evaluation=evaluation,
+                        errors=state.get("errors", []),
+                        coalition_score=coalition_sc,
+                        agent_metrics_score=agent_sc,
+                        duration_ms=duration_ms,
+                        status="completed",
+                        node="evaluate",
+                        step_number=8,
+                    )
+                    logger.info(f"[{run_id[:8]}] State dump logged successfully")
+                else:
+                    logger.warning(f"[{run_id[:8]}] wf_logger not available for state dump")
             except Exception as state_dump_error:
-                logger.debug(f"State dump logging skipped: {state_dump_error}")
+                logger.warning(f"State dump logging failed: {state_dump_error}")
 
         return {
             "evaluation": evaluation,
