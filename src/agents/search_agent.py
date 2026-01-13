@@ -117,6 +117,82 @@ class SearchAgent:
 
         return result
 
+    def search_company_enhanced(self, company_name: str) -> SearchAgentResult:
+        """
+        Enhanced search with more queries when API data is limited.
+
+        Performs the normal search plus additional targeted queries:
+        - Financial performance
+        - Legal/regulatory issues
+        - Credit rating analysis
+        - Industry competitors
+
+        Args:
+            company_name: Name of the company to search for
+
+        Returns:
+            SearchAgentResult with expanded web results and news
+        """
+        # Start with normal search
+        result = self.search_company(company_name)
+
+        logger.info(f"Running enhanced search for {company_name} (API data limited)")
+
+        # Additional enhanced queries
+        enhanced_queries = [
+            f"{company_name} financial performance 2024",
+            f"{company_name} legal issues lawsuits regulatory",
+            f"{company_name} credit rating analysis",
+            f"{company_name} industry competitors market share",
+            f"{company_name} debt financing loans",
+            f"{company_name} executive leadership management",
+        ]
+
+        additional_results = []
+        for query in enhanced_queries:
+            try:
+                search_result = self.web_search.search(query, max_results=3)
+                if search_result.success:
+                    additional_results.extend(search_result.data.get("results", []))
+            except Exception as e:
+                logger.debug(f"Enhanced search query failed: {query} - {e}")
+                continue
+
+        # Merge results (deduplicate by URL)
+        seen_urls = {r.get("url") for r in result.web_results if r.get("url")}
+        for r in additional_results:
+            url = r.get("url")
+            if url and url not in seen_urls:
+                result.web_results.append(r)
+                seen_urls.add(url)
+
+        # Also do extended news search
+        try:
+            extended_news = self.web_search.search_news(
+                f"{company_name} business financial",
+                max_results=self.max_results,
+                timelimit="w",  # Last week for fresher results
+            )
+            if extended_news.success:
+                existing_news_urls = {n.get("url") for n in result.news_articles if n.get("url")}
+                for news in extended_news.data.get("news", []):
+                    if news.get("url") not in existing_news_urls:
+                        result.news_articles.append(news)
+                        existing_news_urls.add(news.get("url"))
+        except Exception as e:
+            logger.debug(f"Extended news search failed: {e}")
+
+        # Re-extract key findings with expanded data
+        result.key_findings = self._extract_key_findings(
+            company_name,
+            result.web_results,
+            result.news_articles,
+        )
+
+        logger.info(f"Enhanced search completed: {len(result.web_results)} web results, {len(result.news_articles)} news articles")
+
+        return result
+
     def search_financial_news(self, company_name: str) -> SearchAgentResult:
         """
         Search specifically for financial news about a company.

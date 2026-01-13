@@ -997,6 +997,153 @@ def search_web(state: CreditWorkflowState) -> Dict[str, Any]:
         return result
 
 
+def search_web_enhanced(state: CreditWorkflowState) -> Dict[str, Any]:
+    """
+    Enhanced web search when API data is limited.
+
+    This node is triggered by the conditional edge when fewer than 2 API
+    data sources return data. It performs more thorough web searching
+    to compensate for limited structured data.
+    """
+    import time
+    start_time = time.time()
+    run_id = state.get("run_id", "unknown")
+    company_name = state["company_info"]["company_name"]
+    step_number = 5  # search_web is step 5 in workflow
+
+    # Get event logger for tool tracking
+    event_logger = get_current_event_logger()
+
+    # Log tool start
+    if event_logger:
+        event_logger.log_tool_event(
+            tool_name="web_search_enhanced",
+            status="started",
+            node="search_web_enhanced",
+            input_data=json.dumps({"company_name": company_name, "mode": "enhanced"}),
+        )
+
+    try:
+        # Enhanced search with more queries
+        search_result = search_agent.search_company_enhanced(company_name)
+        result = {
+            "search_data": search_result.to_dict(),
+            "errors": state.get("errors", []) + search_result.errors,
+            "status": "search_complete_enhanced",
+        }
+
+        search_data = search_result.to_dict()
+        tool_duration = (time.time() - start_time) * 1000
+        num_results = len(search_data.get("web_results", [])) if isinstance(search_data, dict) else 0
+
+        # Log tool completion
+        if event_logger:
+            event_logger.log_tool_event(
+                tool_name="web_search_enhanced",
+                status="completed",
+                node="search_web_enhanced",
+                input_data=json.dumps({"company_name": company_name, "mode": "enhanced"}),
+                output_data=json.dumps({"num_results": num_results, "mode": "enhanced", "success": bool(search_data)}, default=str),
+                duration_ms=tool_duration,
+            )
+
+        if wf_logger:
+            wf_logger.log_step(
+                run_id=run_id,
+                company_name=company_name,
+                step_name="search_web_enhanced",
+                input_data={"company_name": company_name, "mode": "enhanced"},
+                output_data={
+                    "full_search_data": search_data,
+                    "num_results": num_results,
+                    "mode": "enhanced",
+                },
+                execution_time_ms=tool_duration,
+                success=True,
+                agent_name="search_agent",
+            )
+            # Log as data source
+            wf_logger.log_data_source(
+                run_id=run_id,
+                company_name=company_name,
+                source_name="web_search_enhanced",
+                success=bool(search_data),
+                records_found=num_results,
+                data_summary=search_data if search_data else {},
+                execution_time_ms=tool_duration,
+                node="search_web_enhanced",
+                agent_name="search_agent",
+                step_number=step_number,
+            )
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Enhanced search error: {e}")
+        result = {
+            "search_data": {},
+            "errors": state.get("errors", []) + [f"Enhanced search error: {str(e)}"],
+            "status": "search_error",
+        }
+
+        if wf_logger:
+            wf_logger.log_step(
+                run_id=run_id,
+                company_name=company_name,
+                step_name="search_web_enhanced",
+                input_data={"company_name": company_name, "mode": "enhanced"},
+                output_data={"error": str(e)},
+                execution_time_ms=(time.time() - start_time) * 1000,
+                success=False,
+                error=str(e),
+                agent_name="search_agent",
+            )
+
+        return result
+
+
+def route_after_api_data(state: CreditWorkflowState) -> str:
+    """
+    Route based on API data quality.
+
+    Checks how many API data sources returned useful data:
+    - SEC Edgar: Check for filings
+    - Finnhub: Check for profile or financials
+    - CourtListener: Check for cases
+
+    Returns:
+        "normal_search" if 2+ sources have data (sufficient coverage)
+        "enhanced_search" if <2 sources have data (need more web data)
+    """
+    api_data = state.get("api_data", {})
+
+    # Count successful data sources
+    sources_with_data = 0
+
+    # Check SEC Edgar
+    sec_data = api_data.get("sec_edgar", {})
+    if sec_data and (sec_data.get("filings") or sec_data.get("company_info")):
+        sources_with_data += 1
+
+    # Check Finnhub
+    finnhub_data = api_data.get("finnhub", {})
+    if finnhub_data and (finnhub_data.get("profile") or finnhub_data.get("financials") or finnhub_data.get("company")):
+        sources_with_data += 1
+
+    # Check CourtListener
+    court_data = api_data.get("court_listener", {})
+    if court_data and court_data.get("cases"):
+        sources_with_data += 1
+
+    # Route decision
+    if sources_with_data >= 2:
+        logger.info(f"API data quality: {sources_with_data}/3 sources - using normal search")
+        return "normal_search"
+    else:
+        logger.info(f"API data quality: {sources_with_data}/3 sources - using enhanced search")
+        return "enhanced_search"
+
+
 def synthesize(state: CreditWorkflowState) -> Dict[str, Any]:
     """
     Synthesize final credit assessment with multi-LLM consistency evaluation.
@@ -2700,6 +2847,7 @@ def build_graph() -> StateGraph:
     workflow.add_node("create_plan", create_plan)
     workflow.add_node("fetch_api_data", fetch_api_data)
     workflow.add_node("search_web", search_web)
+    workflow.add_node("search_web_enhanced", search_web_enhanced)  # NEW: Enhanced search for limited API data
     workflow.add_node("synthesize", synthesize)
     workflow.add_node("save_to_database", save_to_database)
     workflow.add_node("evaluate", evaluate_assessment)  # NEW: Evaluation node
@@ -2719,8 +2867,22 @@ def build_graph() -> StateGraph:
     )
 
     workflow.add_edge("create_plan", "fetch_api_data")
-    workflow.add_edge("fetch_api_data", "search_web")
+
+    # NEW: Conditional edge based on API data quality
+    # Routes to enhanced search if API data is limited (<2 sources)
+    workflow.add_conditional_edges(
+        "fetch_api_data",
+        route_after_api_data,
+        {
+            "normal_search": "search_web",
+            "enhanced_search": "search_web_enhanced",
+        }
+    )
+
+    # Both search paths lead to synthesize
     workflow.add_edge("search_web", "synthesize")
+    workflow.add_edge("search_web_enhanced", "synthesize")
+
     workflow.add_edge("synthesize", "save_to_database")
     workflow.add_edge("save_to_database", "evaluate")  # NEW: Run evaluation after save
     workflow.add_edge("evaluate", END)
