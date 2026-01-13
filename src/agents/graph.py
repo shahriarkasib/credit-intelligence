@@ -1141,14 +1141,14 @@ def synthesize(state: CreditWorkflowState) -> Dict[str, Any]:
                                 status=eval_status,
                             )
 
-                            # Log prompt for the first synthesis call only (to avoid duplicates)
-                            if call_type == "synthesis_primary_1" and wf_logger:
+                            # Log prompt for each synthesis call
+                            if wf_logger:
                                 try:
                                     wf_logger.log_prompt(
                                         run_id=run_id,
                                         company_name=company_name,
-                                        prompt_id="credit_synthesis",
-                                        prompt_name="Credit Synthesis",
+                                        prompt_id=f"credit_synthesis_{call_type}",
+                                        prompt_name=f"Credit Synthesis ({call_type})",
                                         category="synthesis",
                                         system_prompt="You are an expert credit analyst...",
                                         user_prompt=LLMAnalystAgent.CREDIT_ANALYSIS_PROMPT.format(
@@ -1161,6 +1161,8 @@ def synthesize(state: CreditWorkflowState) -> Dict[str, Any]:
                                         variables={
                                             "company_name": company_name,
                                             "api_sources": list(state.get("api_data", {}).keys()),
+                                            "model": model_id,
+                                            "call_type": call_type,
                                         },
                                         node="synthesize",
                                         agent_name="llm_analyst",
@@ -1732,6 +1734,29 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                     current_task="tool_selection_evaluation",
                     temperature=0.1,
                 )
+
+                # Log prompt for tool selection evaluation
+                try:
+                    wf_logger.log_prompt(
+                        run_id=run_id,
+                        company_name=company_name,
+                        prompt_id="tool_selection_evaluation",
+                        prompt_name="Tool Selection Evaluation",
+                        category="evaluation",
+                        system_prompt="Evaluate the tool selection for this credit analysis",
+                        user_prompt=f"Company: {company_name}\nSelected tools: {selected_tools}\nExpected tools: {expected_tools}",
+                        variables={
+                            "company_name": company_name,
+                            "selected_tools": selected_tools,
+                            "expected_tools": expected_tools,
+                        },
+                        node="evaluate",
+                        agent_name="workflow_evaluator",
+                        step_number=7,
+                        model=llm_eval_metrics.get("model", "llama-3.3-70b-versatile"),
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to log evaluation prompt: {e}")
 
             # Log evaluation with reasoning
             step_number = 7  # evaluate is step 7
