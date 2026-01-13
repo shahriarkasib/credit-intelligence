@@ -1041,29 +1041,33 @@ class WorkflowLogger:
                 answer_details=answer_details,
             )
 
-            # Also log to openevals_metrics sheet
-            self.sheets_logger.log_openevals_metrics(
-                run_id=run_id,
-                company_name=company_name,
-                model_used=model,
-                node=node,
-                agent_name=agent_name,
-                intent_correctness=intent_correctness,
-                plan_quality=plan_quality,
-                tool_choice_correctness=tool_choice_correctness,
-                tool_completeness=tool_completeness,
-                trajectory_match=trajectory_match,
-                final_answer_quality=final_answer_quality,
-                step_count=step_count,
-                tool_calls=tool_calls,
-                latency_ms=latency_ms,
-                overall_score=overall_score,
-                intent_details=intent_details,
-                plan_details=plan_details,
-                tool_details=tool_details,
-                trajectory_details=trajectory_details,
-                answer_details=answer_details,
-            )
+            # Also log to openevals_metrics sheet (if method exists)
+            try:
+                if hasattr(self.sheets_logger, 'log_openevals_metrics'):
+                    self.sheets_logger.log_openevals_metrics(
+                        run_id=run_id,
+                        company_name=company_name,
+                        model_used=model,
+                        node=node,
+                        agent_name=agent_name,
+                        intent_correctness=intent_correctness,
+                        plan_quality=plan_quality,
+                        tool_choice_correctness=tool_choice_correctness,
+                        tool_completeness=tool_completeness,
+                        trajectory_match=trajectory_match,
+                        final_answer_quality=final_answer_quality,
+                        step_count=step_count,
+                        tool_calls=tool_calls,
+                        latency_ms=latency_ms,
+                        overall_score=overall_score,
+                        intent_details=intent_details,
+                        plan_details=plan_details,
+                        tool_details=tool_details,
+                        trajectory_details=trajectory_details,
+                        answer_details=answer_details,
+                    )
+            except Exception as e:
+                logger.debug(f"OpenEvals metrics logging skipped: {e}")
 
         # Log to PostgreSQL
         if self.run_logger.is_postgres_connected():
@@ -1125,49 +1129,57 @@ class WorkflowLogger:
         """
         # Log to Google Sheets
         if self.sheets_logger.is_connected():
-            self.sheets_logger.log_unified_metrics(
-                run_id=run_id,
-                company_name=company_name,
-                node=node,
-                agent_name=agent_name,
-                model=model,
-                faithfulness=faithfulness,
-                hallucination=hallucination,
-                answer_relevancy=answer_relevancy,
-                factual_accuracy=factual_accuracy,
-                final_answer_quality=final_answer_quality,
-                accuracy_score=accuracy_score,
-                same_model_consistency=same_model_consistency,
-                cross_model_consistency=cross_model_consistency,
-                risk_level_agreement=risk_level_agreement,
-                semantic_similarity=semantic_similarity,
-                consistency_score=consistency_score,
-                intent_correctness=intent_correctness,
-                plan_quality=plan_quality,
-                tool_choice_correctness=tool_choice_correctness,
-                tool_completeness=tool_completeness,
-                trajectory_match=trajectory_match,
-                agent_final_answer=agent_final_answer,
-                agent_efficiency_score=agent_efficiency_score,
-                overall_quality_score=overall_quality_score,
-                libraries_used=libraries_used,
-                evaluation_time_ms=evaluation_time_ms,
-            )
+            try:
+                if hasattr(self.sheets_logger, 'log_unified_metrics'):
+                    self.sheets_logger.log_unified_metrics(
+                        run_id=run_id,
+                        company_name=company_name,
+                        node=node,
+                        agent_name=agent_name,
+                        model=model,
+                        faithfulness=faithfulness,
+                        hallucination=hallucination,
+                        answer_relevancy=answer_relevancy,
+                        factual_accuracy=factual_accuracy,
+                        final_answer_quality=final_answer_quality,
+                        accuracy_score=accuracy_score,
+                        same_model_consistency=same_model_consistency,
+                        cross_model_consistency=cross_model_consistency,
+                        risk_level_agreement=risk_level_agreement,
+                        semantic_similarity=semantic_similarity,
+                        consistency_score=consistency_score,
+                        intent_correctness=intent_correctness,
+                        plan_quality=plan_quality,
+                        tool_choice_correctness=tool_choice_correctness,
+                        tool_completeness=tool_completeness,
+                        trajectory_match=trajectory_match,
+                        agent_final_answer=agent_final_answer,
+                        agent_efficiency_score=agent_efficiency_score,
+                        overall_quality_score=overall_quality_score,
+                        libraries_used=libraries_used,
+                        evaluation_time_ms=evaluation_time_ms,
+                    )
+            except Exception as e:
+                logger.debug(f"Unified metrics sheets logging skipped: {e}")
 
             # Also log DeepEval metrics if available (faithfulness, hallucination are from DeepEval)
-            if faithfulness > 0 or hallucination > 0 or answer_relevancy > 0:
-                self.sheets_logger.log_deepeval_metrics(
-                    run_id=run_id,
-                    company_name=company_name,
-                    model_used=model,
-                    node=node,
-                    agent_name=agent_name,
-                    answer_relevancy=answer_relevancy,
-                    faithfulness=faithfulness,
-                    hallucination=hallucination,
-                    overall_score=accuracy_score,
-                    evaluation_time_ms=evaluation_time_ms,
-                )
+            try:
+                if faithfulness > 0 or hallucination > 0 or answer_relevancy > 0:
+                    if hasattr(self.sheets_logger, 'log_deepeval_metrics'):
+                        self.sheets_logger.log_deepeval_metrics(
+                            run_id=run_id,
+                            company_name=company_name,
+                            model_used=model,
+                            node=node,
+                            agent_name=agent_name,
+                            answer_relevancy=answer_relevancy,
+                            faithfulness=faithfulness,
+                            hallucination=hallucination,
+                            overall_score=accuracy_score,
+                            evaluation_time_ms=evaluation_time_ms,
+                        )
+            except Exception as e:
+                logger.debug(f"DeepEval metrics sheets logging skipped: {e}")
 
         logger.info(f"[{run_id[:8]}] Unified metrics logged: accuracy={accuracy_score:.2f}, "
                    f"consistency={consistency_score:.2f}, agent={agent_efficiency_score:.2f}, "
