@@ -652,6 +652,10 @@ export default function CreditIntelligenceStudio() {
             // Initialize streaming text for this step
             setStreamingTextByStep(prev => ({ ...prev, [step.step_id]: '' }))
             setCurrentThinkingNode(step.step_id)
+            // Auto-scroll to running step after state update
+            setTimeout(() => {
+              runningStepRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            }, 100)
           } else if (step.status === 'completed') {
             addLog('step', `Completed: ${step.name} (${step.duration_ms?.toFixed(0)}ms)`, step)
             // Keep the streaming text for this step (don't clear)
@@ -1240,9 +1244,9 @@ export default function CreditIntelligenceStudio() {
                 </div>
               )}
 
-              {/* Progress Bar - Shows during analysis in center panel */}
+              {/* Progress Bar - Shows during analysis in center panel (sticky) */}
               {isRunning && workflow && (
-                <div className="px-4 py-3 border-b border-studio-border bg-studio-panel/50">
+                <div className="sticky top-0 z-10 px-4 py-3 border-b border-studio-border bg-studio-panel/95 backdrop-blur-sm shadow-lg">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <Activity className="w-4 h-4 text-studio-accent animate-pulse" />
