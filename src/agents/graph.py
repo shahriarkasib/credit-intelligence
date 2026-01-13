@@ -1918,6 +1918,9 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                             # Calculate duration and status
                             cross_model_duration = (time.time() - cross_model_start) * 1000
                             cross_model_status = "agree" if cross_model_agreement >= 0.8 else ("partial" if cross_model_agreement >= 0.5 else "disagree")
+                            # eval_status based on average credit score
+                            avg_score = (primary_score + secondary_score) / 2
+                            eval_status = "good" if avg_score >= 70 else ("average" if avg_score >= 50 else "poor")
                             pg_cross.log_cross_model_eval(
                                 run_id=run_id,
                                 company_name=company_name,
@@ -1944,6 +1947,7 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                                 pairwise_comparisons=pairwise,
                                 duration_ms=cross_model_duration,
                                 status=cross_model_status,
+                                eval_status=eval_status,
                             )
                     except Exception as pg_cross_err:
                         logger.debug(f"PostgreSQL cross-model eval logging skipped: {pg_cross_err}")
