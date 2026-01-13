@@ -426,6 +426,7 @@ export default function CreditIntelligenceStudio() {
   const wsRef = useRef<WebSocket | null>(null)
   const logsEndRef = useRef<HTMLDivElement>(null)
   const runningStepRef = useRef<HTMLDivElement>(null)
+  const resultSectionRef = useRef<HTMLDivElement>(null)
 
   // Auto-scroll logs
   useEffect(() => {
@@ -695,6 +696,10 @@ export default function CreditIntelligenceStudio() {
           setStepDescription('')
           setProgressPercent(100)
           addLog('success', `Workflow completed! Risk: ${message.data.result?.risk_level}, Score: ${message.data.result?.credit_score}`)
+          // Scroll to result section after a short delay
+          setTimeout(() => {
+            resultSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          }, 300)
           break
 
         case 'workflow_failed':
@@ -1262,7 +1267,7 @@ export default function CreditIntelligenceStudio() {
               <div className="flex-1 overflow-auto p-4">
                 {/* Result Tab */}
                 {detailTab === 'result' && workflow?.result && (
-                  <div className="space-y-4">
+                  <div ref={resultSectionRef} className="space-y-4">
                     <div className="flex items-center justify-between">
                       <h2 className="text-lg font-semibold flex items-center gap-2">
                         <Building2 className="w-5 h-5" />

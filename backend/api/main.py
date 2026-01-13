@@ -729,6 +729,7 @@ async def run_workflow_with_streaming(
 
                 # Track current node for LLM streaming context
                 current_node = ""
+                last_known_step = ""
 
                 async for event in graph.astream_events(
                     {
@@ -745,12 +746,22 @@ async def run_workflow_with_streaming(
 
                     # Also put node outputs in queue for UI updates
                     event_type = event.get("event", "")
+                    event_name = event.get("name", "")
 
                     # Track current node for context in LLM streaming
+                    # Check for graph node starts (top-level workflow steps)
                     if event_type == "on_chain_start":
-                        node_name = event.get("name", "")
-                        if node_name and node_name in step_name_map:
-                            current_node = node_name
+                        if event_name and event_name in step_name_map:
+                            current_node = event_name
+                            last_known_step = event_name
+                            logger.debug(f"LLM streaming: entered node {current_node}")
+
+                    # Also track LLM starts to know when LLM is active
+                    if event_type == "on_llm_start" or event_type == "on_chat_model_start":
+                        # Use the last known step if we're in a nested call
+                        if not current_node and last_known_step:
+                            current_node = last_known_step
+                        logger.debug(f"LLM started in node: {current_node}")
 
                     # Stream LLM tokens in real-time
                     if event_type == "on_chat_model_stream":
@@ -764,12 +775,15 @@ async def run_workflow_with_streaming(
                         elif isinstance(chunk, str):
                             content = chunk
 
-                        if content:
+                        # Use last_known_step if current_node is empty
+                        node_to_use = current_node or last_known_step
+
+                        if content and node_to_use:
                             await manager.broadcast(run_id, {
                                 "type": "llm_token",
                                 "data": {
                                     "content": content,
-                                    "node": current_node,
+                                    "node": node_to_use,
                                     "run_id": event.get("run_id", "")
                                 }
                             })

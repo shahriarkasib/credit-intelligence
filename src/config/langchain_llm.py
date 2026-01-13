@@ -180,8 +180,9 @@ def get_chat_groq(
             max_tokens=max_tokens,
             groq_api_key=groq_api_key,
             callbacks=callbacks or [],
+            streaming=True,  # Enable streaming for real-time token output
         )
-        logger.debug(f"Created ChatGroq instance: model={model_id}, temp={temperature}")
+        logger.debug(f"Created ChatGroq instance: model={model_id}, temp={temperature}, streaming=True")
         return llm
     except Exception as e:
         logger.error(f"Failed to create ChatGroq: {e}")
