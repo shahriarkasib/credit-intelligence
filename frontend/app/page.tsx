@@ -436,17 +436,20 @@ export default function CreditIntelligenceStudio() {
 
   // Auto-scroll to running step when current_step changes
   useEffect(() => {
-    if (workflow?.current_step) {
-      // Delay to ensure React has rendered the new running step
-      const timer = setTimeout(() => {
-        const runningElement = document.querySelector('[data-step-status="running"]') as HTMLElement
-        if (runningElement) {
-          runningElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
-        }
-      }, 300)
-      return () => clearTimeout(timer)
+    if (workflow?.current_step && workflow?.steps) {
+      // Find the running step and scroll to it by ID
+      const runningStep = workflow.steps.find(s => s.status === 'running')
+      if (runningStep) {
+        const timer = setTimeout(() => {
+          const stepElement = document.querySelector(`[data-step-id="${runningStep.step_id}"]`) as HTMLElement
+          if (stepElement) {
+            stepElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          }
+        }, 150)
+        return () => clearTimeout(timer)
+      }
     }
-  }, [workflow?.current_step])
+  }, [workflow?.current_step, workflow?.steps])
 
   // Fetch historical runs on mount
   useEffect(() => {
@@ -660,21 +663,19 @@ export default function CreditIntelligenceStudio() {
             // Initialize streaming text for this step
             setStreamingTextByStep(prev => ({ ...prev, [step.step_id]: '' }))
             setCurrentThinkingNode(step.step_id)
-            // Auto-scroll to running step after React re-renders
-            const scrollToRunningStep = () => {
-              // Try using querySelector to find the running step by data attribute
-              const runningElement = document.querySelector('[data-step-status="running"]') as HTMLElement
-              const container = pipelineScrollRef.current
-
-              if (runningElement && container) {
-                // Use scrollIntoView on the element
-                runningElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            // Auto-scroll to this specific step by ID (not by status, which may not have updated)
+            const stepId = step.step_id
+            const scrollToStep = () => {
+              // Find the specific step element by its ID
+              const stepElement = document.querySelector(`[data-step-id="${stepId}"]`) as HTMLElement
+              if (stepElement) {
+                stepElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
               }
             }
-            // Try multiple times with increasing delays
-            setTimeout(scrollToRunningStep, 300)
-            setTimeout(scrollToRunningStep, 600)
-            setTimeout(scrollToRunningStep, 1000)
+            // Scroll immediately and also after delays to ensure visibility
+            scrollToStep()
+            setTimeout(scrollToStep, 100)
+            setTimeout(scrollToStep, 300)
           } else if (step.status === 'completed') {
             addLog('step', `Completed: ${step.name} (${step.duration_ms?.toFixed(0)}ms)`, step)
             // Keep the streaming text for this step (don't clear)
