@@ -696,9 +696,12 @@ export default function CreditIntelligenceStudio() {
           setStepDescription('')
           setProgressPercent(100)
           addLog('success', `Workflow completed! Risk: ${message.data.result?.risk_level}, Score: ${message.data.result?.credit_score}`)
-          // Scroll to result section after a short delay
+          // Switch to result tab and scroll to top after a short delay
+          setDetailTab('result')
           setTimeout(() => {
             resultSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            // Also scroll the main content area to top
+            window.scrollTo({ top: 0, behavior: 'smooth' })
           }, 300)
           break
 
