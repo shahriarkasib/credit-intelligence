@@ -1896,6 +1896,38 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                         )
                         logger.info(f"Cross-model eval logged: agreement={cross_model_agreement:.2f}, confidence_agreement={confidence_agreement:.2f}, best={best_model}")
 
+                    # Log to PostgreSQL as well
+                    try:
+                        from run_logging.postgres_logger import get_postgres_logger as get_pg_cross
+                        pg_cross = get_pg_cross()
+                        if pg_cross and pg_cross.is_connected():
+                            pg_cross.log_cross_model_eval(
+                                run_id=run_id,
+                                company_name=company_name,
+                                models_compared=[primary_model, secondary_model],
+                                num_models=2,
+                                node="synthesize",
+                                node_type="agent",
+                                agent_name="workflow_evaluator",
+                                step_number=6,
+                                risk_level_agreement=risk_agreement,
+                                credit_score_mean=(primary_score + secondary_score) / 2,
+                                credit_score_std=abs(primary_score - secondary_score) / 2,
+                                credit_score_range=abs(primary_score - secondary_score),
+                                confidence_agreement=confidence_agreement,
+                                best_model=best_model,
+                                best_model_reasoning=best_reasoning,
+                                cross_model_agreement=cross_model_agreement,
+                                llm_judge_analysis=f"Primary ({primary_model}): {primary_risk}/{primary_score}/{primary_confidence:.2f}, Secondary ({secondary_model}): {secondary_risk}/{secondary_score}/{secondary_confidence:.2f}",
+                                model_recommendations=[f"Use {best_model} for this company type"],
+                                model_results={
+                                    primary_model: {"risk_level": primary_risk, "credit_score": primary_score, "confidence": primary_confidence},
+                                    secondary_model: {"risk_level": secondary_risk, "credit_score": secondary_score, "confidence": secondary_confidence},
+                                },
+                            )
+                    except Exception as pg_cross_err:
+                        logger.debug(f"PostgreSQL cross-model eval logging skipped: {pg_cross_err}")
+
                 except Exception as secondary_error:
                     logger.warning(f"Secondary model analysis failed: {secondary_error}")
 
@@ -2477,23 +2509,48 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                 from run_logging.postgres_logger import get_postgres_logger as get_pg_log
                 pg_log = get_pg_log()
                 if pg_log and pg_log.is_connected():
-                    # Count what we logged to determine status
-                    tables_logged = 0
-                    # Check common tables that should have data
-                    for table in ["runs", "llm_calls", "assessments", "evaluations"]:
+                    # Count rows in each table for this run
+                    table_counts = {}
+                    tables_to_check = [
+                        "runs", "langgraph_events", "llm_calls", "tool_calls",
+                        "assessments", "evaluations", "tool_selections",
+                        "consistency_scores", "data_sources", "plans", "prompts",
+                        "cross_model_eval", "llm_judge_results", "agent_metrics", "coalition"
+                    ]
+                    for table in tables_to_check:
                         try:
-                            count = pg_log.storage.query(f"SELECT COUNT(*) FROM {table} WHERE run_id = %s", (run_id,))
-                            if count and count[0][0] > 0:
-                                tables_logged += 1
-                        except:
-                            pass
-                    status = "pass" if tables_logged >= 3 else ("partial" if tables_logged > 0 else "fail")
+                            rows = pg_log.storage.query(table, conditions={"run_id": run_id})
+                            table_counts[table] = len(rows) if rows else 0
+                        except Exception:
+                            table_counts[table] = 0
+
+                    # Count tables with data
+                    tables_logged = sum(1 for count in table_counts.values() if count > 0)
+                    status = "pass" if tables_logged >= 10 else ("partial" if tables_logged > 0 else "fail")
+
                     pg_log.log_log_test(
                         run_id=run_id,
                         company_name=company_name,
                         verification_status=status,
                         total_tables_logged=tables_logged,
+                        # Individual table counts
+                        runs_logged=table_counts.get("runs", 0),
+                        langgraph_events_logged=table_counts.get("langgraph_events", 0),
+                        llm_calls_logged=table_counts.get("llm_calls", 0),
+                        tool_calls_logged=table_counts.get("tool_calls", 0),
+                        assessments_logged=table_counts.get("assessments", 0),
+                        evaluations_logged=table_counts.get("evaluations", 0),
+                        tool_selections_logged=table_counts.get("tool_selections", 0),
+                        consistency_scores_logged=table_counts.get("consistency_scores", 0),
+                        data_sources_logged=table_counts.get("data_sources", 0),
+                        plans_logged=table_counts.get("plans", 0),
+                        prompts_logged=table_counts.get("prompts", 0),
+                        cross_model_eval_logged=table_counts.get("cross_model_eval", 0),
+                        llm_judge_results_logged=table_counts.get("llm_judge_results", 0),
+                        agent_metrics_logged=table_counts.get("agent_metrics", 0),
+                        coalition_logged=table_counts.get("coalition", 0),
                     )
+                    logger.info(f"Log tests: {tables_logged}/15 tables have data, status={status}")
             except Exception as pg_verify_error:
                 logger.debug(f"PostgreSQL log verification skipped: {pg_verify_error}")
 

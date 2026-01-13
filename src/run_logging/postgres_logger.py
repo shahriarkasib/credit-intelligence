@@ -486,6 +486,42 @@ class PostgresLogger:
         data.update(kwargs)
         return self.log("coalition", data)
 
+    def log_cross_model_eval(
+        self,
+        run_id: str,
+        company_name: str,
+        models_compared: List[str] = None,
+        num_models: int = 0,
+        risk_level_agreement: float = 0.0,
+        credit_score_mean: float = 0.0,
+        credit_score_std: float = 0.0,
+        credit_score_range: float = 0.0,
+        confidence_agreement: float = 0.0,
+        best_model: str = "",
+        best_model_reasoning: str = "",
+        cross_model_agreement: float = 0.0,
+        model_results: Dict[str, Any] = None,
+        **kwargs,
+    ) -> bool:
+        """Log cross-model evaluation result."""
+        data = {
+            "run_id": run_id,
+            "company_name": company_name,
+            "models_compared": models_compared or [],
+            "num_models": num_models,
+            "risk_level_agreement": risk_level_agreement,
+            "credit_score_mean": credit_score_mean,
+            "credit_score_std": credit_score_std,
+            "credit_score_range": credit_score_range,
+            "confidence_agreement": confidence_agreement,
+            "best_model": best_model,
+            "best_model_reasoning": best_model_reasoning,
+            "cross_model_agreement": cross_model_agreement,
+            "model_results": model_results or {},
+        }
+        data.update(kwargs)
+        return self.log("cross_model_eval", data)
+
     def log_log_test(
         self,
         run_id: str,
