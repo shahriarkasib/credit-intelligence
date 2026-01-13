@@ -552,6 +552,49 @@ class PostgresStorage:
             "foreign_keys": [("run_id", "runs", "run_id")],
         },
 
+        # State Dumps (full workflow state snapshots)
+        "state_dumps": {
+            "prefix": "",
+            "columns": [
+                ("id", "BIGSERIAL", False, False),
+                ("run_id", "VARCHAR(64)", False, False),
+                ("company_name", "VARCHAR(255)", True, False),
+                ("node", "VARCHAR(100)", True, False),
+                ("step_number", "INTEGER", True, False),
+                # Company info
+                ("company_info", "JSONB", True, False),
+                # Plan
+                ("plan", "JSONB", True, False),
+                ("plan_size_bytes", "INTEGER", True, False),
+                # API data
+                ("api_data", "JSONB", True, False),
+                ("api_data_size_bytes", "INTEGER", True, False),
+                ("api_sources_count", "INTEGER", True, False),
+                # Search data
+                ("search_data", "JSONB", True, False),
+                ("search_data_size_bytes", "INTEGER", True, False),
+                # Assessment
+                ("assessment", "JSONB", True, False),
+                ("risk_level", "VARCHAR(50)", True, False),
+                ("credit_score", "INTEGER", True, False),
+                ("confidence", "DECIMAL(5,4)", True, False),
+                # Evaluation
+                ("evaluation", "JSONB", True, False),
+                ("evaluation_scores", "JSONB", True, False),
+                # Errors
+                ("errors", "JSONB", True, False),
+                ("error_count", "INTEGER", True, False),
+                # Metadata
+                ("total_state_size_bytes", "INTEGER", True, False),
+                ("duration_ms", "DECIMAL(15,3)", True, False),
+                ("status", "VARCHAR(50)", True, False),
+                ("timestamp", "TIMESTAMPTZ", False, True),
+            ],
+            "primary_key": ["id", "timestamp"],
+            "indexes": ["run_id", "company_name", "status"],
+            "foreign_keys": [("run_id", "runs", "run_id")],
+        },
+
         # API Keys (not partitioned, small table)
         "api_keys": {
             "prefix": "",

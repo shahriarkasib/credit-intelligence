@@ -540,6 +540,78 @@ class PostgresLogger:
         data.update(kwargs)
         return self.log("log_tests", data)
 
+    def log_state_dump(
+        self,
+        run_id: str,
+        company_name: str,
+        company_info: Dict[str, Any] = None,
+        plan: List[Dict] = None,
+        api_data: Dict[str, Any] = None,
+        search_data: Dict[str, Any] = None,
+        assessment: Dict[str, Any] = None,
+        evaluation: Dict[str, Any] = None,
+        errors: List[str] = None,
+        duration_ms: float = 0.0,
+        status: str = "completed",
+        **kwargs,
+    ) -> bool:
+        """Log full workflow state dump."""
+        import json
+
+        # Calculate sizes
+        plan_json = json.dumps(plan or [])
+        api_data_json = json.dumps(api_data or {})
+        search_data_json = json.dumps(search_data or {})
+
+        # Extract assessment fields
+        risk_level = assessment.get("overall_risk_level", "") if assessment else ""
+        credit_score = assessment.get("credit_score_estimate", 0) if assessment else 0
+        confidence = assessment.get("confidence_score", 0) if assessment else 0
+
+        # Build evaluation scores summary
+        eval_scores = {}
+        if evaluation:
+            if "coalition" in evaluation:
+                eval_scores["coalition"] = evaluation["coalition"].get("correctness_score", 0)
+            if "agent_metrics" in evaluation:
+                eval_scores["agent_metrics"] = evaluation["agent_metrics"].get("overall_agent_score", 0)
+
+        data = {
+            "run_id": run_id,
+            "company_name": company_name,
+            "node": "evaluate",
+            "step_number": 8,
+            # Company info
+            "company_info": company_info or {},
+            # Plan
+            "plan": plan or [],
+            "plan_size_bytes": len(plan_json),
+            # API data
+            "api_data": api_data or {},
+            "api_data_size_bytes": len(api_data_json),
+            "api_sources_count": len(api_data) if api_data else 0,
+            # Search data
+            "search_data": search_data or {},
+            "search_data_size_bytes": len(search_data_json),
+            # Assessment
+            "assessment": assessment or {},
+            "risk_level": risk_level,
+            "credit_score": credit_score,
+            "confidence": confidence,
+            # Evaluation
+            "evaluation": evaluation or {},
+            "evaluation_scores": eval_scores,
+            # Errors
+            "errors": errors or [],
+            "error_count": len(errors) if errors else 0,
+            # Metadata
+            "total_state_size_bytes": len(plan_json) + len(api_data_json) + len(search_data_json),
+            "duration_ms": duration_ms,
+            "status": status,
+        }
+        data.update(kwargs)
+        return self.log("state_dumps", data)
+
     # Query methods
 
     def get_runs(

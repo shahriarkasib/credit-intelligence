@@ -331,6 +331,27 @@ class SheetsLogger:
                 # Summary
                 "total_sheets_logged", "verification_status",
                 "timestamp", "generated_by"
+            ],
+            # Sheet 17: State Dumps - Full workflow state snapshots
+            "state_dumps": [
+                "run_id", "company_name", "node", "step_number",
+                # Company info (JSON)
+                "company_info_json",
+                # Plan (JSON)
+                "plan_json", "plan_size_bytes", "plan_tasks_count",
+                # API data (JSON summary)
+                "api_data_summary", "api_data_size_bytes", "api_sources_count",
+                # Search data (JSON summary)
+                "search_data_summary", "search_data_size_bytes",
+                # Assessment
+                "risk_level", "credit_score", "confidence", "assessment_json",
+                # Evaluation scores
+                "coalition_score", "agent_metrics_score", "evaluation_json",
+                # Errors
+                "errors_json", "error_count",
+                # Metadata
+                "total_state_size_bytes", "duration_ms", "status",
+                "timestamp", "generated_by"
             ]
         }
 
@@ -1669,6 +1690,18 @@ class SheetsLogger:
                 "consistency_scores", "data_sources", "plans", "prompts",
                 "cross_model_eval", "llm_judge_results", "agent_metrics", "coalition",
                 "total_sheets_logged", "verification_status",
+                "timestamp", "generated_by"
+            ],
+            "state_dumps": [
+                "run_id", "company_name", "node", "step_number",
+                "company_info_json",
+                "plan_json", "plan_size_bytes", "plan_tasks_count",
+                "api_data_summary", "api_data_size_bytes", "api_sources_count",
+                "search_data_summary", "search_data_size_bytes",
+                "risk_level", "credit_score", "confidence", "assessment_json",
+                "coalition_score", "agent_metrics_score", "evaluation_json",
+                "errors_json", "error_count",
+                "total_state_size_bytes", "duration_ms", "status",
                 "timestamp", "generated_by"
             ]
         }

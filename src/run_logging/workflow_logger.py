@@ -104,6 +104,16 @@ class WorkflowLogger:
                 success=success,
                 error=error,
             )
+            # Also update runs collection with step summary
+            self.run_logger.log_step(
+                run_id=run_id,
+                step_name=step_name,
+                input_data=input_data,
+                output_data=output_data,
+                execution_time_ms=execution_time_ms,
+                success=success,
+                error=error,
+            )
 
         # Log to Google Sheets
         if self.sheets_logger.is_connected():
@@ -541,6 +551,31 @@ class WorkflowLogger:
                 )
             except Exception as e:
                 logger.warning(f"Failed to log evaluation to PostgreSQL: {e}")
+
+        # Update runs collection with evaluation data
+        if self.run_logger.is_connected():
+            try:
+                self.run_logger.log_evaluation(
+                    run_id=run_id,
+                    evaluation_type="workflow",
+                    metrics={
+                        "tool_selection_score": tool_selection_score,
+                        "data_quality_score": data_quality_score,
+                        "synthesis_score": synthesis_score,
+                        "overall_score": overall_score,
+                        "tool_reasoning": tool_reasoning,
+                        "data_reasoning": data_reasoning,
+                        "synthesis_reasoning": synthesis_reasoning,
+                    },
+                    scores={
+                        "tool_selection": tool_selection_score,
+                        "data_quality": data_quality_score,
+                        "synthesis": synthesis_score,
+                        "overall": overall_score,
+                    },
+                )
+            except Exception as e:
+                logger.warning(f"Failed to update runs evaluation in MongoDB: {e}")
 
         logger.info(f"[{run_id[:8]}] Evaluation: {overall_score:.2f}")
 
