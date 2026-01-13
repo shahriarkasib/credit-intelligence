@@ -305,14 +305,29 @@ class SheetsLogger:
                 "intent_details", "plan_details", "tool_details", "trajectory_details", "answer_details",
                 "status", "timestamp", "generated_by"
             ],
-            # Sheet 15: Log Tests - Simple verification of sheet logging per run
+            # Sheet 15: Coalition evaluation results
+            "coalition": [
+                "run_id", "company_name", "node", "node_type", "agent_name", "step_number",
+                # Overall correctness
+                "is_correct", "correctness_score", "confidence", "correctness_category",
+                # Component scores
+                "efficiency_score", "quality_score", "tool_score", "consistency_score",
+                # Coalition details
+                "agreement_score", "num_evaluators",
+                # Individual evaluator votes (JSON)
+                "votes_json",
+                # Metadata
+                "evaluation_time_ms", "status",
+                "timestamp", "generated_by"
+            ],
+            # Sheet 16: Log Tests - Simple verification of sheet logging per run
             "log_tests": [
                 "run_id", "company_name",
-                # Per-sheet verification (has_data: yes/no, count)
+                # Per-sheet verification (count for each sheet)
                 "runs", "langgraph_events", "llm_calls", "tool_calls",
                 "assessments", "evaluations", "tool_selections",
                 "consistency_scores", "data_sources", "plans", "prompts",
-                "cross_model_eval", "llm_judge_results", "agent_metrics",
+                "cross_model_eval", "llm_judge_results", "agent_metrics", "coalition",
                 # Summary
                 "total_sheets_logged", "verification_status",
                 "timestamp", "generated_by"
@@ -1108,6 +1123,101 @@ class SheetsLogger:
 
         _sheets_executor.submit(_write)
 
+    def log_coalition(
+        self,
+        run_id: str,
+        company_name: str,
+        node: str = "evaluate",
+        node_type: str = "evaluator",
+        agent_name: str = "coalition_evaluator",
+        step_number: int = 0,
+        is_correct: bool = False,
+        correctness_score: float = 0.0,
+        confidence: float = 0.0,
+        correctness_category: str = "low",
+        efficiency_score: float = 0.0,
+        quality_score: float = 0.0,
+        tool_score: float = 0.0,
+        consistency_score: float = 0.0,
+        agreement_score: float = 0.0,
+        num_evaluators: int = 0,
+        votes: List[Dict[str, Any]] = None,
+        evaluation_time_ms: float = 0.0,
+        status: str = "ok",
+    ):
+        """
+        Log coalition evaluation result to coalition sheet (non-blocking).
+
+        The coalition evaluator combines multiple evaluation methods:
+        - Agent Efficiency (intent, plan, tools, trajectory)
+        - LLM Quality (completeness, validity)
+        - Tool Selection (precision, recall, F1)
+        - Consistency (cross-run comparison)
+
+        Args:
+            run_id: Unique run identifier
+            company_name: Company being analyzed
+            node: Graph node (default: evaluate)
+            node_type: Type of node (default: evaluator)
+            agent_name: Name of agent (default: coalition_evaluator)
+            step_number: Step number in workflow
+            is_correct: Whether the run is considered correct
+            correctness_score: Overall correctness score (0-1)
+            confidence: Confidence in the assessment (0-1)
+            correctness_category: Category (high/medium/low)
+            efficiency_score: Agent efficiency score (0-1)
+            quality_score: LLM quality score (0-1)
+            tool_score: Tool selection score (0-1)
+            consistency_score: Cross-run consistency score (0-1)
+            agreement_score: How much evaluators agree (0-1)
+            num_evaluators: Number of evaluators in coalition
+            votes: List of individual evaluator votes
+            evaluation_time_ms: Time taken for evaluation
+            status: Status (ok/error)
+        """
+        if not self.is_connected():
+            return
+
+        # Coalition sheet columns:
+        # run_id, company_name, node, node_type, agent_name, step_number,
+        # is_correct, correctness_score, confidence, correctness_category,
+        # efficiency_score, quality_score, tool_score, consistency_score,
+        # agreement_score, num_evaluators, votes_json,
+        # evaluation_time_ms, status, timestamp, generated_by
+        row = [
+            run_id,
+            company_name,
+            node or "evaluate",
+            node_type or "evaluator",
+            agent_name or "coalition_evaluator",
+            step_number,
+            "yes" if is_correct else "no",
+            round(correctness_score, 4),
+            round(confidence, 4),
+            correctness_category or "low",
+            round(efficiency_score, 4),
+            round(quality_score, 4),
+            round(tool_score, 4),
+            round(consistency_score, 4),
+            round(agreement_score, 4),
+            num_evaluators,
+            self._safe_str(votes or [], max_length=10000),
+            round(evaluation_time_ms, 2),
+            status,
+            datetime.utcnow().isoformat(),
+            "Us",
+        ]
+
+        def _write():
+            try:
+                sheet = self._get_sheet("coalition")
+                sheet.append_row(row)
+                logger.debug(f"Logged coalition result for run {run_id}: score={correctness_score:.2%}, category={correctness_category}")
+            except Exception as e:
+                logger.error(f"Failed to log coalition result: {e}")
+
+        _sheets_executor.submit(_write)
+
     def log_model_consistency(self, *args, **kwargs):
         """DEPRECATED: Model consistency now logged via consistency_scores sheet."""
         pass
@@ -1339,11 +1449,12 @@ class SheetsLogger:
         if not self.is_connected():
             return
 
-        # Core sheets to check (matches log_tests columns)
+        # Core sheets to check (matches log_tests columns exactly)
         core_sheets = [
             "runs", "langgraph_events", "llm_calls", "tool_calls",
             "assessments", "evaluations", "tool_selections",
-            "consistency_scores", "data_sources", "plans", "prompts"
+            "consistency_scores", "data_sources", "plans", "prompts",
+            "cross_model_eval", "llm_judge_results", "agent_metrics", "coalition"
         ]
 
         def _verify_and_log():
@@ -1370,10 +1481,16 @@ class SheetsLogger:
                 status = "pass" if sheets_with_data >= 5 else ("partial" if sheets_with_data > 0 else "fail")
 
                 # Build row - simple format showing count for each sheet
+                # Must match log_tests columns exactly:
+                # run_id, company_name, runs, langgraph_events, llm_calls, tool_calls,
+                # assessments, evaluations, tool_selections, consistency_scores,
+                # data_sources, plans, prompts, cross_model_eval, llm_judge_results,
+                # agent_metrics, coalition, total_sheets_logged, verification_status,
+                # timestamp, generated_by
                 row = [
                     run_id,
                     company_name,
-                    # Per-sheet: show count (or 0)
+                    # Per-sheet: show count (or 0) - must match header order
                     sheet_counts.get("runs", 0),
                     sheet_counts.get("langgraph_events", 0),
                     sheet_counts.get("llm_calls", 0),
@@ -1385,6 +1502,10 @@ class SheetsLogger:
                     sheet_counts.get("data_sources", 0),
                     sheet_counts.get("plans", 0),
                     sheet_counts.get("prompts", 0),
+                    sheet_counts.get("cross_model_eval", 0),
+                    sheet_counts.get("llm_judge_results", 0),
+                    sheet_counts.get("agent_metrics", 0),
+                    sheet_counts.get("coalition", 0),
                     # Summary
                     sheets_with_data,
                     status,
@@ -1394,7 +1515,7 @@ class SheetsLogger:
 
                 sheet = self._get_sheet("log_tests")
                 sheet.append_row(row)
-                logger.info(f"Log verification for run {run_id}: {status} ({sheets_with_data}/11 sheets)")
+                logger.info(f"Log verification for run {run_id}: {status} ({sheets_with_data}/{len(core_sheets)} sheets)")
 
             except Exception as e:
                 logger.error(f"Failed to log verification: {e}")
@@ -1533,12 +1654,20 @@ class SheetsLogger:
                 "intent_details", "plan_details", "tool_details", "trajectory_details", "answer_details",
                 "status", "timestamp", "generated_by"
             ],
+            "coalition": [
+                "run_id", "company_name", "node", "node_type", "agent_name", "step_number",
+                "is_correct", "correctness_score", "confidence", "correctness_category",
+                "efficiency_score", "quality_score", "tool_score", "consistency_score",
+                "agreement_score", "num_evaluators", "votes_json",
+                "evaluation_time_ms", "status",
+                "timestamp", "generated_by"
+            ],
             "log_tests": [
                 "run_id", "company_name",
                 "runs", "langgraph_events", "llm_calls", "tool_calls",
                 "assessments", "evaluations", "tool_selections",
                 "consistency_scores", "data_sources", "plans", "prompts",
-                "cross_model_eval", "llm_judge_results", "agent_metrics",
+                "cross_model_eval", "llm_judge_results", "agent_metrics", "coalition",
                 "total_sheets_logged", "verification_status",
                 "timestamp", "generated_by"
             ]
@@ -1614,7 +1743,7 @@ class SheetsLogger:
             "runs", "langgraph_events", "llm_calls", "tool_calls",
             "assessments", "evaluations", "tool_selections",
             "consistency_scores", "data_sources", "plans", "prompts",
-            "cross_model_eval", "llm_judge_results", "agent_metrics", "log_tests"
+            "cross_model_eval", "llm_judge_results", "agent_metrics", "coalition", "log_tests"
         ]
 
         results = {

@@ -1979,6 +1979,32 @@ async def evaluate_coalition(run_id: str):
     # Run coalition evaluation
     result = evaluate_workflow_correctness(run_id, company_name, state, historical)
 
+    # Log to Google Sheets
+    if SHEETS_LOGGER_AVAILABLE and get_sheets_logger:
+        try:
+            sheets_logger = get_sheets_logger()
+            if sheets_logger and sheets_logger.is_connected():
+                sheets_logger.log_coalition(
+                    run_id=run_id,
+                    company_name=company_name,
+                    is_correct=result.is_correct,
+                    correctness_score=result.correctness_score,
+                    confidence=result.confidence,
+                    correctness_category=result.correctness_category,
+                    efficiency_score=result.efficiency_score,
+                    quality_score=result.quality_score,
+                    tool_score=result.tool_score,
+                    consistency_score=result.consistency_score,
+                    agreement_score=result.agreement_score,
+                    num_evaluators=result.num_evaluators,
+                    votes=result.votes,
+                    evaluation_time_ms=result.evaluation_time_ms,
+                    status="ok",
+                )
+                logger.info(f"Logged coalition evaluation to sheets for run {run_id}")
+        except Exception as e:
+            logger.warning(f"Failed to log coalition to sheets: {e}")
+
     return serialize_mongo_doc(result.to_dict())
 
 
@@ -2003,6 +2029,31 @@ async def evaluate_coalition_from_state(request: Dict[str, Any]):
         raise HTTPException(status_code=400, detail="Missing required fields: run_id, company_name, state")
 
     result = evaluate_workflow_correctness(run_id, company_name, state)
+
+    # Log to Google Sheets
+    if SHEETS_LOGGER_AVAILABLE and get_sheets_logger:
+        try:
+            sheets_logger = get_sheets_logger()
+            if sheets_logger and sheets_logger.is_connected():
+                sheets_logger.log_coalition(
+                    run_id=run_id,
+                    company_name=company_name,
+                    is_correct=result.is_correct,
+                    correctness_score=result.correctness_score,
+                    confidence=result.confidence,
+                    correctness_category=result.correctness_category,
+                    efficiency_score=result.efficiency_score,
+                    quality_score=result.quality_score,
+                    tool_score=result.tool_score,
+                    consistency_score=result.consistency_score,
+                    agreement_score=result.agreement_score,
+                    num_evaluators=result.num_evaluators,
+                    votes=result.votes,
+                    evaluation_time_ms=result.evaluation_time_ms,
+                    status="ok",
+                )
+        except Exception as e:
+            logger.warning(f"Failed to log coalition to sheets: {e}")
 
     return serialize_mongo_doc(result.to_dict())
 
