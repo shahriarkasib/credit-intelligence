@@ -1792,7 +1792,7 @@ class SheetsLogger:
                 "timestamp", "generated_by"
             ],
             "plans": [
-                "run_id", "company_name", "node", "agent_name",
+                "run_id", "company_name", "node", "agent_name", "master_agent",
                 "num_tasks", "plan_summary",
                 "full_plan",
                 "task_1", "task_2", "task_3", "task_4", "task_5",
@@ -1800,7 +1800,7 @@ class SheetsLogger:
                 "created_at", "status", "generated_by"
             ],
             "prompts": [
-                "run_id", "company_name", "node", "agent_name", "step_number",
+                "run_id", "company_name", "node", "agent_name", "master_agent", "step_number",
                 "prompt_id", "prompt_name", "category",
                 "system_prompt", "user_prompt",
                 "variables_json",
