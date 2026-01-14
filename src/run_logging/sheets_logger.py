@@ -1785,7 +1785,7 @@ class SheetsLogger:
                 "timestamp", "generated_by"
             ],
             "langgraph_events": [
-                "run_id", "company_name", "node", "node_type", "agent_name", "step_number",
+                "run_id", "company_name", "node", "node_type", "agent_name", "master_agent", "step_number",
                 "event_type", "event_name", "model", "temperature", "tokens",
                 "input_preview", "output_preview",
                 "duration_ms", "status", "error",
