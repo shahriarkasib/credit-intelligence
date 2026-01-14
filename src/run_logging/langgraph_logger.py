@@ -592,6 +592,11 @@ class LangGraphEventLogger:
             company_name=self.company_name,
             event_type="node_enter",
             event_name=node_name,
+            node=node_name,
+            node_type="agent",
+            agent_name=NODE_TO_AGENT.get(node_name, "workflow"),
+            master_agent="supervisor",
+            step_number=NODE_TO_STEP.get(node_name, 0),
             status="started",
             input_data=self._truncate(json.dumps(input_state, default=str)),
         )
@@ -610,6 +615,11 @@ class LangGraphEventLogger:
             company_name=self.company_name,
             event_type="node_exit",
             event_name=node_name,
+            node=node_name,
+            node_type="agent",
+            agent_name=NODE_TO_AGENT.get(node_name, "workflow"),
+            master_agent="supervisor",
+            step_number=NODE_TO_STEP.get(node_name, 0),
             status="completed" if not error else "error",
             output_data=self._truncate(json.dumps(output_state, default=str)),
             duration_ms=duration_ms,
@@ -637,14 +647,18 @@ class LangGraphEventLogger:
         directly rather than through a LangChain agent.
         """
         event_type = "on_tool_start" if status == "started" else "on_tool_end"
+        effective_node = node or self._current_node
 
         event = LangGraphEvent(
             run_id=self.run_id,
             company_name=self.company_name,
             event_type=event_type,
             event_name=tool_name,
-            node=node or self._current_node,
+            node=effective_node,
             node_type="tool",
+            agent_name=NODE_TO_AGENT.get(effective_node, "workflow"),
+            master_agent="supervisor",
+            step_number=NODE_TO_STEP.get(effective_node, 0),
             status=status,
             input_data=self._truncate(input_data) if input_data else "",
             output_data=self._truncate(output_data) if output_data else "",
@@ -665,6 +679,11 @@ class LangGraphEventLogger:
             company_name=self.company_name,
             event_type="graph_start",
             event_name="LangGraph",
+            node="",
+            node_type="workflow",
+            agent_name="supervisor",
+            master_agent="supervisor",
+            step_number=0,
             status="started",
             input_data=self._truncate(json.dumps(input_state, default=str)),
         )
@@ -685,6 +704,11 @@ class LangGraphEventLogger:
             company_name=self.company_name,
             event_type="graph_end",
             event_name="LangGraph",
+            node="",
+            node_type="workflow",
+            agent_name="supervisor",
+            master_agent="supervisor",
+            step_number=0,
             status="completed" if not error else "error",
             output_data=self._truncate(json.dumps(output_state, default=str)),
             duration_ms=duration_ms,
