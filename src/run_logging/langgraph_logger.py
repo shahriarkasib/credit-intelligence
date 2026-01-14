@@ -51,12 +51,29 @@ NODE_TO_AGENT = {
     "create_plan": "tool_supervisor",
     "fetch_api_data": "api_agent",
     "search_web": "search_agent",
+    "search_web_enhanced": "search_agent",
     "synthesize": "llm_analyst",
     "save_to_database": "db_writer",
     "evaluate_assessment": "workflow_evaluator",
     "evaluate": "workflow_evaluator",
     "should_continue_after_validation": "supervisor",
     "human_review": "supervisor",
+}
+
+# Mapping from graph node names to step numbers (consistent workflow order)
+NODE_TO_STEP = {
+    "parse_input": 1,
+    "validate_company": 2,
+    "create_plan": 3,
+    "fetch_api_data": 4,
+    "search_web": 5,
+    "search_web_enhanced": 5,
+    "synthesize": 6,
+    "save_to_database": 7,
+    "evaluate_assessment": 8,
+    "evaluate": 8,
+    "should_continue_after_validation": 2,
+    "human_review": 2,
 }
 
 
@@ -76,6 +93,8 @@ class LangGraphEvent:
     node_type: str = ""
     # Agent name (for tracking which agent is executing)
     agent_name: str = ""
+    # Master agent (always supervisor for this workflow)
+    master_agent: str = "supervisor"
     # Step number in workflow
     step_number: int = 0
     # LLM temperature (if applicable)
@@ -219,6 +238,7 @@ class LangGraphEventLogger:
                 tags=tags,
                 metadata=metadata,
                 agent_name=self._agent_name,
+                master_agent="supervisor",  # Always supervisor
                 step_number=self._step_counter,
                 temperature=self._temperature,
             )
@@ -268,6 +288,9 @@ class LangGraphEventLogger:
             # Set agent_name based on current node (using NODE_TO_AGENT mapping)
             # Use "workflow" as fallback for events outside specific nodes
             lg_event.agent_name = NODE_TO_AGENT.get(self._current_node, "workflow" if not self._current_node else self._current_node)
+
+            # Set step_number based on current node (using NODE_TO_STEP mapping)
+            lg_event.step_number = NODE_TO_STEP.get(self._current_node, 0)
 
             # Determine node_type based on event_type
             if event_type in ("on_tool_start", "on_tool_end"):
@@ -503,7 +526,7 @@ class LangGraphEventLogger:
 
         try:
             # Prepare rows for langgraph_events (with all common fields)
-            # Schema: run_id, company_name, node, node_type, agent_name, step_number,
+            # Schema: run_id, company_name, node, node_type, agent_name, master_agent, step_number,
             #         event_type, event_name, model, temperature, tokens,
             #         input_preview, output_preview, duration_ms, status, error, timestamp, generated_by
             rows = []
@@ -515,6 +538,7 @@ class LangGraphEventLogger:
                     event.node or "",  # node column
                     event.node_type or "",  # node_type column (agent/tool/llm/chain)
                     event.agent_name or "",  # agent_name
+                    event.master_agent or "supervisor",  # master_agent (always supervisor)
                     event.step_number,  # step_number
                     event.event_type,
                     event.event_name,
