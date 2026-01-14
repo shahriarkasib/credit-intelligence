@@ -441,6 +441,27 @@ def parse_input(state: CreditWorkflowState) -> Dict[str, Any]:
             success=True,
         )
 
+    # Log tasks for parse_input agent to plans sheet
+    try:
+        from run_logging.sheets_logger import get_sheets_logger
+        sheets_logger = get_sheets_logger()
+        if sheets_logger and sheets_logger.is_connected():
+            parse_tasks = [
+                {"agent": "llm_parser", "action": "parse_company_input", "params": {"company_name": company_name}, "priority": 1, "reason": "Parse and normalize company name input"},
+                {"agent": "llm_parser", "action": "determine_company_type", "params": {"company_name": company_name}, "priority": 2, "reason": "Determine if company is public or private"},
+                {"agent": "llm_parser", "action": "identify_ticker", "params": {"company_name": company_name}, "priority": 3, "reason": "Identify stock ticker symbol if applicable"},
+            ]
+            sheets_logger.log_plan(
+                run_id=run_id,
+                company_name=company_name,
+                task_plan=parse_tasks,
+                node="parse_input",
+                agent_name="llm_parser",
+                status="ok",
+            )
+    except Exception as e:
+        logger.warning(f"Failed to log parse_input tasks to sheets: {e}")
+
     return result
 
 
@@ -493,6 +514,26 @@ def validate_company(state: CreditWorkflowState) -> Dict[str, Any]:
             success=True,
             agent_name="supervisor",
         )
+
+    # Log tasks for validate_company agent to plans sheet
+    try:
+        from run_logging.sheets_logger import get_sheets_logger
+        sheets_logger = get_sheets_logger()
+        if sheets_logger and sheets_logger.is_connected():
+            validate_tasks = [
+                {"agent": "supervisor", "action": "check_company_exists", "params": {"company_name": company_name}, "priority": 1, "reason": "Verify company info was successfully parsed"},
+                {"agent": "supervisor", "action": "approve_for_analysis", "params": {"company_name": company_name}, "priority": 2, "reason": "Approve company for credit analysis workflow"},
+            ]
+            sheets_logger.log_plan(
+                run_id=run_id,
+                company_name=company_name,
+                task_plan=validate_tasks,
+                node="validate_company",
+                agent_name="supervisor",
+                status="ok",
+            )
+    except Exception as e:
+        logger.warning(f"Failed to log validate_company tasks to sheets: {e}")
 
     return result
 
@@ -876,6 +917,27 @@ def fetch_api_data(state: CreditWorkflowState) -> Dict[str, Any]:
                     call_depth=0,
                 )
 
+        # Log tasks for fetch_api_data agent to plans sheet
+        try:
+            from run_logging.sheets_logger import get_sheets_logger
+            sheets_logger = get_sheets_logger()
+            if sheets_logger and sheets_logger.is_connected():
+                api_tasks = [
+                    {"agent": "api_agent", "action": "fetch_sec_edgar", "params": {"ticker": company_info.get("ticker"), "company": company_name}, "priority": 1, "reason": "Fetch SEC Edgar filings and financial data"},
+                    {"agent": "api_agent", "action": "fetch_finnhub", "params": {"ticker": company_info.get("ticker"), "company": company_name}, "priority": 2, "reason": "Fetch Finnhub market data and company profile"},
+                    {"agent": "api_agent", "action": "fetch_court_listener", "params": {"company": company_name}, "priority": 3, "reason": "Fetch CourtListener legal and litigation data"},
+                ]
+                sheets_logger.log_plan(
+                    run_id=run_id,
+                    company_name=company_name,
+                    task_plan=api_tasks,
+                    node="fetch_api_data",
+                    agent_name="api_agent",
+                    status="ok",
+                )
+        except Exception as e:
+            logger.warning(f"Failed to log fetch_api_data tasks to sheets: {e}")
+
         return result
 
     except Exception as e:
@@ -971,6 +1033,28 @@ def search_web(state: CreditWorkflowState) -> Dict[str, Any]:
                 agent_name="search_agent",
                 step_number=step_number,
             )
+
+        # Log tasks for search_web agent to plans sheet
+        try:
+            from run_logging.sheets_logger import get_sheets_logger
+            sheets_logger = get_sheets_logger()
+            if sheets_logger and sheets_logger.is_connected():
+                search_tasks = [
+                    {"agent": "search_agent", "action": "search_company_info", "params": {"company_name": company_name}, "priority": 1, "reason": "Search for general company information on the web"},
+                    {"agent": "search_agent", "action": "search_news_articles", "params": {"company_name": company_name}, "priority": 2, "reason": "Search for recent news articles about the company"},
+                    {"agent": "search_agent", "action": "analyze_sentiment", "params": {"company_name": company_name}, "priority": 3, "reason": "Analyze sentiment from news and web content"},
+                    {"agent": "search_agent", "action": "extract_key_findings", "params": {"company_name": company_name}, "priority": 4, "reason": "Extract key findings from search results"},
+                ]
+                sheets_logger.log_plan(
+                    run_id=run_id,
+                    company_name=company_name,
+                    task_plan=search_tasks,
+                    node="search_web",
+                    agent_name="search_agent",
+                    status="ok",
+                )
+        except Exception as e:
+            logger.warning(f"Failed to log search_web tasks to sheets: {e}")
 
         return result
 
@@ -1075,6 +1159,30 @@ def search_web_enhanced(state: CreditWorkflowState) -> Dict[str, Any]:
                 agent_name="search_agent",
                 step_number=step_number,
             )
+
+        # Log tasks for search_web_enhanced agent to plans sheet
+        try:
+            from run_logging.sheets_logger import get_sheets_logger
+            sheets_logger = get_sheets_logger()
+            if sheets_logger and sheets_logger.is_connected():
+                search_enhanced_tasks = [
+                    {"agent": "search_agent", "action": "search_company_info_enhanced", "params": {"company_name": company_name}, "priority": 1, "reason": "Enhanced search for company information (API data limited)"},
+                    {"agent": "search_agent", "action": "search_financial_performance", "params": {"company_name": company_name}, "priority": 2, "reason": "Search for financial performance and earnings data"},
+                    {"agent": "search_agent", "action": "search_legal_regulatory", "params": {"company_name": company_name}, "priority": 3, "reason": "Search for legal issues, lawsuits, and regulatory matters"},
+                    {"agent": "search_agent", "action": "search_credit_analysis", "params": {"company_name": company_name}, "priority": 4, "reason": "Search for credit rating and financial analysis"},
+                    {"agent": "search_agent", "action": "search_industry_competitors", "params": {"company_name": company_name}, "priority": 5, "reason": "Search for industry competitors and market position"},
+                    {"agent": "search_agent", "action": "extract_enhanced_findings", "params": {"company_name": company_name}, "priority": 6, "reason": "Extract key findings from enhanced search results"},
+                ]
+                sheets_logger.log_plan(
+                    run_id=run_id,
+                    company_name=company_name,
+                    task_plan=search_enhanced_tasks,
+                    node="search_web_enhanced",
+                    agent_name="search_agent",
+                    status="ok",
+                )
+        except Exception as e:
+            logger.warning(f"Failed to log search_web_enhanced tasks to sheets: {e}")
 
         return result
 
@@ -1494,6 +1602,28 @@ def synthesize(state: CreditWorkflowState) -> Dict[str, Any]:
             "llm_results": llm_results,  # Include all LLM results
         }
 
+        # Log tasks for synthesize agent to plans sheet
+        try:
+            from run_logging.sheets_logger import get_sheets_logger
+            sheets_logger = get_sheets_logger()
+            if sheets_logger and sheets_logger.is_connected():
+                synthesize_tasks = [
+                    {"agent": "llm_analyst", "action": "run_primary_model_analysis", "params": {"company_name": company_name, "model": "llama-3.3-70b-versatile", "runs": 3}, "priority": 1, "reason": "Run primary LLM model analysis (3 runs for consistency)"},
+                    {"agent": "llm_analyst", "action": "run_fast_model_analysis", "params": {"company_name": company_name, "model": "llama-3.1-8b-instant", "runs": 3}, "priority": 2, "reason": "Run fast LLM model analysis (3 runs for cross-model consistency)"},
+                    {"agent": "llm_analyst", "action": "calculate_consistency_metrics", "params": {"company_name": company_name}, "priority": 3, "reason": "Calculate same-model and cross-model consistency metrics"},
+                    {"agent": "llm_analyst", "action": "generate_final_assessment", "params": {"company_name": company_name}, "priority": 4, "reason": "Generate final consensus credit assessment"},
+                ]
+                sheets_logger.log_plan(
+                    run_id=run_id,
+                    company_name=company_name,
+                    task_plan=synthesize_tasks,
+                    node="synthesize",
+                    agent_name="llm_analyst",
+                    status="ok",
+                )
+        except Exception as e:
+            logger.warning(f"Failed to log synthesize tasks to sheets: {e}")
+
         return result
 
     except Exception as e:
@@ -1589,6 +1719,27 @@ def save_to_database(state: CreditWorkflowState) -> Dict[str, Any]:
                 node="save_to_database",
                 step_number=7,  # save_to_database is step 7
             )
+
+        # Log tasks for save_to_database agent to plans sheet
+        try:
+            from run_logging.sheets_logger import get_sheets_logger
+            sheets_logger = get_sheets_logger()
+            if sheets_logger and sheets_logger.is_connected():
+                db_tasks = [
+                    {"agent": "db_writer", "action": "save_assessment", "params": {"company_name": company_name}, "priority": 1, "reason": "Save final credit assessment to MongoDB"},
+                    {"agent": "db_writer", "action": "save_raw_data", "params": {"company_name": company_name}, "priority": 2, "reason": "Save raw API and search data for audit trail"},
+                    {"agent": "db_writer", "action": "update_company_profile", "params": {"company_name": company_name}, "priority": 3, "reason": "Update or create company profile in database"},
+                ]
+                sheets_logger.log_plan(
+                    run_id=run_id,
+                    company_name=company_name,
+                    task_plan=db_tasks,
+                    node="save_to_database",
+                    agent_name="db_writer",
+                    status="ok",
+                )
+        except Exception as e:
+            logger.warning(f"Failed to log save_to_database tasks to sheets: {e}")
 
         return {"status": "complete_saved"}
 
@@ -2792,6 +2943,29 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                     logger.warning(f"[{run_id[:8]}] wf_logger not available for state dump")
             except Exception as state_dump_error:
                 logger.warning(f"State dump logging failed: {state_dump_error}")
+
+        # Log tasks for evaluate agent to plans sheet
+        try:
+            from run_logging.sheets_logger import get_sheets_logger
+            sheets_logger = get_sheets_logger()
+            if sheets_logger and sheets_logger.is_connected():
+                evaluate_tasks = [
+                    {"agent": "workflow_evaluator", "action": "evaluate_tool_selection", "params": {"company_name": company_name}, "priority": 1, "reason": "Evaluate accuracy of tool selection decisions"},
+                    {"agent": "workflow_evaluator", "action": "score_data_quality", "params": {"company_name": company_name}, "priority": 2, "reason": "Score quality and completeness of collected data"},
+                    {"agent": "workflow_evaluator", "action": "score_synthesis_quality", "params": {"company_name": company_name}, "priority": 3, "reason": "Score quality of credit assessment synthesis"},
+                    {"agent": "workflow_evaluator", "action": "run_llm_judge_evaluation", "params": {"company_name": company_name}, "priority": 4, "reason": "Run LLM-as-a-judge evaluation for quality assessment"},
+                    {"agent": "workflow_evaluator", "action": "calculate_overall_score", "params": {"company_name": company_name}, "priority": 5, "reason": "Calculate final overall evaluation score"},
+                ]
+                sheets_logger.log_plan(
+                    run_id=run_id,
+                    company_name=company_name,
+                    task_plan=evaluate_tasks,
+                    node="evaluate",
+                    agent_name="workflow_evaluator",
+                    status="ok",
+                )
+        except Exception as e:
+            logger.warning(f"Failed to log evaluate tasks to sheets: {e}")
 
         return {
             "evaluation": evaluation,
