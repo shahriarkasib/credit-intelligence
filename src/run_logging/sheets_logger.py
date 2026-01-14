@@ -1838,7 +1838,7 @@ class SheetsLogger:
                 "status", "timestamp", "generated_by"
             ],
             "coalition": [
-                "run_id", "company_name", "node", "node_type", "agent_name", "step_number",
+                "run_id", "company_name", "node", "node_type", "agent_name", "master_agent", "step_number",
                 "is_correct", "correctness_score", "confidence", "correctness_category",
                 "efficiency_score", "quality_score", "tool_score", "consistency_score",
                 "agreement_score", "num_evaluators", "votes_json",
