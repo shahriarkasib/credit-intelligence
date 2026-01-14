@@ -1554,6 +1554,8 @@ def save_to_database(state: CreditWorkflowState) -> Dict[str, Any]:
                 output_data={"status": "skipped_no_db"},
                 execution_time_ms=(time.time() - start_time) * 1000,
                 success=True,
+                node="save_to_database",
+                step_number=7,  # save_to_database is step 7
             )
         return {"status": "complete_no_db"}
 
@@ -1584,6 +1586,8 @@ def save_to_database(state: CreditWorkflowState) -> Dict[str, Any]:
                 output_data={"status": "saved", "saved_assessment": bool(assessment)},
                 execution_time_ms=(time.time() - start_time) * 1000,
                 success=True,
+                node="save_to_database",
+                step_number=7,  # save_to_database is step 7
             )
 
         return {"status": "complete_saved"}
@@ -1600,6 +1604,8 @@ def save_to_database(state: CreditWorkflowState) -> Dict[str, Any]:
                 execution_time_ms=(time.time() - start_time) * 1000,
                 success=False,
                 error=str(e),
+                node="save_to_database",
+                step_number=7,  # save_to_database is step 7
             )
         return {
             "status": "complete_db_error",
@@ -1854,7 +1860,7 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                 # Node tracking fields
                 node="evaluate",
                 agent_name=eval_agent,
-                step_number=7,  # evaluate is step 7
+                step_number=8,  # evaluate is step 8 (save_to_database is step 7)
                 model=llm_eval_metrics.get("model", "rule_based") if llm_eval_metrics else "rule_based",
             )
 
@@ -1877,7 +1883,7 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                     execution_time_ms=llm_eval_metrics.get("execution_time_ms", 0),
                     node="evaluate",
                     agent_name="workflow_evaluator",
-                    step_number=7,
+                    step_number=8,
                     current_task="tool_selection_evaluation",
                     temperature=0.1,
                 )
@@ -1899,14 +1905,14 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                         },
                         node="evaluate",
                         agent_name="workflow_evaluator",
-                        step_number=7,
+                        step_number=8,
                         model=llm_eval_metrics.get("model", "llama-3.3-70b-versatile"),
                     )
                 except Exception as e:
                     logger.warning(f"Failed to log evaluation prompt: {e}")
 
             # Log evaluation with reasoning
-            step_number = 7  # evaluate is step 7
+            step_number = 8  # evaluate is step 8 (save_to_database is step 7)
             eval_duration_ms = (time.time() - start_time) * 1000
             wf_logger.log_evaluation(
                 run_id=run_id,
@@ -1967,9 +1973,9 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                     },
                     risk_levels=[risk_level],
                     credit_scores=[credit_score],
-                    node="evaluate_assessment",
+                    node="evaluate",
                     agent_name="workflow_evaluator",
-                    step_number=1,
+                    step_number=8,
                 )
 
         # ============ CROSS-MODEL EVALUATION ============
@@ -2277,7 +2283,7 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                                 num_runs=len(all_risk_levels),
                                 node="evaluate",
                                 agent_name="workflow_evaluator",
-                                step_number=7,
+                                step_number=8,
                                 risk_level_consistency=risk_level_consistency,
                                 credit_score_mean=credit_score_mean,
                                 credit_score_std=credit_score_std,

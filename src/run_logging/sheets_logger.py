@@ -168,7 +168,7 @@ class SheetsLogger:
         sheet_configs = {
             # Sheet 1: Run summaries
             "runs": [
-                "run_id", "company_name", "node", "agent_name", "model", "temperature",
+                "run_id", "company_name", "node", "agent_name", "master_agent", "model", "temperature",
                 "status", "started_at", "completed_at",
                 "risk_level", "credit_score", "confidence", "total_time_ms",
                 "total_steps", "total_llm_calls", "tools_used", "evaluation_score",
@@ -176,7 +176,7 @@ class SheetsLogger:
             ],
             # Sheet 2: Tool execution logs (with hierarchy tracking)
             "tool_calls": [
-                "run_id", "company_name", "node", "node_type", "agent_name", "step_number",
+                "run_id", "company_name", "node", "node_type", "agent_name", "master_agent", "step_number",
                 "tool_name", "tool_input", "tool_output",
                 # Hierarchy columns for traceability
                 "parent_node", "workflow_phase", "call_depth", "parent_tool_id",
@@ -185,7 +185,7 @@ class SheetsLogger:
             ],
             # Sheet 3: Credit assessments
             "assessments": [
-                "run_id", "company_name", "node", "node_type", "agent_name", "step_number",
+                "run_id", "company_name", "node", "node_type", "agent_name", "master_agent", "step_number",
                 "model", "temperature", "prompt",
                 "risk_level", "credit_score", "confidence", "reasoning", "recommendations",
                 "duration_ms", "status",
@@ -193,7 +193,7 @@ class SheetsLogger:
             ],
             # Sheet 4: Evaluation results
             "evaluations": [
-                "run_id", "company_name", "node", "node_type", "agent_name", "step_number", "model",
+                "run_id", "company_name", "node", "node_type", "agent_name", "master_agent", "step_number", "model",
                 "tool_selection_score", "tool_reasoning",
                 "data_quality_score", "data_reasoning",
                 "synthesis_score", "synthesis_reasoning", "overall_score",
@@ -203,7 +203,7 @@ class SheetsLogger:
             ],
             # Sheet 5: Tool selection decisions
             "tool_selections": [
-                "run_id", "company_name", "node", "node_type", "agent_name", "step_number", "model",
+                "run_id", "company_name", "node", "node_type", "agent_name", "master_agent", "step_number", "model",
                 "selected_tools", "expected_tools", "correct_tools", "missing_tools", "extra_tools",
                 "precision", "recall", "f1_score", "reasoning",
                 "duration_ms", "status",
@@ -212,7 +212,7 @@ class SheetsLogger:
             # Sheet 6: LLM call logs - ALL LLM calls with full details
             # Includes: parse_input, tool_selection, credit_analysis, evaluations
             "llm_calls": [
-                "run_id", "company_name", "node", "node_type", "agent_name", "step_number",
+                "run_id", "company_name", "node", "node_type", "agent_name", "master_agent", "step_number",
                 "call_type", "model", "temperature",
                 # Full prompt and response for auditability
                 "prompt", "response", "reasoning",
@@ -226,7 +226,7 @@ class SheetsLogger:
             ],
             # Sheet 8: Consistency scores (includes model name for per-model tracking)
             "consistency_scores": [
-                "run_id", "company_name", "node", "node_type", "agent_name", "step_number",
+                "run_id", "company_name", "node", "node_type", "agent_name", "master_agent", "step_number",
                 "model_name", "evaluation_type", "num_runs",
                 "risk_level_consistency", "score_consistency", "score_std",
                 "overall_consistency", "eval_status",  # good/average/bad
@@ -236,14 +236,14 @@ class SheetsLogger:
             ],
             # Sheet 9: Data source results
             "data_sources": [
-                "run_id", "company_name", "node", "node_type", "agent_name", "step_number",
+                "run_id", "company_name", "node", "node_type", "agent_name", "master_agent", "step_number",
                 "source_name", "records_found", "data_summary",
                 "execution_time_ms", "status", "error",
                 "timestamp", "generated_by"
             ],
             # Sheet 10: LangGraph events (FW: events from astream_events)
             "langgraph_events": [
-                "run_id", "company_name", "node", "node_type", "agent_name", "step_number",
+                "run_id", "company_name", "node", "node_type", "agent_name", "master_agent", "step_number",
                 "event_type", "event_name", "model", "temperature", "tokens",
                 "input_preview", "output_preview",
                 "duration_ms", "status", "error",
@@ -251,7 +251,7 @@ class SheetsLogger:
             ],
             # Sheet 10: Plans - Full task plans created for each run
             "plans": [
-                "run_id", "company_name", "node", "agent_name",
+                "run_id", "company_name", "node", "agent_name", "master_agent",
                 "num_tasks", "plan_summary",
                 # Full plan as JSON with all task details
                 "full_plan",
@@ -262,7 +262,7 @@ class SheetsLogger:
             ],
             # Sheet 21: Prompts - All prompts used in runs
             "prompts": [
-                "run_id", "company_name", "node", "agent_name", "step_number",
+                "run_id", "company_name", "node", "agent_name", "master_agent", "step_number",
                 "prompt_id", "prompt_name", "category",
                 # Full prompt text
                 "system_prompt", "user_prompt",
@@ -274,7 +274,7 @@ class SheetsLogger:
             ],
             # Sheet 12: Cross-model evaluation results
             "cross_model_eval": [
-                "run_id", "company_name", "node", "node_type", "agent_name", "step_number",
+                "run_id", "company_name", "node", "node_type", "agent_name", "master_agent", "step_number",
                 "models_compared", "num_models",
                 "risk_level_agreement", "credit_score_mean", "credit_score_std", "credit_score_range",
                 "confidence_agreement", "best_model", "best_model_reasoning",
@@ -285,7 +285,7 @@ class SheetsLogger:
             ],
             # Sheet 13: LLM-as-judge evaluation results
             "llm_judge_results": [
-                "run_id", "company_name", "node", "node_type", "agent_name", "step_number",
+                "run_id", "company_name", "node", "node_type", "agent_name", "master_agent", "step_number",
                 "model_used", "temperature",
                 "accuracy_score", "completeness_score", "consistency_score",
                 "actionability_score", "data_utilization_score", "overall_score", "eval_status",
@@ -297,7 +297,7 @@ class SheetsLogger:
             ],
             # Sheet 14: Agent efficiency metrics
             "agent_metrics": [
-                "run_id", "company_name", "node", "node_type", "agent_name", "step_number", "model",
+                "run_id", "company_name", "node", "node_type", "agent_name", "master_agent", "step_number", "model",
                 "intent_correctness", "plan_quality", "tool_choice_correctness",
                 "tool_completeness", "trajectory_match", "final_answer_quality",
                 "step_count", "tool_calls", "latency_ms",
@@ -307,7 +307,7 @@ class SheetsLogger:
             ],
             # Sheet 15: Coalition evaluation results
             "coalition": [
-                "run_id", "company_name", "node", "node_type", "agent_name", "step_number",
+                "run_id", "company_name", "node", "node_type", "agent_name", "master_agent", "step_number",
                 # Overall correctness
                 "is_correct", "correctness_score", "confidence", "correctness_category",
                 # Component scores
@@ -334,7 +334,7 @@ class SheetsLogger:
             ],
             # Sheet 17: State Dumps - Full workflow state snapshots
             "state_dumps": [
-                "run_id", "company_name", "node", "step_number",
+                "run_id", "company_name", "node", "master_agent", "step_number",
                 # Company info (JSON)
                 "company_info_json",
                 # Plan (JSON)
@@ -417,6 +417,7 @@ class SheetsLogger:
         # New common fields
         node: str = "",
         agent_name: str = "",
+        master_agent: str = "supervisor",
         model: str = "",
         temperature: float = None,
         # Original fields
@@ -440,6 +441,7 @@ class SheetsLogger:
             company_name,
             node or "",
             agent_name or "",
+            master_agent or "supervisor",
             model or "",
             temperature if temperature is not None else 0.1,  # Default temperature
             status,
@@ -476,6 +478,7 @@ class SheetsLogger:
         node: str = "",
         node_type: str = "tool",
         agent_name: str = "",
+        master_agent: str = "supervisor",
         step_number: int = 0,
         # Original fields
         tool_input: Any = None,
@@ -500,6 +503,7 @@ class SheetsLogger:
             node or "",
             node_type or "tool",
             agent_name or "",
+            master_agent or "supervisor",
             step_number,
             tool_name,
             self._safe_str(tool_input),
@@ -536,6 +540,7 @@ class SheetsLogger:
         node: str = "synthesize",
         node_type: str = "agent",
         agent_name: str = "",
+        master_agent: str = "supervisor",
         step_number: int = 0,
         model: str = "",
         temperature: float = None,
@@ -556,6 +561,7 @@ class SheetsLogger:
             node or "synthesize",
             node_type or "agent",
             agent_name or "",
+            master_agent or "supervisor",
             step_number,
             model or "",
             temperature if temperature is not None else 0.1,  # Default temperature
@@ -592,6 +598,7 @@ class SheetsLogger:
         node: str = "evaluate",
         node_type: str = "agent",
         agent_name: str = "",
+        master_agent: str = "supervisor",
         step_number: int = 0,
         model: str = "",
         duration_ms: float = 0,
@@ -611,6 +618,7 @@ class SheetsLogger:
             node or "evaluate",
             node_type or "agent",
             agent_name or "",
+            master_agent or "supervisor",
             step_number,
             model or "",
             tool_selection_score,
@@ -645,6 +653,7 @@ class SheetsLogger:
         node: str = "create_plan",
         node_type: str = "agent",
         agent_name: str = "",
+        master_agent: str = "supervisor",
         step_number: int = 0,
         model: str = "",
         duration_ms: float = 0,
@@ -682,6 +691,7 @@ class SheetsLogger:
             node or "create_plan",
             node_type or "agent",
             agent_name or "",
+            master_agent or "supervisor",
             step_number,
             model or "",
             ", ".join(selected_tools) if selected_tools else "",
@@ -721,6 +731,7 @@ class SheetsLogger:
         node: str = "",
         node_type: str = "agent",
         agent_name: str = "",
+        master_agent: str = "supervisor",
         model: str = "",
         temperature: float = None,
         status: str = "ok",
@@ -752,6 +763,7 @@ class SheetsLogger:
         node: str = "",
         node_type: str = "llm",
         agent_name: str = "",
+        master_agent: str = "supervisor",
         step_number: int = 0,
         temperature: float = None,
         context: str = "",
@@ -786,7 +798,7 @@ class SheetsLogger:
                 pass  # Cost calculation optional
 
         # Row matches llm_calls sheet columns:
-        # run_id, company_name, node, node_type, agent_name, step_number,
+        # run_id, company_name, node, node_type, agent_name, master_agent, step_number,
         # call_type, model, temperature,
         # prompt, response, reasoning,
         # context, current_task,
@@ -800,6 +812,7 @@ class SheetsLogger:
             node or "",
             node_type or "llm",
             agent_name or "",
+            master_agent or "supervisor",
             step_number,
             call_type,
             model,
@@ -848,6 +861,7 @@ class SheetsLogger:
         node: str = "evaluate",
         node_type: str = "agent",
         agent_name: str = "",
+        master_agent: str = "supervisor",
         step_number: int = 0,
         duration_ms: float = 0,
         status: str = "ok",
@@ -862,6 +876,7 @@ class SheetsLogger:
             node or "evaluate",
             node_type or "agent",
             agent_name or "",
+            master_agent or "supervisor",
             step_number,
             model_name,
             evaluation_type,
@@ -901,6 +916,7 @@ class SheetsLogger:
         node: str = "fetch_api_data",
         node_type: str = "tool",
         agent_name: str = "",
+        master_agent: str = "supervisor",
         step_number: int = 0,
         error: str = "",
     ):
@@ -915,6 +931,7 @@ class SheetsLogger:
             node or "fetch_api_data",
             node_type or "tool",
             agent_name or "",
+            master_agent or "supervisor",
             step_number,
             source_name,
             records_found,
@@ -946,6 +963,7 @@ class SheetsLogger:
         node_type: str = "",
         # New common fields
         agent_name: str = "",
+        master_agent: str = "supervisor",
         step_number: int = 0,
         temperature: float = None,
         # Original fields
@@ -966,6 +984,7 @@ class SheetsLogger:
             node or "",
             node_type or "",
             agent_name or "",
+            master_agent or "supervisor",
             step_number,
             event_type,
             event_name,
@@ -1007,6 +1026,7 @@ class SheetsLogger:
         node: str = "",
         node_type: str = "agent",
         agent_name: str = "",
+        master_agent: str = "supervisor",
         step_number: int = 0,
         model: str = "",
         status: str = "ok",
@@ -1036,6 +1056,7 @@ class SheetsLogger:
             node or "",
             node_type or "agent",
             agent_name or "",
+            master_agent or "supervisor",
             step_number,
             model or "",
             round(intent_correctness, 4),
@@ -1076,6 +1097,7 @@ class SheetsLogger:
         node: str = "",
         node_type: str = "llm",
         agent_name: str = "",
+        master_agent: str = "supervisor",
         step_number: int = 0,
         temperature: float = None,
         duration_ms: float = 0,
@@ -1108,6 +1130,7 @@ class SheetsLogger:
             node or "",
             node_type or "llm",
             agent_name or "",
+            master_agent or "supervisor",
             step_number,
             model_used,
             temperature if temperature is not None else 0.1,
@@ -1151,6 +1174,7 @@ class SheetsLogger:
         node: str = "evaluate",
         node_type: str = "evaluator",
         agent_name: str = "coalition_evaluator",
+        master_agent: str = "supervisor",
         step_number: int = 0,
         is_correct: bool = False,
         correctness_score: float = 0.0,
@@ -1200,7 +1224,7 @@ class SheetsLogger:
             return
 
         # Coalition sheet columns:
-        # run_id, company_name, node, node_type, agent_name, step_number,
+        # run_id, company_name, node, node_type, agent_name, master_agent, step_number,
         # is_correct, correctness_score, confidence, correctness_category,
         # efficiency_score, quality_score, tool_score, consistency_score,
         # agreement_score, num_evaluators, votes_json,
@@ -1211,6 +1235,7 @@ class SheetsLogger:
             node or "evaluate",
             node_type or "evaluator",
             agent_name or "coalition_evaluator",
+            master_agent or "supervisor",
             step_number,
             "yes" if is_correct else "no",
             round(correctness_score, 4),
@@ -1244,6 +1269,7 @@ class SheetsLogger:
         run_id: str,
         company_name: str,
         node: str = "evaluate",
+        master_agent: str = "supervisor",
         step_number: int = 0,
         # Company info
         company_info: Dict[str, Any] = None,
@@ -1319,7 +1345,7 @@ class SheetsLogger:
         errors_json = self._safe_str(errors or [], max_length=5000)
 
         # state_dumps sheet columns:
-        # run_id, company_name, node, step_number,
+        # run_id, company_name, node, master_agent, step_number,
         # company_info_json, plan_json, plan_size_bytes, plan_tasks_count,
         # api_data_summary, api_data_size_bytes, api_sources_count,
         # search_data_summary, search_data_size_bytes,
@@ -1332,6 +1358,7 @@ class SheetsLogger:
             run_id,
             company_name,
             node or "evaluate",
+            master_agent or "supervisor",
             step_number,
             company_info_json,
             plan_json,
@@ -1381,6 +1408,7 @@ class SheetsLogger:
         node: str = "",
         node_type: str = "agent",
         agent_name: str = "",
+        master_agent: str = "supervisor",
         step_number: int = 0,
         duration_ms: float = 0,
         status: str = "ok",
@@ -1407,6 +1435,7 @@ class SheetsLogger:
             node or "",
             node_type or "agent",
             agent_name or "",
+            master_agent or "supervisor",
             step_number,
             ", ".join(models_compared) if models_compared else "",
             num_models,
@@ -1450,6 +1479,7 @@ class SheetsLogger:
         # Common fields
         node: str = "create_plan",
         agent_name: str = "",
+        master_agent: str = "supervisor",
         status: str = "ok",
     ):
         """
@@ -1488,6 +1518,7 @@ class SheetsLogger:
             company_name,
             node or "create_plan",
             agent_name or "",
+            master_agent or "supervisor",
             num_tasks,
             plan_summary,
             self._safe_str(task_plan),  # Full plan as JSON
@@ -1520,6 +1551,7 @@ class SheetsLogger:
         # Common fields
         node: str = "",
         agent_name: str = "",
+        master_agent: str = "supervisor",
         step_number: int = 0,
         model: str = "",
         temperature: float = None,
@@ -1550,6 +1582,7 @@ class SheetsLogger:
             company_name,
             node or "",
             agent_name or "",
+            master_agent or "supervisor",
             step_number,
             prompt_id,
             prompt_name,

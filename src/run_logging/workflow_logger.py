@@ -83,11 +83,18 @@ class WorkflowLogger:
         # Node tracking fields
         node: str = "",
         agent_name: str = "",
+        master_agent: str = "supervisor",
         model: str = "",
         temperature: float = None,
+        step_number: int = 0,
     ):
         """Log a workflow step to all storage."""
-        step_number = self._get_step_number(run_id)
+        # Use provided step_number or auto-increment
+        if step_number == 0:
+            step_number = self._get_step_number(run_id)
+        else:
+            # Update counter to match provided step_number
+            self._step_counter[run_id] = step_number
 
         # Use step_name as node if not provided
         effective_node = node or step_name
@@ -122,6 +129,7 @@ class WorkflowLogger:
                 company_name=company_name,
                 node=effective_node,
                 agent_name=agent_name,
+                master_agent=master_agent,
                 model=model,
                 temperature=temperature,
                 step_name=step_name,
@@ -142,6 +150,7 @@ class WorkflowLogger:
                     event_type=step_name,
                     node=effective_node,
                     agent_name=agent_name,
+                    master_agent=master_agent,
                     duration_ms=execution_time_ms,
                 )
             except Exception as e:
@@ -166,6 +175,7 @@ class WorkflowLogger:
         # Node tracking fields
         node: str = "",
         agent_name: str = "",
+        master_agent: str = "supervisor",
         temperature: float = None,
         step_number: int = 0,
         # Task tracking
@@ -214,6 +224,7 @@ class WorkflowLogger:
                 company_name=company_name,
                 node=node or call_type,
                 agent_name=agent_name,
+                master_agent=master_agent,
                 temperature=temperature,
                 step_number=step_number,
                 call_type=call_type,
@@ -244,6 +255,7 @@ class WorkflowLogger:
         # Common fields
         node: str = "",
         agent_name: str = "",
+        master_agent: str = "supervisor",
         step_number: int = 0,
         model: str = "",
         temperature: float = None,
@@ -262,6 +274,7 @@ class WorkflowLogger:
                 variables=variables,
                 node=node,
                 agent_name=agent_name,
+                master_agent=master_agent,
                 step_number=step_number,
                 model=model,
                 temperature=temperature,
@@ -281,6 +294,7 @@ class WorkflowLogger:
                     "variables": variables or {},
                     "node": node,
                     "agent_name": agent_name,
+                    "master_agent": master_agent,
                     "model": model,
                 })
             except Exception as e:
@@ -300,6 +314,7 @@ class WorkflowLogger:
         # Node tracking fields
         node: str = "fetch_api_data",
         agent_name: str = "data_fetcher",
+        master_agent: str = "supervisor",
         step_number: int = 0,
         error: str = "",
     ):
@@ -323,6 +338,7 @@ class WorkflowLogger:
                 source_name=source_name,
                 node=node,
                 agent_name=agent_name,
+                master_agent=master_agent,
                 step_number=step_number,
                 success=success,
                 records_found=records_found,
@@ -344,6 +360,7 @@ class WorkflowLogger:
                     "error": error,
                     "node": node,
                     "agent_name": agent_name,
+                    "master_agent": master_agent,
                 })
             except Exception as e:
                 logger.warning(f"Failed to log data source to PostgreSQL: {e}")
@@ -363,6 +380,7 @@ class WorkflowLogger:
         # Node tracking fields
         node: str = "",
         agent_name: str = "",
+        master_agent: str = "supervisor",
         step_number: int = 0,
         # Hierarchy tracking fields
         parent_node: str = "",
@@ -382,6 +400,7 @@ class WorkflowLogger:
                 tool_name=tool_name,
                 node=effective_node,
                 agent_name=agent_name,
+                master_agent=master_agent,
                 step_number=step_number,
                 tool_input=tool_input,
                 tool_output=tool_output,
@@ -422,6 +441,7 @@ class WorkflowLogger:
         # Node tracking fields
         node: str = "synthesize",
         agent_name: str = "llm_analyst",
+        master_agent: str = "supervisor",
         model: str = "",
         temperature: float = None,
         step_number: int = 0,
@@ -437,6 +457,7 @@ class WorkflowLogger:
                 company_name=company_name,
                 node=node,
                 agent_name=agent_name,
+                master_agent=master_agent,
                 model=model,
                 temperature=temperature,
                 step_number=step_number,
@@ -511,6 +532,7 @@ class WorkflowLogger:
         node: str = "evaluate",
         node_type: str = "agent",
         agent_name: str = "workflow_evaluator",
+        master_agent: str = "supervisor",
         step_number: int = 0,
         model: str = "",
         duration_ms: float = 0,
@@ -525,6 +547,7 @@ class WorkflowLogger:
                 node=node,
                 node_type=node_type,
                 agent_name=agent_name,
+                master_agent=master_agent,
                 step_number=step_number,
                 model=model,
                 duration_ms=duration_ms,
@@ -595,6 +618,7 @@ class WorkflowLogger:
         # Node tracking fields
         node: str = "create_plan",
         agent_name: str = "planner",
+        master_agent: str = "supervisor",
         step_number: int = 0,
         model: str = "",
     ):
@@ -649,6 +673,7 @@ class WorkflowLogger:
         # Node tracking fields
         node: str = "evaluate",
         agent_name: str = "consistency_evaluator",
+        master_agent: str = "supervisor",
         step_number: int = 0,
     ):
         """Log consistency evaluation to all storage."""
@@ -786,6 +811,7 @@ class WorkflowLogger:
         prompt: str,
         # Node tracking fields
         node: str = "",
+        master_agent: str = "supervisor",
         step_number: int = 0,
         temperature: float = None,
         # Original fields
@@ -885,6 +911,7 @@ class WorkflowLogger:
         # Node tracking fields
         node: str = "complete_run",
         agent_name: str = "workflow_orchestrator",
+        master_agent: str = "supervisor",
         model: str = "",
         temperature: float = None,
         # Assessment
@@ -1015,6 +1042,7 @@ class WorkflowLogger:
         # Node tracking fields
         node: str = "evaluate",
         agent_name: str = "agent_efficiency_evaluator",
+        master_agent: str = "supervisor",
         model: str = "",
     ):
         """
@@ -1168,6 +1196,7 @@ class WorkflowLogger:
         # Node tracking fields
         node: str = "evaluate",
         agent_name: str = "unified_evaluator",
+        master_agent: str = "supervisor",
         model: str = "",
     ):
         """
@@ -1241,6 +1270,7 @@ class WorkflowLogger:
         # Node tracking fields
         node: str = "evaluate",
         agent_name: str = "llm_judge",
+        master_agent: str = "supervisor",
         step_number: int = 0,
         temperature: float = None,
         # Dimension scores (0-1)
@@ -1341,6 +1371,7 @@ class WorkflowLogger:
         status: str = "completed",
         # Node tracking
         node: str = "evaluate",
+        master_agent: str = "supervisor",
         step_number: int = 0,
     ):
         """
