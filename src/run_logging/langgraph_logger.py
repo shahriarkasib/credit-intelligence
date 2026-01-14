@@ -250,7 +250,7 @@ class LangGraphEventLogger:
             # Known workflow nodes (graph nodes we want to track)
             GRAPH_NODES = {
                 "parse_input", "validate_company", "create_plan",
-                "fetch_api_data", "search_web", "synthesize", "save_to_database",
+                "fetch_api_data", "search_web", "search_web_enhanced", "synthesize", "save_to_database",
                 "evaluate", "evaluate_assessment", "should_continue_after_validation",
                 "human_review",
             }
@@ -283,14 +283,18 @@ class LangGraphEventLogger:
                 self._current_node = event_name
 
             # Set the current node on the event BEFORE popping (so chain_end gets the node)
-            lg_event.node = self._current_node
+            # Use event_name as fallback if current_node is empty (for chain events like search_web_enhanced)
+            effective_node = self._current_node or event_name
+            lg_event.node = effective_node if is_graph_node(effective_node) else self._current_node
 
-            # Set agent_name based on current node (using NODE_TO_AGENT mapping)
-            # Use "workflow" as fallback for events outside specific nodes
-            lg_event.agent_name = NODE_TO_AGENT.get(self._current_node, "workflow" if not self._current_node else self._current_node)
+            # Set agent_name based on effective node (using NODE_TO_AGENT mapping)
+            # Use event_name as fallback for lookup if current_node is empty
+            lookup_node = self._current_node or event_name
+            lg_event.agent_name = NODE_TO_AGENT.get(lookup_node, NODE_TO_AGENT.get(self._current_node, "workflow"))
 
-            # Set step_number based on current node (using NODE_TO_STEP mapping)
-            lg_event.step_number = NODE_TO_STEP.get(self._current_node, 0)
+            # Set step_number based on effective node (using NODE_TO_STEP mapping)
+            # Use event_name as fallback for lookup if current_node is empty
+            lg_event.step_number = NODE_TO_STEP.get(lookup_node, NODE_TO_STEP.get(self._current_node, 0))
 
             # Determine node_type based on event_type
             if event_type in ("on_tool_start", "on_tool_end"):
