@@ -172,6 +172,8 @@ class SheetsLogger:
                 "status", "started_at", "completed_at",
                 "risk_level", "credit_score", "confidence", "total_time_ms",
                 "total_steps", "total_llm_calls", "tools_used", "evaluation_score",
+                # Correctness columns
+                "workflow_correct", "output_correct",
                 "timestamp", "generated_by"
             ],
             # Sheet 2: Tool execution logs (with hierarchy tracking)
@@ -431,6 +433,9 @@ class SheetsLogger:
         evaluation_score: float = None,
         started_at: str = "",
         completed_at: str = "",
+        # Correctness fields
+        workflow_correct: bool = None,
+        output_correct: bool = None,
     ):
         """Log a run summary (non-blocking)."""
         if not self.is_connected():
@@ -455,6 +460,9 @@ class SheetsLogger:
             total_llm_calls,
             ", ".join(tools_used) if tools_used else "",
             evaluation_score if evaluation_score is not None else "",
+            # Correctness columns
+            "yes" if workflow_correct else ("no" if workflow_correct is False else ""),
+            "yes" if output_correct else ("no" if output_correct is False else ""),
             datetime.utcnow().isoformat(),  # timestamp
             "Us",  # generated_by: We generate run summaries
         ]
@@ -1723,10 +1731,11 @@ class SheetsLogger:
         # Define sheet configurations (same as _init_sheets)
         sheet_configs = {
             "runs": [
-                "run_id", "company_name", "node", "agent_name", "model", "temperature",
+                "run_id", "company_name", "node", "agent_name", "master_agent", "model", "temperature",
                 "status", "started_at", "completed_at",
                 "risk_level", "credit_score", "confidence", "total_time_ms",
                 "total_steps", "total_llm_calls", "tools_used", "evaluation_score",
+                "workflow_correct", "output_correct",
                 "timestamp", "generated_by"
             ],
             "tool_calls": [

@@ -749,6 +749,14 @@ class WorkflowLogger:
             total_steps = self._step_counter.get(run_id, 0)
             total_llm_calls = self._llm_call_counter.get(run_id, 0)
 
+            # Extract correctness from coalition evaluation
+            evaluation = final_result.get("evaluation", {})
+            coalition = evaluation.get("coalition", {})
+            workflow_correct = coalition.get("is_correct")  # From coalition evaluator
+            # Output correct if quality_score >= 0.6 (medium threshold)
+            quality_score = coalition.get("quality_score", 0)
+            output_correct = quality_score >= 0.6 if quality_score else None
+
             self.sheets_logger.log_run(
                 run_id=run_id,
                 company_name=run_info["company_name"],
@@ -764,6 +772,8 @@ class WorkflowLogger:
                 total_llm_calls=total_llm_calls,
                 tools_used=tools_used,
                 evaluation_score=final_result.get("evaluation_score", 0),
+                workflow_correct=workflow_correct,
+                output_correct=output_correct,
             )
 
         # Cleanup
