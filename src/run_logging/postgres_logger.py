@@ -257,6 +257,57 @@ class PostgresLogger:
         data.update(kwargs)
         return self.log("runs", data)
 
+    def update_run_correctness(
+        self,
+        run_id: str,
+        workflow_correct: bool = None,
+        output_correct: bool = None,
+    ) -> bool:
+        """
+        Update the workflow_correct and output_correct columns for an existing run.
+
+        This is called after coalition evaluation completes to update the run
+        with correctness values that weren't available when the run was initially logged.
+
+        Args:
+            run_id: The run ID to update
+            workflow_correct: Whether the workflow executed correctly
+            output_correct: Whether the output quality is acceptable
+
+        Returns:
+            True if update was successful
+        """
+        if not self.is_connected():
+            logger.warning("Not connected to PostgreSQL, cannot update run correctness")
+            return False
+
+        try:
+            # Build UPDATE query
+            query = """
+                UPDATE wf_runs
+                SET workflow_correct = %s,
+                    output_correct = %s
+                WHERE run_id = %s
+            """
+
+            # Execute the update
+            with self.storage._get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(query, (workflow_correct, output_correct, run_id))
+                    conn.commit()
+                    rows_updated = cursor.rowcount
+
+            if rows_updated > 0:
+                logger.info(f"Updated run {run_id} correctness: workflow={workflow_correct}, output={output_correct}")
+                return True
+            else:
+                logger.warning(f"No run found with run_id {run_id} to update")
+                return False
+
+        except Exception as e:
+            logger.error(f"Failed to update run correctness in PostgreSQL: {e}")
+            return False
+
     def log_llm_call(
         self,
         run_id: str,

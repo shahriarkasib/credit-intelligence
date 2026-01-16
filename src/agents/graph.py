@@ -2827,6 +2827,36 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                                f"Category: {coalition_result.correctness_category}, "
                                f"Confidence: {coalition_result.confidence:.2%}")
 
+                    # Update runs sheet with workflow_correct and output_correct
+                    workflow_correct = coalition_result.is_correct
+                    output_correct = coalition_result.quality_score >= 0.6 if coalition_result.quality_score else None
+
+                    # Update Google Sheets runs with correctness values
+                    try:
+                        from run_logging.sheets_logger import get_sheets_logger as get_sheets
+                        sheets = get_sheets()
+                        if sheets and sheets.is_connected():
+                            sheets.update_run_correctness(
+                                run_id=run_id,
+                                workflow_correct=workflow_correct,
+                                output_correct=output_correct,
+                            )
+                    except Exception as update_err:
+                        logger.debug(f"Could not update run correctness in sheets: {update_err}")
+
+                    # Update PostgreSQL runs with correctness values
+                    try:
+                        from run_logging.postgres_logger import get_postgres_logger as get_pg
+                        pg = get_pg()
+                        if pg and pg.is_connected():
+                            pg.update_run_correctness(
+                                run_id=run_id,
+                                workflow_correct=workflow_correct,
+                                output_correct=output_correct,
+                            )
+                    except Exception as pg_update_err:
+                        logger.debug(f"Could not update run correctness in PostgreSQL: {pg_update_err}")
+
                 except Exception as coalition_error:
                     logger.warning(f"Coalition evaluation failed: {coalition_error}")
 

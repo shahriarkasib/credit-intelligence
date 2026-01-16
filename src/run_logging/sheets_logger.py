@@ -485,6 +485,67 @@ class SheetsLogger:
 
         _sheets_executor.submit(_write)
 
+    def update_run_correctness(
+        self,
+        run_id: str,
+        workflow_correct: bool = None,
+        output_correct: bool = None,
+    ):
+        """
+        Update the workflow_correct and output_correct columns for an existing run.
+
+        This is called after coalition evaluation completes to update the run
+        with correctness values that weren't available when the run was initially logged.
+
+        Args:
+            run_id: The run ID to update
+            workflow_correct: Whether the workflow executed correctly
+            output_correct: Whether the output quality is acceptable
+        """
+        if not self.is_connected():
+            return
+
+        def _update():
+            try:
+                sheet = self._get_sheet("runs")
+                if not sheet:
+                    logger.warning("Could not get runs sheet for update")
+                    return
+
+                # Find the row with this run_id
+                all_values = sheet.get_all_values()
+                row_index = None
+
+                # Search from bottom up (most recent runs first)
+                for i in range(len(all_values) - 1, 0, -1):
+                    if all_values[i] and all_values[i][0] == run_id:
+                        row_index = i + 1  # gspread uses 1-based indexing
+                        break
+
+                if row_index is None:
+                    logger.warning(f"Could not find run {run_id} in runs sheet")
+                    return
+
+                # workflow_correct is column 19 (S), output_correct is column 20 (T)
+                # Based on header: run_id(1), company_name(2), node(3), agent_name(4),
+                # master_agent(5), model(6), temperature(7), status(8), started_at(9),
+                # completed_at(10), risk_level(11), credit_score(12), confidence(13),
+                # total_time_ms(14), total_steps(15), total_llm_calls(16), tools_used(17),
+                # evaluation_score(18), workflow_correct(19), output_correct(20)
+                workflow_value = "yes" if workflow_correct else ("no" if workflow_correct is False else "")
+                output_value = "yes" if output_correct else ("no" if output_correct is False else "")
+
+                # Update both cells
+                sheet.update(f"S{row_index}", [[workflow_value]])
+                sheet.update(f"T{row_index}", [[output_value]])
+
+                logger.info(f"Updated run {run_id} correctness: workflow={workflow_value}, output={output_value}")
+
+            except Exception as e:
+                logger.error(f"Failed to update run correctness in sheets: {e}")
+
+        _sheets_executor.submit(_update)
+
     def log_tool_call(
         self,
         run_id: str,
