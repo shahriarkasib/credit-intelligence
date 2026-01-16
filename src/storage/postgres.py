@@ -52,34 +52,31 @@ class PostgresStorage:
     # Format: (column_name, column_type, nullable, is_partition_key)
     # Naming convention per PRD: wf_* (workflow), eval_* (evaluation), lg_* (langgraph), meta_* (metadata)
     TABLE_SCHEMAS = {
-        # Main runs table - the core table that others reference
+        # Main runs table - matches Google Sheets "runs" schema exactly
         "wf_runs": {
             "prefix": "",
             "columns": [
                 ("id", "BIGSERIAL", False, False),
                 ("run_id", "VARCHAR(64)", False, False),
                 ("company_name", "VARCHAR(255)", True, False),
+                ("node", "VARCHAR(100)", True, False),
+                ("agent_name", "VARCHAR(100)", True, False),
+                ("master_agent", "VARCHAR(100)", True, False),
+                ("model", "VARCHAR(100)", True, False),
+                ("temperature", "DECIMAL(3,2)", True, False),
                 ("status", "VARCHAR(50)", True, False),
+                ("started_at", "TIMESTAMPTZ", True, False),
+                ("completed_at", "TIMESTAMPTZ", True, False),
                 ("risk_level", "VARCHAR(50)", True, False),
                 ("credit_score", "INTEGER", True, False),
                 ("confidence", "DECIMAL(5,4)", True, False),
-                ("reasoning", "TEXT", True, False),
-                ("tool_selection_score", "DECIMAL(5,4)", True, False),
-                ("data_quality_score", "DECIMAL(5,4)", True, False),
-                ("synthesis_score", "DECIMAL(5,4)", True, False),
-                ("overall_score", "DECIMAL(5,4)", True, False),
-                ("final_decision", "VARCHAR(50)", True, False),
-                ("decision_reasoning", "TEXT", True, False),
-                ("errors", "JSONB", True, False),
-                ("warnings", "JSONB", True, False),
+                ("total_time_ms", "DECIMAL(15,3)", True, False),
+                ("total_steps", "INTEGER", True, False),
+                ("total_llm_calls", "INTEGER", True, False),
                 ("tools_used", "JSONB", True, False),
-                ("agents_used", "JSONB", True, False),
-                ("started_at", "TIMESTAMPTZ", True, False),
-                ("completed_at", "TIMESTAMPTZ", True, False),
-                ("duration_ms", "DECIMAL(15,3)", True, False),
-                ("total_tokens", "INTEGER", True, False),
-                ("total_cost", "DECIMAL(12,6)", True, False),
-                ("llm_calls_count", "INTEGER", True, False),
+                ("evaluation_score", "DECIMAL(5,4)", True, False),
+                ("workflow_correct", "BOOLEAN", True, False),
+                ("output_correct", "BOOLEAN", True, False),
                 ("timestamp", "TIMESTAMPTZ", False, True),  # Partition key
             ],
             "primary_key": ["id", "timestamp"],
@@ -185,7 +182,7 @@ class PostgresStorage:
             "foreign_keys": [("run_id", "wf_runs", "run_id")],
         },
 
-        # Plans (workflow execution)
+        # Plans - matches Google Sheets "plans" schema exactly
         "wf_plans": {
             "prefix": "",
             "columns": [
@@ -194,6 +191,7 @@ class PostgresStorage:
                 ("company_name", "VARCHAR(255)", True, False),
                 ("node", "VARCHAR(100)", True, False),
                 ("agent_name", "VARCHAR(100)", True, False),
+                ("master_agent", "VARCHAR(100)", True, False),
                 ("num_tasks", "INTEGER", True, False),
                 ("plan_summary", "TEXT", True, False),
                 ("full_plan", "JSONB", True, False),
@@ -207,6 +205,7 @@ class PostgresStorage:
                 ("task_8", "TEXT", True, False),
                 ("task_9", "TEXT", True, False),
                 ("task_10", "TEXT", True, False),
+                ("created_at", "TIMESTAMPTZ", True, False),
                 ("status", "VARCHAR(50)", True, False),
                 ("timestamp", "TIMESTAMPTZ", False, True),
             ],
@@ -215,7 +214,7 @@ class PostgresStorage:
             "foreign_keys": [("run_id", "wf_runs", "run_id")],
         },
 
-        # Prompts (metadata)
+        # Prompts (metadata) - matches Google Sheets "prompts" exactly
         "meta_prompts": {
             "prefix": "",
             "columns": [
@@ -231,7 +230,7 @@ class PostgresStorage:
                 ("category", "VARCHAR(100)", True, False),
                 ("system_prompt", "TEXT", True, False),
                 ("user_prompt", "TEXT", True, False),
-                ("variables", "JSONB", True, False),
+                ("variables_json", "JSONB", True, False),  # Match Sheets column name
                 ("model", "VARCHAR(100)", True, False),
                 ("temperature", "DECIMAL(3,2)", True, False),
                 ("timestamp", "TIMESTAMPTZ", False, True),
@@ -331,7 +330,7 @@ class PostgresStorage:
             "foreign_keys": [("run_id", "wf_runs", "run_id")],
         },
 
-        # Tool Selections (evaluation)
+        # Tool Selections (evaluation) - matches Google Sheets "tool_selections" exactly
         "eval_tool_selection": {
             "prefix": "",
             "columns": [
@@ -349,8 +348,8 @@ class PostgresStorage:
                 ("correct_tools", "JSONB", True, False),
                 ("missing_tools", "JSONB", True, False),
                 ("extra_tools", "JSONB", True, False),
-                ("precision_score", "DECIMAL(5,4)", True, False),
-                ("recall_score", "DECIMAL(5,4)", True, False),
+                ("precision", "DECIMAL(5,4)", True, False),  # Match Sheets column name
+                ("recall", "DECIMAL(5,4)", True, False),  # Match Sheets column name
                 ("f1_score", "DECIMAL(5,4)", True, False),
                 ("reasoning", "TEXT", True, False),
                 ("duration_ms", "DECIMAL(15,3)", True, False),
@@ -470,7 +469,7 @@ class PostgresStorage:
             "foreign_keys": [("run_id", "wf_runs", "run_id")],
         },
 
-        # Agent Metrics (evaluation)
+        # Agent Metrics (evaluation) - matches Google Sheets "agent_metrics" exactly
         "eval_agent_metrics": {
             "prefix": "",
             "columns": [
@@ -490,7 +489,7 @@ class PostgresStorage:
                 ("trajectory_match", "DECIMAL(5,4)", True, False),
                 ("final_answer_quality", "DECIMAL(5,4)", True, False),
                 ("step_count", "INTEGER", True, False),
-                ("tool_calls_count", "INTEGER", True, False),
+                ("tool_calls", "INTEGER", True, False),  # Match Sheets column name
                 ("latency_ms", "DECIMAL(15,3)", True, False),
                 ("overall_score", "DECIMAL(5,4)", True, False),
                 ("eval_status", "VARCHAR(50)", True, False),
@@ -507,25 +506,31 @@ class PostgresStorage:
             "foreign_keys": [("run_id", "wf_runs", "run_id")],
         },
 
-        # Coalition Results (evaluation)
+        # Coalition Results - matches Google Sheets "coalition" schema exactly
         "eval_coalition": {
             "prefix": "",
             "columns": [
                 ("id", "BIGSERIAL", False, False),
                 ("run_id", "VARCHAR(64)", False, False),
                 ("company_name", "VARCHAR(255)", True, False),
+                ("node", "VARCHAR(100)", True, False),
+                ("node_type", "VARCHAR(50)", True, False),
+                ("agent_name", "VARCHAR(100)", True, False),
+                ("master_agent", "VARCHAR(100)", True, False),
+                ("step_number", "INTEGER", True, False),
                 ("is_correct", "BOOLEAN", True, False),
                 ("correctness_score", "DECIMAL(5,4)", True, False),
                 ("confidence", "DECIMAL(5,4)", True, False),
                 ("correctness_category", "VARCHAR(50)", True, False),
-                ("agreement_score", "DECIMAL(5,4)", True, False),
-                ("num_evaluators", "INTEGER", True, False),
                 ("efficiency_score", "DECIMAL(5,4)", True, False),
                 ("quality_score", "DECIMAL(5,4)", True, False),
                 ("tool_score", "DECIMAL(5,4)", True, False),
                 ("consistency_score", "DECIMAL(5,4)", True, False),
-                ("votes", "JSONB", True, False),
+                ("agreement_score", "DECIMAL(5,4)", True, False),
+                ("num_evaluators", "INTEGER", True, False),
+                ("votes_json", "JSONB", True, False),
                 ("evaluation_time_ms", "DECIMAL(15,3)", True, False),
+                ("status", "VARCHAR(50)", True, False),
                 ("timestamp", "TIMESTAMPTZ", False, True),
             ],
             "primary_key": ["id", "timestamp"],
@@ -533,29 +538,30 @@ class PostgresStorage:
             "foreign_keys": [("run_id", "wf_runs", "run_id")],
         },
 
-        # Log Tests (evaluation/verification)
+        # Log Tests (evaluation/verification) - matches Google Sheets "log_tests" exactly
         "eval_log_tests": {
             "prefix": "",
             "columns": [
                 ("id", "BIGSERIAL", False, False),
                 ("run_id", "VARCHAR(64)", False, False),
                 ("company_name", "VARCHAR(255)", True, False),
-                ("runs_logged", "INTEGER", True, False),
-                ("langgraph_events_logged", "INTEGER", True, False),
-                ("llm_calls_logged", "INTEGER", True, False),
-                ("tool_calls_logged", "INTEGER", True, False),
-                ("assessments_logged", "INTEGER", True, False),
-                ("evaluations_logged", "INTEGER", True, False),
-                ("tool_selections_logged", "INTEGER", True, False),
-                ("consistency_scores_logged", "INTEGER", True, False),
-                ("data_sources_logged", "INTEGER", True, False),
-                ("plans_logged", "INTEGER", True, False),
-                ("prompts_logged", "INTEGER", True, False),
-                ("cross_model_eval_logged", "INTEGER", True, False),
-                ("llm_judge_results_logged", "INTEGER", True, False),
-                ("agent_metrics_logged", "INTEGER", True, False),
-                ("coalition_logged", "INTEGER", True, False),
-                ("total_tables_logged", "INTEGER", True, False),
+                # Per-sheet counts - match Sheets column names exactly (no _logged suffix)
+                ("runs", "INTEGER", True, False),
+                ("langgraph_events", "INTEGER", True, False),
+                ("llm_calls", "INTEGER", True, False),
+                ("tool_calls", "INTEGER", True, False),
+                ("assessments", "INTEGER", True, False),
+                ("evaluations", "INTEGER", True, False),
+                ("tool_selections", "INTEGER", True, False),
+                ("consistency_scores", "INTEGER", True, False),
+                ("data_sources", "INTEGER", True, False),
+                ("plans", "INTEGER", True, False),
+                ("prompts", "INTEGER", True, False),
+                ("cross_model_eval", "INTEGER", True, False),
+                ("llm_judge_results", "INTEGER", True, False),
+                ("agent_metrics", "INTEGER", True, False),
+                ("coalition", "INTEGER", True, False),
+                ("total_sheets_logged", "INTEGER", True, False),  # Match Sheets column name
                 ("verification_status", "VARCHAR(50)", True, False),
                 ("timestamp", "TIMESTAMPTZ", False, True),
             ],
@@ -564,7 +570,7 @@ class PostgresStorage:
             "foreign_keys": [("run_id", "wf_runs", "run_id")],
         },
 
-        # State Dumps (workflow execution snapshots)
+        # State Dumps (workflow execution snapshots) - matches Google Sheets "state_dumps" exactly
         "wf_state_dumps": {
             "prefix": "",
             "columns": [
@@ -575,30 +581,29 @@ class PostgresStorage:
                 ("master_agent", "VARCHAR(100)", True, False),
                 ("step_number", "INTEGER", True, False),
                 # Company info
-                ("company_info", "JSONB", True, False),
+                ("company_info_json", "JSONB", True, False),  # Match Sheets column name
                 # Plan
-                ("plan", "JSONB", True, False),
+                ("plan_json", "JSONB", True, False),  # Match Sheets column name
                 ("plan_size_bytes", "INTEGER", True, False),
+                ("plan_tasks_count", "INTEGER", True, False),  # Add missing column
                 # API data
-                ("api_data", "JSONB", True, False),
+                ("api_data_summary", "TEXT", True, False),  # Match Sheets column name
                 ("api_data_size_bytes", "INTEGER", True, False),
                 ("api_sources_count", "INTEGER", True, False),
                 # Search data
-                ("search_data", "JSONB", True, False),
+                ("search_data_summary", "TEXT", True, False),  # Match Sheets column name
                 ("search_data_size_bytes", "INTEGER", True, False),
                 # Assessment
-                ("assessment", "JSONB", True, False),
                 ("risk_level", "VARCHAR(50)", True, False),
                 ("credit_score", "INTEGER", True, False),
                 ("confidence", "DECIMAL(5,4)", True, False),
+                ("assessment_json", "JSONB", True, False),  # Match Sheets column name
                 # Evaluation
-                ("evaluation", "JSONB", True, False),
-                ("evaluation_scores", "JSONB", True, False),
-                # Scores (direct fields for API access)
                 ("coalition_score", "DECIMAL(5,4)", True, False),
                 ("agent_metrics_score", "DECIMAL(5,4)", True, False),
+                ("evaluation_json", "JSONB", True, False),  # Match Sheets column name
                 # Errors
-                ("errors", "JSONB", True, False),
+                ("errors_json", "JSONB", True, False),  # Match Sheets column name
                 ("error_count", "INTEGER", True, False),
                 # Metadata
                 ("total_state_size_bytes", "INTEGER", True, False),
@@ -608,6 +613,290 @@ class PostgresStorage:
             ],
             "primary_key": ["id", "timestamp"],
             "indexes": ["run_id", "company_name", "status"],
+            "foreign_keys": [("run_id", "wf_runs", "run_id")],
+        },
+
+        # Step Logs (workflow execution) - matches Google Sheets "step_logs"
+        "wf_step_logs": {
+            "prefix": "",
+            "columns": [
+                ("id", "BIGSERIAL", False, False),
+                ("run_id", "VARCHAR(64)", False, False),
+                ("company_name", "VARCHAR(255)", True, False),
+                ("node", "VARCHAR(100)", True, False),
+                ("node_type", "VARCHAR(50)", True, False),
+                ("agent_name", "VARCHAR(100)", True, False),
+                ("step_name", "VARCHAR(255)", True, False),
+                ("step_number", "INTEGER", True, False),
+                ("model", "VARCHAR(100)", True, False),
+                ("temperature", "DECIMAL(3,2)", True, False),
+                ("input_summary", "TEXT", True, False),
+                ("output_summary", "TEXT", True, False),
+                ("execution_time_ms", "DECIMAL(15,3)", True, False),
+                ("status", "VARCHAR(50)", True, False),
+                ("error", "TEXT", True, False),
+                ("timestamp", "TIMESTAMPTZ", False, True),
+                ("generated_by", "VARCHAR(100)", True, False),
+            ],
+            "primary_key": ["id", "timestamp"],
+            "indexes": ["run_id", "step_name", "agent_name"],
+            "foreign_keys": [("run_id", "wf_runs", "run_id")],
+        },
+
+        # Langsmith Traces (observability) - matches Google Sheets "langsmith_traces"
+        "lg_langsmith_traces": {
+            "prefix": "",
+            "columns": [
+                ("id", "BIGSERIAL", False, False),
+                ("run_id", "VARCHAR(64)", False, False),
+                ("company_name", "VARCHAR(255)", True, False),
+                ("node", "VARCHAR(100)", True, False),
+                ("node_type", "VARCHAR(50)", True, False),
+                ("agent_name", "VARCHAR(100)", True, False),
+                ("step_number", "INTEGER", True, False),
+                ("step_name", "VARCHAR(255)", True, False),
+                ("run_type", "VARCHAR(100)", True, False),
+                ("model", "VARCHAR(100)", True, False),
+                ("temperature", "DECIMAL(3,2)", True, False),
+                ("input_preview", "TEXT", True, False),
+                ("output_preview", "TEXT", True, False),
+                ("latency_ms", "DECIMAL(15,3)", True, False),
+                ("status", "VARCHAR(50)", True, False),
+                ("error", "TEXT", True, False),
+                ("timestamp", "TIMESTAMPTZ", False, True),
+                ("generated_by", "VARCHAR(100)", True, False),
+            ],
+            "primary_key": ["id", "timestamp"],
+            "indexes": ["run_id", "run_type", "agent_name"],
+            "foreign_keys": [("run_id", "wf_runs", "run_id")],
+        },
+
+        # LLM Calls Detailed (workflow) - matches Google Sheets "llm_calls_detailed"
+        "wf_llm_calls_detailed": {
+            "prefix": "",
+            "columns": [
+                ("id", "BIGSERIAL", False, False),
+                ("run_id", "VARCHAR(64)", False, False),
+                ("company_name", "VARCHAR(255)", True, False),
+                ("node", "VARCHAR(100)", True, False),
+                ("node_type", "VARCHAR(50)", True, False),
+                ("agent_name", "VARCHAR(100)", True, False),
+                ("step_number", "INTEGER", True, False),
+                ("llm_provider", "VARCHAR(100)", True, False),
+                ("model", "VARCHAR(100)", True, False),
+                ("temperature", "DECIMAL(3,2)", True, False),
+                ("prompt", "TEXT", True, False),
+                ("context", "TEXT", True, False),
+                ("response", "TEXT", True, False),
+                ("reasoning", "TEXT", True, False),
+                ("prompt_tokens", "INTEGER", True, False),
+                ("completion_tokens", "INTEGER", True, False),
+                ("total_tokens", "INTEGER", True, False),
+                ("input_cost", "DECIMAL(12,8)", True, False),
+                ("output_cost", "DECIMAL(12,8)", True, False),
+                ("total_cost", "DECIMAL(12,8)", True, False),
+                ("response_time_ms", "DECIMAL(15,3)", True, False),
+                ("status", "VARCHAR(50)", True, False),
+                ("error", "TEXT", True, False),
+                ("timestamp", "TIMESTAMPTZ", False, True),
+                ("generated_by", "VARCHAR(100)", True, False),
+            ],
+            "primary_key": ["id", "timestamp"],
+            "indexes": ["run_id", "llm_provider", "model", "agent_name"],
+            "foreign_keys": [("run_id", "wf_runs", "run_id")],
+        },
+
+        # Run Summaries (workflow) - matches Google Sheets "run_summaries"
+        "wf_run_summaries": {
+            "prefix": "",
+            "columns": [
+                ("id", "BIGSERIAL", False, False),
+                ("run_id", "VARCHAR(64)", False, False),
+                ("company_name", "VARCHAR(255)", True, False),
+                ("node", "VARCHAR(100)", True, False),
+                ("node_type", "VARCHAR(50)", True, False),
+                ("model", "VARCHAR(100)", True, False),
+                ("temperature", "DECIMAL(3,2)", True, False),
+                ("status", "VARCHAR(50)", True, False),
+                ("risk_level", "VARCHAR(50)", True, False),
+                ("credit_score", "INTEGER", True, False),
+                ("confidence", "DECIMAL(5,4)", True, False),
+                ("reasoning", "TEXT", True, False),
+                ("tool_selection_score", "DECIMAL(5,4)", True, False),
+                ("data_quality_score", "DECIMAL(5,4)", True, False),
+                ("synthesis_score", "DECIMAL(5,4)", True, False),
+                ("overall_score", "DECIMAL(5,4)", True, False),
+                ("final_decision", "VARCHAR(100)", True, False),
+                ("decision_reasoning", "TEXT", True, False),
+                ("errors", "JSONB", True, False),
+                ("warnings", "JSONB", True, False),
+                ("tools_used", "JSONB", True, False),
+                ("agents_used", "JSONB", True, False),
+                ("total_steps", "INTEGER", True, False),
+                ("started_at", "TIMESTAMPTZ", True, False),
+                ("completed_at", "TIMESTAMPTZ", True, False),
+                ("duration_ms", "DECIMAL(15,3)", True, False),
+                ("total_tokens", "INTEGER", True, False),
+                ("total_cost", "DECIMAL(12,8)", True, False),
+                ("llm_calls_count", "INTEGER", True, False),
+                ("timestamp", "TIMESTAMPTZ", False, True),
+                ("generated_by", "VARCHAR(100)", True, False),
+            ],
+            "primary_key": ["id", "timestamp"],
+            "indexes": ["run_id", "company_name", "risk_level", "overall_score"],
+            "foreign_keys": [("run_id", "wf_runs", "run_id")],
+        },
+
+        # Unified Metrics (evaluation) - matches Google Sheets "unified_metrics"
+        "eval_unified_metrics": {
+            "prefix": "",
+            "columns": [
+                ("id", "BIGSERIAL", False, False),
+                ("run_id", "VARCHAR(64)", False, False),
+                ("company_name", "VARCHAR(255)", True, False),
+                ("node", "VARCHAR(100)", True, False),
+                ("node_type", "VARCHAR(50)", True, False),
+                ("agent_name", "VARCHAR(100)", True, False),
+                ("step_number", "INTEGER", True, False),
+                ("model", "VARCHAR(100)", True, False),
+                ("faithfulness", "DECIMAL(5,4)", True, False),
+                ("hallucination", "DECIMAL(5,4)", True, False),
+                ("answer_relevancy", "DECIMAL(5,4)", True, False),
+                ("factual_accuracy", "DECIMAL(5,4)", True, False),
+                ("final_answer_quality", "DECIMAL(5,4)", True, False),
+                ("accuracy_score", "DECIMAL(5,4)", True, False),
+                ("same_model_consistency", "DECIMAL(5,4)", True, False),
+                ("cross_model_consistency", "DECIMAL(5,4)", True, False),
+                ("risk_level_agreement", "DECIMAL(5,4)", True, False),
+                ("semantic_similarity", "DECIMAL(5,4)", True, False),
+                ("consistency_score", "DECIMAL(5,4)", True, False),
+                ("intent_correctness", "DECIMAL(5,4)", True, False),
+                ("plan_quality", "DECIMAL(5,4)", True, False),
+                ("tool_choice_correctness", "DECIMAL(5,4)", True, False),
+                ("tool_completeness", "DECIMAL(5,4)", True, False),
+                ("trajectory_match", "DECIMAL(5,4)", True, False),
+                ("agent_final_answer", "DECIMAL(5,4)", True, False),
+                ("agent_efficiency_score", "DECIMAL(5,4)", True, False),
+                ("overall_quality_score", "DECIMAL(5,4)", True, False),
+                ("libraries_used", "JSONB", True, False),
+                ("evaluation_time_ms", "DECIMAL(15,3)", True, False),
+                ("status", "VARCHAR(50)", True, False),
+                ("timestamp", "TIMESTAMPTZ", False, True),
+                ("generated_by", "VARCHAR(100)", True, False),
+            ],
+            "primary_key": ["id", "timestamp"],
+            "indexes": ["run_id", "agent_name", "overall_quality_score"],
+            "foreign_keys": [("run_id", "wf_runs", "run_id")],
+        },
+
+        # Model Consistency (evaluation) - matches Google Sheets "model_consistency"
+        "eval_model_consistency": {
+            "prefix": "",
+            "columns": [
+                ("id", "BIGSERIAL", False, False),
+                ("eval_id", "VARCHAR(64)", False, False),
+                ("company_name", "VARCHAR(255)", True, False),
+                ("node", "VARCHAR(100)", True, False),
+                ("node_type", "VARCHAR(50)", True, False),
+                ("agent_name", "VARCHAR(100)", True, False),
+                ("step_number", "INTEGER", True, False),
+                ("model_name", "VARCHAR(100)", True, False),
+                ("num_runs", "INTEGER", True, False),
+                ("risk_level_consistency", "DECIMAL(5,4)", True, False),
+                ("credit_score_mean", "DECIMAL(10,4)", True, False),
+                ("credit_score_std", "DECIMAL(10,4)", True, False),
+                ("confidence_variance", "DECIMAL(10,6)", True, False),
+                ("reasoning_similarity", "DECIMAL(5,4)", True, False),
+                ("risk_factors_overlap", "DECIMAL(5,4)", True, False),
+                ("recommendations_overlap", "DECIMAL(5,4)", True, False),
+                ("overall_consistency", "DECIMAL(5,4)", True, False),
+                ("is_consistent", "BOOLEAN", True, False),
+                ("consistency_grade", "VARCHAR(10)", True, False),
+                ("llm_judge_analysis", "TEXT", True, False),
+                ("llm_judge_concerns", "TEXT", True, False),
+                ("run_details", "JSONB", True, False),
+                ("duration_ms", "DECIMAL(15,3)", True, False),
+                ("status", "VARCHAR(50)", True, False),
+                ("timestamp", "TIMESTAMPTZ", False, True),
+                ("generated_by", "VARCHAR(100)", True, False),
+            ],
+            "primary_key": ["id", "timestamp"],
+            "indexes": ["eval_id", "model_name", "overall_consistency"],
+            "foreign_keys": [],
+        },
+
+        # DeepEval Metrics (evaluation) - matches Google Sheets "deepeval_metrics"
+        "eval_deepeval_metrics": {
+            "prefix": "",
+            "columns": [
+                ("id", "BIGSERIAL", False, False),
+                ("run_id", "VARCHAR(64)", False, False),
+                ("company_name", "VARCHAR(255)", True, False),
+                ("node", "VARCHAR(100)", True, False),
+                ("node_type", "VARCHAR(50)", True, False),
+                ("agent_name", "VARCHAR(100)", True, False),
+                ("step_number", "INTEGER", True, False),
+                ("model_used", "VARCHAR(100)", True, False),
+                ("answer_relevancy", "DECIMAL(5,4)", True, False),
+                ("faithfulness", "DECIMAL(5,4)", True, False),
+                ("hallucination", "DECIMAL(5,4)", True, False),
+                ("contextual_relevancy", "DECIMAL(5,4)", True, False),
+                ("bias", "DECIMAL(5,4)", True, False),
+                ("toxicity", "DECIMAL(5,4)", True, False),
+                ("overall_score", "DECIMAL(5,4)", True, False),
+                ("answer_relevancy_reason", "TEXT", True, False),
+                ("faithfulness_reason", "TEXT", True, False),
+                ("hallucination_reason", "TEXT", True, False),
+                ("contextual_relevancy_reason", "TEXT", True, False),
+                ("bias_reason", "TEXT", True, False),
+                ("input_query", "TEXT", True, False),
+                ("context_summary", "TEXT", True, False),
+                ("assessment_summary", "TEXT", True, False),
+                ("evaluation_model", "VARCHAR(100)", True, False),
+                ("evaluation_time_ms", "DECIMAL(15,3)", True, False),
+                ("status", "VARCHAR(50)", True, False),
+                ("timestamp", "TIMESTAMPTZ", False, True),
+                ("generated_by", "VARCHAR(100)", True, False),
+            ],
+            "primary_key": ["id", "timestamp"],
+            "indexes": ["run_id", "model_used", "overall_score"],
+            "foreign_keys": [("run_id", "wf_runs", "run_id")],
+        },
+
+        # OpenEvals Metrics (evaluation) - matches Google Sheets "openevals_metrics"
+        "eval_openevals_metrics": {
+            "prefix": "",
+            "columns": [
+                ("id", "BIGSERIAL", False, False),
+                ("run_id", "VARCHAR(64)", False, False),
+                ("company_name", "VARCHAR(255)", True, False),
+                ("node", "VARCHAR(100)", True, False),
+                ("node_type", "VARCHAR(50)", True, False),
+                ("agent_name", "VARCHAR(100)", True, False),
+                ("step_number", "INTEGER", True, False),
+                ("model_used", "VARCHAR(100)", True, False),
+                ("intent_correctness", "DECIMAL(5,4)", True, False),
+                ("plan_quality", "DECIMAL(5,4)", True, False),
+                ("tool_choice_correctness", "DECIMAL(5,4)", True, False),
+                ("tool_completeness", "DECIMAL(5,4)", True, False),
+                ("trajectory_match", "DECIMAL(5,4)", True, False),
+                ("final_answer_quality", "DECIMAL(5,4)", True, False),
+                ("step_count", "INTEGER", True, False),
+                ("tool_calls", "JSONB", True, False),
+                ("latency_ms", "DECIMAL(15,3)", True, False),
+                ("overall_score", "DECIMAL(5,4)", True, False),
+                ("intent_details", "TEXT", True, False),
+                ("plan_details", "TEXT", True, False),
+                ("tool_details", "TEXT", True, False),
+                ("trajectory_details", "TEXT", True, False),
+                ("answer_details", "TEXT", True, False),
+                ("evaluation_time_ms", "DECIMAL(15,3)", True, False),
+                ("status", "VARCHAR(50)", True, False),
+                ("timestamp", "TIMESTAMPTZ", False, True),
+                ("generated_by", "VARCHAR(100)", True, False),
+            ],
+            "primary_key": ["id", "timestamp"],
+            "indexes": ["run_id", "model_used", "overall_score"],
             "foreign_keys": [("run_id", "wf_runs", "run_id")],
         },
 
@@ -648,6 +937,15 @@ class PostgresStorage:
         "log_tests": "eval_log_tests",
         "state_dumps": "wf_state_dumps",
         "api_keys": "meta_api_keys",
+        # New tables (8 added for parity with Google Sheets)
+        "step_logs": "wf_step_logs",
+        "langsmith_traces": "lg_langsmith_traces",
+        "llm_calls_detailed": "wf_llm_calls_detailed",
+        "run_summaries": "wf_run_summaries",
+        "unified_metrics": "eval_unified_metrics",
+        "model_consistency": "eval_model_consistency",
+        "deepeval_metrics": "eval_deepeval_metrics",
+        "openevals_metrics": "eval_openevals_metrics",
     }
 
     # Reverse mapping (new_name -> old_name) for display
@@ -658,11 +956,16 @@ class PostgresStorage:
         Initialize PostgreSQL storage.
 
         Args:
-            database_url: PostgreSQL connection URL. If not provided, uses DATABASE_URL env var.
+            database_url: PostgreSQL connection URL. If not provided, uses HEROKU_POSTGRES_URL or DATABASE_URL env var.
             min_conn: Minimum connections in pool
             max_conn: Maximum connections in pool
         """
-        self.database_url = database_url or os.getenv("DATABASE_URL")
+        # Try HEROKU_POSTGRES_URL first, then DATABASE_URL (skip if SQLite)
+        self.database_url = database_url or os.getenv("HEROKU_POSTGRES_URL")
+        if not self.database_url:
+            db_url = os.getenv("DATABASE_URL", "")
+            if "postgresql" in db_url.lower():
+                self.database_url = db_url
         self.min_conn = min_conn
         self.max_conn = max_conn
         self._pool: Optional[pool.ThreadedConnectionPool] = None

@@ -252,8 +252,20 @@ class RunLogger:
         execution_time_ms: float,
         success: bool,
         selection_reason: str = "",
+        # Hierarchy fields for joinability
+        company_name: str = "",
+        node: str = "",
+        node_type: str = "tool",
+        agent_name: str = "",
+        master_agent: str = "supervisor",
+        step_number: int = 0,
+        # Additional hierarchy fields
+        parent_node: str = "",
+        workflow_phase: str = "",
+        call_depth: int = 0,
+        parent_tool_id: str = "",
     ):
-        """Log a tool execution."""
+        """Log a tool execution with hierarchy tracking."""
         tool_doc = {
             "run_id": run_id,
             "tool_name": tool_name,
@@ -262,6 +274,9 @@ class RunLogger:
             "execution_time_ms": execution_time_ms,
             "success": success,
             "selection_reason": selection_reason,
+            "node": node or tool_name,
+            "agent_name": agent_name,
+            "step_number": step_number,
             "timestamp": datetime.utcnow(),
         }
 
@@ -273,6 +288,8 @@ class RunLogger:
                     "tool_name": tool_name,
                     "success": success,
                     "execution_time_ms": execution_time_ms,
+                    "node": node or tool_name,
+                    "agent_name": agent_name,
                 }}}
             )
         elif run_id in self._local_runs:
@@ -281,20 +298,32 @@ class RunLogger:
                 "tool_name": tool_name,
                 "success": success,
                 "execution_time_ms": execution_time_ms,
+                "node": node or tool_name,
+                "agent_name": agent_name,
             })
             self._save_local_run(run_id)
 
-        # Also log to PostgreSQL
+        # Also log to PostgreSQL with hierarchy fields
         if self.is_postgres_connected():
             try:
                 self._postgres_logger.log_tool_call(
                     run_id=run_id,
-                    company_name="",  # Get from run if available
+                    company_name=company_name,
                     tool_name=tool_name,
                     tool_input=input_params,
                     tool_output=output_data,
                     execution_time_ms=execution_time_ms,
                     status="success" if success else "error",
+                    # Hierarchy fields for joinability
+                    node=node or tool_name,
+                    node_type=node_type,
+                    agent_name=agent_name,
+                    master_agent=master_agent,
+                    step_number=step_number,
+                    parent_node=parent_node,
+                    workflow_phase=workflow_phase,
+                    call_depth=call_depth,
+                    parent_tool_id=parent_tool_id,
                 )
             except Exception as e:
                 logger.warning(f"Failed to log tool call to PostgreSQL: {e}")
@@ -518,8 +547,16 @@ class RunLogger:
         input_cost: float = 0.0,
         output_cost: float = 0.0,
         total_cost: float = 0.0,
+        # Hierarchy fields for joinability
+        company_name: str = "",
+        node: str = "",
+        node_type: str = "llm",
+        agent_name: str = "",
+        master_agent: str = "supervisor",
+        step_number: int = 0,
+        temperature: float = None,
     ):
-        """Log an LLM API call."""
+        """Log an LLM API call with hierarchy tracking."""
         llm_doc = {
             "run_id": run_id,
             "call_type": call_type,
@@ -533,6 +570,9 @@ class RunLogger:
             "input_cost": input_cost,
             "output_cost": output_cost,
             "total_cost": total_cost,
+            "node": node or call_type,
+            "agent_name": agent_name,
+            "step_number": step_number,
             "timestamp": datetime.utcnow(),
         }
 
@@ -544,12 +584,12 @@ class RunLogger:
             self._local_runs[run_id]["llm_calls"].append(llm_doc)
             self._save_local_run(run_id)
 
-        # Also log to PostgreSQL
+        # Also log to PostgreSQL with hierarchy fields
         if self.is_postgres_connected():
             try:
                 self._postgres_logger.log_llm_call(
                     run_id=run_id,
-                    company_name="",
+                    company_name=company_name,
                     call_type=call_type,
                     model=model,
                     prompt=prompt or "",
@@ -561,6 +601,12 @@ class RunLogger:
                     input_cost=input_cost,
                     output_cost=output_cost,
                     total_cost=total_cost,
+                    # Hierarchy fields for joinability
+                    node=node or call_type,
+                    node_type=node_type,
+                    agent_name=agent_name,
+                    step_number=step_number,
+                    temperature=temperature,
                 )
             except Exception as e:
                 logger.warning(f"Failed to log LLM call to PostgreSQL: {e}")

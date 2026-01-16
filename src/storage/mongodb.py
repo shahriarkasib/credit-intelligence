@@ -17,15 +17,75 @@ except ImportError:
     logger.warning("pymongo not installed. Run: pip install pymongo")
 
 
+# Collection schemas - matches Google Sheets columns exactly
+# MongoDB is schema-less but this documents expected fields for consistency
+COLLECTION_SCHEMAS = {
+    "runs": [
+        "run_id", "company_name", "node", "agent_name", "master_agent", "model", "temperature",
+        "status", "started_at", "completed_at", "risk_level", "credit_score", "confidence",
+        "total_time_ms", "total_steps", "total_llm_calls", "tools_used", "evaluation_score",
+        "workflow_correct", "output_correct", "timestamp"
+    ],
+    "langgraph_events": [
+        "run_id", "company_name", "node", "node_type", "agent_name", "master_agent", "step_number",
+        "event_type", "event_name", "model", "temperature", "tokens", "input_preview", "output_preview",
+        "duration_ms", "status", "error", "timestamp"
+    ],
+    "llm_calls": [
+        "run_id", "company_name", "node", "node_type", "agent_name", "master_agent", "step_number",
+        "call_type", "model", "temperature", "prompt", "response", "reasoning", "context", "current_task",
+        "prompt_tokens", "completion_tokens", "total_tokens", "input_cost", "output_cost", "total_cost",
+        "execution_time_ms", "status", "error", "timestamp"
+    ],
+    "tool_calls": [
+        "run_id", "company_name", "node", "node_type", "agent_name", "master_agent", "step_number",
+        "tool_name", "tool_input", "tool_output", "parent_node", "workflow_phase", "call_depth",
+        "parent_tool_id", "execution_time_ms", "status", "error", "timestamp"
+    ],
+    "assessments": [
+        "run_id", "company_name", "node", "node_type", "agent_name", "master_agent", "step_number",
+        "model", "temperature", "prompt", "risk_level", "credit_score", "confidence", "reasoning",
+        "recommendations", "duration_ms", "status", "timestamp"
+    ],
+    "evaluations": [
+        "run_id", "company_name", "node", "node_type", "agent_name", "master_agent", "step_number",
+        "model", "tool_selection_score", "tool_reasoning", "data_quality_score", "data_reasoning",
+        "synthesis_score", "synthesis_reasoning", "overall_score", "eval_status", "duration_ms",
+        "status", "timestamp"
+    ],
+    "coalition": [
+        "run_id", "company_name", "node", "node_type", "agent_name", "master_agent", "step_number",
+        "is_correct", "correctness_score", "confidence", "correctness_category",
+        "efficiency_score", "quality_score", "tool_score", "consistency_score",
+        "agreement_score", "num_evaluators", "votes_json", "evaluation_time_ms", "status", "timestamp"
+    ],
+    "agent_metrics": [
+        "run_id", "company_name", "node", "node_type", "agent_name", "master_agent", "step_number",
+        "model", "intent_correctness", "plan_quality", "tool_choice_correctness", "tool_completeness",
+        "trajectory_match", "final_answer_quality", "step_count", "tool_calls", "latency_ms",
+        "overall_score", "eval_status", "intent_details", "plan_details", "tool_details",
+        "trajectory_details", "answer_details", "status", "timestamp"
+    ],
+}
+
+
 class CreditIntelligenceDB:
     """
     MongoDB storage for credit intelligence data.
 
-    Collections:
-    - companies: Company profiles and metadata
-    - assessments: Credit assessments (LLM decisions)
+    Collections (matching Google Sheets):
+    - runs: Run summaries
+    - langgraph_events: LangGraph framework events
+    - llm_calls: LLM API call logs
+    - tool_calls: Tool execution logs
+    - assessments: Credit assessments
+    - evaluations: Evaluation results
+    - coalition: Coalition evaluation results
+    - agent_metrics: Agent efficiency metrics
+    - companies: Company profiles
     - raw_data: Raw API responses for auditing
-    - evaluations: Consistency evaluation results
+    - active_runs: Active/running analyses
+    - api_keys: API key storage
     """
 
     def __init__(self, connection_string: Optional[str] = None):
@@ -240,6 +300,152 @@ class CreditIntelligenceDB:
             return []
         return list(self.db.evaluations.find().sort("evaluated_at", -1).limit(limit))
 
+    # ==================== COALITION OPERATIONS ====================
+
+    def save_coalition(
+        self,
+        run_id: str,
+        company_name: str,
+        node: str = "",
+        node_type: str = "",
+        agent_name: str = "",
+        master_agent: str = "",
+        step_number: int = 0,
+        is_correct: bool = None,
+        correctness_score: float = 0.0,
+        confidence: float = 0.0,
+        correctness_category: str = "",
+        efficiency_score: float = 0.0,
+        quality_score: float = 0.0,
+        tool_score: float = 0.0,
+        consistency_score: float = 0.0,
+        agreement_score: float = 0.0,
+        num_evaluators: int = 0,
+        votes_json: List[Dict] = None,
+        evaluation_time_ms: float = 0.0,
+        status: str = "",
+    ) -> Optional[str]:
+        """
+        Save coalition evaluation - matches Google Sheets 'coalition' schema.
+
+        Returns:
+            Inserted document ID
+        """
+        if not self.is_connected():
+            return None
+
+        doc = {
+            "run_id": run_id,
+            "company_name": company_name,
+            "node": node,
+            "node_type": node_type,
+            "agent_name": agent_name,
+            "master_agent": master_agent,
+            "step_number": step_number,
+            "is_correct": is_correct,
+            "correctness_score": correctness_score,
+            "confidence": confidence,
+            "correctness_category": correctness_category,
+            "efficiency_score": efficiency_score,
+            "quality_score": quality_score,
+            "tool_score": tool_score,
+            "consistency_score": consistency_score,
+            "agreement_score": agreement_score,
+            "num_evaluators": num_evaluators,
+            "votes_json": votes_json or [],
+            "evaluation_time_ms": evaluation_time_ms,
+            "status": status,
+            "timestamp": datetime.utcnow(),
+        }
+
+        result = self.db.coalition.insert_one(doc)
+        logger.info(f"Saved coalition for run: {run_id}")
+        return str(result.inserted_id)
+
+    def get_coalition(self, run_id: str) -> Optional[Dict[str, Any]]:
+        """Get coalition evaluation by run_id."""
+        if not self.is_connected():
+            return None
+        return self.db.coalition.find_one({"run_id": run_id})
+
+    # ==================== AGENT METRICS OPERATIONS ====================
+
+    def save_agent_metrics(
+        self,
+        run_id: str,
+        company_name: str,
+        node: str = "",
+        node_type: str = "",
+        agent_name: str = "",
+        master_agent: str = "",
+        step_number: int = 0,
+        model: str = "",
+        intent_correctness: float = 0.0,
+        plan_quality: float = 0.0,
+        tool_choice_correctness: float = 0.0,
+        tool_completeness: float = 0.0,
+        trajectory_match: float = 0.0,
+        final_answer_quality: float = 0.0,
+        step_count: int = 0,
+        tool_calls: int = 0,
+        latency_ms: float = 0.0,
+        overall_score: float = 0.0,
+        eval_status: str = "",
+        intent_details: Dict = None,
+        plan_details: Dict = None,
+        tool_details: Dict = None,
+        trajectory_details: Dict = None,
+        answer_details: Dict = None,
+        status: str = "",
+    ) -> Optional[str]:
+        """
+        Save agent metrics - matches Google Sheets 'agent_metrics' schema.
+
+        Returns:
+            Inserted document ID
+        """
+        if not self.is_connected():
+            return None
+
+        doc = {
+            "run_id": run_id,
+            "company_name": company_name,
+            "node": node,
+            "node_type": node_type,
+            "agent_name": agent_name,
+            "master_agent": master_agent,
+            "step_number": step_number,
+            "model": model,
+            "intent_correctness": intent_correctness,
+            "plan_quality": plan_quality,
+            "tool_choice_correctness": tool_choice_correctness,
+            "tool_completeness": tool_completeness,
+            "trajectory_match": trajectory_match,
+            "final_answer_quality": final_answer_quality,
+            "step_count": step_count,
+            "tool_calls": tool_calls,
+            "latency_ms": latency_ms,
+            "overall_score": overall_score,
+            "eval_status": eval_status,
+            "intent_details": intent_details or {},
+            "plan_details": plan_details or {},
+            "tool_details": tool_details or {},
+            "trajectory_details": trajectory_details or {},
+            "answer_details": answer_details or {},
+            "status": status,
+            "timestamp": datetime.utcnow(),
+        }
+
+        result = self.db.agent_metrics.insert_one(doc)
+        logger.info(f"Saved agent metrics for run: {run_id}")
+        return str(result.inserted_id)
+
+    def get_agent_metrics(self, run_id: str) -> Optional[Dict[str, Any]]:
+        """Get agent metrics by run_id."""
+        if not self.is_connected():
+            return None
+        return self.db.agent_metrics.find_one({"run_id": run_id})
+
     # ==================== LLM CALL OPERATIONS ====================
 
     def save_llm_call(self, llm_call: Dict[str, Any]) -> Optional[str]:
@@ -441,40 +647,27 @@ class CreditIntelligenceDB:
         self,
         run_id: str,
         company_name: str,
+        node: str = "",
+        agent_name: str = "",
+        master_agent: str = "",
+        model: str = "",
+        temperature: float = 0.0,
         status: str = "completed",
-        # Final Assessment
+        started_at: str = "",
+        completed_at: str = "",
         risk_level: str = "",
         credit_score: int = 0,
         confidence: float = 0.0,
-        reasoning: str = "",
-        recommendations: List[str] = None,
-        # Evaluation Metrics
-        eval_metrics: Dict[str, Any] = None,
-        tool_selection_score: float = 0.0,
-        data_quality_score: float = 0.0,
-        synthesis_score: float = 0.0,
-        overall_score: float = 0.0,
-        # Final Decision
-        final_decision: str = "",  # Good/Not Good
-        decision_reasoning: str = "",
-        # Execution Details
-        errors: List[str] = None,
-        warnings: List[str] = None,
+        total_time_ms: float = 0.0,
+        total_steps: int = 0,
+        total_llm_calls: int = 0,
         tools_used: List[str] = None,
-        agents_used: List[str] = None,
-        # Timing
-        started_at: str = "",
-        completed_at: str = "",
-        duration_ms: float = 0.0,
-        # Costs
-        total_tokens: int = 0,
-        total_cost: float = 0.0,
-        llm_calls_count: int = 0,
+        evaluation_score: float = 0.0,
+        workflow_correct: bool = None,
+        output_correct: bool = None,
     ) -> Optional[str]:
         """
-        Save a detailed run summary with all fields.
-
-        This matches Task 17 requirements for summary run logs.
+        Save a detailed run summary - matches Google Sheets 'runs' schema.
 
         Returns:
             Inserted document ID
@@ -482,35 +675,24 @@ class CreditIntelligenceDB:
         return self.save_run_summary({
             "run_id": run_id,
             "company_name": company_name,
+            "node": node,
+            "agent_name": agent_name,
+            "master_agent": master_agent,
+            "model": model,
+            "temperature": temperature,
             "status": status,
-            # Assessment
+            "started_at": started_at,
+            "completed_at": completed_at,
             "risk_level": risk_level,
             "credit_score": credit_score,
             "confidence": confidence,
-            "reasoning": reasoning,
-            "recommendations": recommendations or [],
-            # Eval metrics
-            "eval_metrics": eval_metrics or {},
-            "tool_selection_score": tool_selection_score,
-            "data_quality_score": data_quality_score,
-            "synthesis_score": synthesis_score,
-            "overall_score": overall_score,
-            # Decision
-            "final_decision": final_decision,
-            "decision_reasoning": decision_reasoning,
-            # Execution
-            "errors": errors or [],
-            "warnings": warnings or [],
+            "total_time_ms": total_time_ms,
+            "total_steps": total_steps,
+            "total_llm_calls": total_llm_calls,
             "tools_used": tools_used or [],
-            "agents_used": agents_used or [],
-            # Timing
-            "started_at": started_at,
-            "completed_at": completed_at,
-            "duration_ms": duration_ms,
-            # Costs
-            "total_tokens": total_tokens,
-            "total_cost": total_cost,
-            "llm_calls_count": llm_calls_count,
+            "evaluation_score": evaluation_score,
+            "workflow_correct": workflow_correct,
+            "output_correct": output_correct,
         })
 
     def get_run_summary(self, run_id: str) -> Optional[Dict[str, Any]]:

@@ -381,13 +381,21 @@ class SheetsLogger:
         return self._sheets_cache.get(name)
 
     def _safe_str(self, value: Any, max_length: int = 50000) -> str:
-        """Convert value to safe string for sheets (max 50k chars per cell)."""
+        """Convert value to safe string for sheets (max 50k chars per cell).
+
+        Note: Newlines are replaced with ' | ' to prevent weird row spacing in Google Sheets.
+        """
         if value is None:
             return ""
         if isinstance(value, (dict, list)):
-            s = json.dumps(value, default=str, indent=2)  # Pretty print for readability
+            # Compact JSON (no indent) to prevent multi-line cells
+            s = json.dumps(value, default=str, separators=(',', ':'))
         else:
             s = str(value)
+
+        # Replace newlines with ' | ' to prevent cell expansion in Google Sheets
+        s = s.replace('\n', ' | ').replace('\r', '')
+
         return s[:max_length] if len(s) > max_length else s
 
     def _get_eval_status(self, score: float) -> str:
@@ -1739,21 +1747,21 @@ class SheetsLogger:
                 "timestamp", "generated_by"
             ],
             "tool_calls": [
-                "run_id", "company_name", "node", "node_type", "agent_name", "step_number",
+                "run_id", "company_name", "node", "node_type", "agent_name", "master_agent", "step_number",
                 "tool_name", "tool_input", "tool_output",
                 "parent_node", "workflow_phase", "call_depth", "parent_tool_id",
                 "execution_time_ms", "status", "error",
                 "timestamp", "generated_by"
             ],
             "assessments": [
-                "run_id", "company_name", "node", "node_type", "agent_name", "step_number",
+                "run_id", "company_name", "node", "node_type", "agent_name", "master_agent", "step_number",
                 "model", "temperature", "prompt",
                 "risk_level", "credit_score", "confidence", "reasoning", "recommendations",
                 "duration_ms", "status",
                 "timestamp", "generated_by"
             ],
             "evaluations": [
-                "run_id", "company_name", "node", "node_type", "agent_name", "step_number", "model",
+                "run_id", "company_name", "node", "node_type", "agent_name", "master_agent", "step_number", "model",
                 "tool_selection_score", "tool_reasoning",
                 "data_quality_score", "data_reasoning",
                 "synthesis_score", "synthesis_reasoning", "overall_score",
@@ -1762,14 +1770,14 @@ class SheetsLogger:
                 "timestamp", "generated_by"
             ],
             "tool_selections": [
-                "run_id", "company_name", "node", "node_type", "agent_name", "step_number", "model",
+                "run_id", "company_name", "node", "node_type", "agent_name", "master_agent", "step_number", "model",
                 "selected_tools", "expected_tools", "correct_tools", "missing_tools", "extra_tools",
                 "precision", "recall", "f1_score", "reasoning",
                 "duration_ms", "status",
                 "timestamp", "generated_by"
             ],
             "llm_calls": [
-                "run_id", "company_name", "node", "node_type", "agent_name", "step_number",
+                "run_id", "company_name", "node", "node_type", "agent_name", "master_agent", "step_number",
                 "call_type", "model", "temperature",
                 "prompt", "response", "reasoning",
                 "context", "current_task",
@@ -1779,7 +1787,7 @@ class SheetsLogger:
                 "timestamp", "generated_by"
             ],
             "consistency_scores": [
-                "run_id", "company_name", "node", "node_type", "agent_name", "step_number",
+                "run_id", "company_name", "node", "node_type", "agent_name", "master_agent", "step_number",
                 "model_name", "evaluation_type", "num_runs",
                 "risk_level_consistency", "score_consistency", "score_std",
                 "overall_consistency", "eval_status",
@@ -1788,7 +1796,7 @@ class SheetsLogger:
                 "timestamp", "generated_by"
             ],
             "data_sources": [
-                "run_id", "company_name", "node", "node_type", "agent_name", "step_number",
+                "run_id", "company_name", "node", "node_type", "agent_name", "master_agent", "step_number",
                 "source_name", "records_found", "data_summary",
                 "execution_time_ms", "status", "error",
                 "timestamp", "generated_by"
@@ -1817,7 +1825,7 @@ class SheetsLogger:
                 "timestamp", "generated_by"
             ],
             "cross_model_eval": [
-                "run_id", "company_name", "node", "node_type", "agent_name", "step_number",
+                "run_id", "company_name", "node", "node_type", "agent_name", "master_agent", "step_number",
                 "models_compared", "num_models",
                 "risk_level_agreement", "credit_score_mean", "credit_score_std", "credit_score_range",
                 "confidence_agreement", "best_model", "best_model_reasoning",
@@ -1827,7 +1835,7 @@ class SheetsLogger:
                 "duration_ms", "status", "timestamp", "generated_by"
             ],
             "llm_judge_results": [
-                "run_id", "company_name", "node", "node_type", "agent_name", "step_number",
+                "run_id", "company_name", "node", "node_type", "agent_name", "master_agent", "step_number",
                 "model_used", "temperature",
                 "accuracy_score", "completeness_score", "consistency_score",
                 "actionability_score", "data_utilization_score", "overall_score", "eval_status",
@@ -1838,7 +1846,7 @@ class SheetsLogger:
                 "timestamp", "generated_by"
             ],
             "agent_metrics": [
-                "run_id", "company_name", "node", "node_type", "agent_name", "step_number", "model",
+                "run_id", "company_name", "node", "node_type", "agent_name", "master_agent", "step_number", "model",
                 "intent_correctness", "plan_quality", "tool_choice_correctness",
                 "tool_completeness", "trajectory_match", "final_answer_quality",
                 "step_count", "tool_calls", "latency_ms",
@@ -1864,7 +1872,7 @@ class SheetsLogger:
                 "timestamp", "generated_by"
             ],
             "state_dumps": [
-                "run_id", "company_name", "node", "step_number",
+                "run_id", "company_name", "node", "master_agent", "step_number",
                 "company_info_json",
                 "plan_json", "plan_size_bytes", "plan_tasks_count",
                 "api_data_summary", "api_data_size_bytes", "api_sources_count",

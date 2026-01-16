@@ -141,7 +141,7 @@ class WorkflowLogger:
                 error=error or "",
             )
 
-        # Log to PostgreSQL (langgraph_events table)
+        # Log to PostgreSQL (langgraph_events table) with hierarchy fields
         if self.run_logger.is_postgres_connected():
             try:
                 self.run_logger.postgres.log_langgraph_event(
@@ -149,8 +149,10 @@ class WorkflowLogger:
                     company_name=company_name,
                     event_type=step_name,
                     node=effective_node,
+                    node_type="agent",
                     agent_name=agent_name,
                     master_agent=master_agent,
+                    step_number=step_number,
                     duration_ms=execution_time_ms,
                 )
             except Exception as e:
@@ -201,7 +203,7 @@ class WorkflowLogger:
             except Exception:
                 pass
 
-        # Log to MongoDB
+        # Log to MongoDB and PostgreSQL with hierarchy fields
         if self.run_logger.is_connected():
             self.run_logger.log_llm_call(
                 run_id=run_id,
@@ -215,6 +217,14 @@ class WorkflowLogger:
                 input_cost=input_cost,
                 output_cost=output_cost,
                 total_cost=total_cost,
+                # Hierarchy fields for joinability
+                company_name=company_name,
+                node=node or call_type,
+                node_type="llm",
+                agent_name=agent_name,
+                master_agent=master_agent,
+                step_number=step_number,
+                temperature=temperature,
             )
 
         # Log to Google Sheets with cost and task tracking
@@ -280,23 +290,27 @@ class WorkflowLogger:
                 temperature=temperature,
             )
 
-        # Log to PostgreSQL
+        # Log to PostgreSQL with hierarchy fields
         if self.run_logger.is_postgres_connected():
             try:
-                self.run_logger.postgres.log("prompts", {
-                    "run_id": run_id,
-                    "company_name": company_name,
-                    "prompt_id": prompt_id,
-                    "prompt_name": prompt_name,
-                    "category": category,
-                    "system_prompt": system_prompt[:10000] if system_prompt else "",
-                    "user_prompt": user_prompt[:10000] if user_prompt else "",
-                    "variables": variables or {},
-                    "node": node,
-                    "agent_name": agent_name,
-                    "master_agent": master_agent,
-                    "model": model,
-                })
+                self.run_logger.postgres.log_prompt(
+                    run_id=run_id,
+                    company_name=company_name,
+                    prompt_id=prompt_id,
+                    prompt_name=prompt_name,
+                    category=category,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    variables=variables,
+                    # Hierarchy fields
+                    node=node,
+                    node_type="llm",
+                    agent_name=agent_name,
+                    master_agent=master_agent,
+                    step_number=step_number,
+                    model=model,
+                    temperature=temperature,
+                )
             except Exception as e:
                 logger.warning(f"Failed to log prompt to PostgreSQL: {e}")
 
@@ -347,21 +361,25 @@ class WorkflowLogger:
                 error=error,
             )
 
-        # Log to PostgreSQL
+        # Log to PostgreSQL with hierarchy fields
         if self.run_logger.is_postgres_connected():
             try:
-                self.run_logger.postgres.log("data_sources", {
-                    "run_id": run_id,
-                    "company_name": company_name,
-                    "source_name": source_name,
-                    "status": "success" if success else "error",
-                    "records_found": records_found,
-                    "execution_time_ms": execution_time_ms,
-                    "error": error,
-                    "node": node,
-                    "agent_name": agent_name,
-                    "master_agent": master_agent,
-                })
+                self.run_logger.postgres.log_data_source(
+                    run_id=run_id,
+                    company_name=company_name,
+                    source_name=source_name,
+                    success=success,
+                    records_found=records_found,
+                    data_summary=str(data_summary)[:50000] if data_summary else "",
+                    execution_time_ms=execution_time_ms,
+                    error=error,
+                    # Hierarchy fields for joinability
+                    node=node,
+                    node_type="tool",
+                    agent_name=agent_name,
+                    master_agent=master_agent,
+                    step_number=step_number,
+                )
             except Exception as e:
                 logger.warning(f"Failed to log data source to PostgreSQL: {e}")
 
@@ -414,7 +432,7 @@ class WorkflowLogger:
                 parent_tool_id=parent_tool_id,
             )
 
-        # Log to PostgreSQL via run_logger
+        # Log to PostgreSQL via run_logger with hierarchy fields
         self.run_logger.log_tool_call(
             run_id=run_id,
             tool_name=tool_name,
@@ -423,6 +441,17 @@ class WorkflowLogger:
             execution_time_ms=execution_time_ms,
             success=success,
             selection_reason=f"node={effective_node}, agent={agent_name}",
+            # Hierarchy fields for joinability with lg_events and runs
+            company_name=company_name,
+            node=effective_node,
+            node_type="tool",
+            agent_name=agent_name,
+            master_agent=master_agent,
+            step_number=step_number,
+            parent_node=parent_node or effective_node,
+            workflow_phase=workflow_phase,
+            call_depth=call_depth,
+            parent_tool_id=parent_tool_id,
         )
 
         logger.debug(f"[{run_id[:8]}] Tool {tool_name}: {execution_time_ms:.0f}ms - {'OK' if success else 'FAILED'}")
@@ -471,7 +500,7 @@ class WorkflowLogger:
                 recommendations=recommendations,
             )
 
-        # Log to PostgreSQL
+        # Log to PostgreSQL with hierarchy fields
         if self.run_logger.is_postgres_connected():
             try:
                 self.run_logger.postgres.log_assessment(
@@ -481,6 +510,12 @@ class WorkflowLogger:
                     credit_score=credit_score,
                     confidence=confidence,
                     reasoning=reasoning,
+                    # Hierarchy fields
+                    node=node,
+                    node_type="agent",
+                    agent_name=agent_name,
+                    master_agent=master_agent,
+                    step_number=step_number,
                 )
             except Exception as e:
                 logger.warning(f"Failed to log assessment to PostgreSQL: {e}")
@@ -561,7 +596,7 @@ class WorkflowLogger:
                 synthesis_reasoning=synthesis_reasoning,
             )
 
-        # Log to PostgreSQL
+        # Log to PostgreSQL with hierarchy fields
         if self.run_logger.is_postgres_connected():
             try:
                 self.run_logger.postgres.log_evaluation(
@@ -571,6 +606,12 @@ class WorkflowLogger:
                     tool_selection_score=tool_selection_score,
                     data_quality_score=data_quality_score,
                     synthesis_score=synthesis_score,
+                    # Hierarchy fields
+                    node=node,
+                    node_type=node_type,
+                    agent_name=agent_name,
+                    master_agent=master_agent,
+                    step_number=step_number,
                 )
             except Exception as e:
                 logger.warning(f"Failed to log evaluation to PostgreSQL: {e}")
@@ -643,7 +684,7 @@ class WorkflowLogger:
                 reasoning=reasoning,
             )
 
-        # Log to PostgreSQL
+        # Log to PostgreSQL with hierarchy fields
         if self.run_logger.is_postgres_connected():
             try:
                 self.run_logger.postgres.log_tool_selection(
@@ -654,6 +695,12 @@ class WorkflowLogger:
                     precision=precision,
                     recall=recall,
                     f1_score=f1_score,
+                    # Hierarchy fields
+                    node=node,
+                    node_type="agent",
+                    agent_name=agent_name,
+                    master_agent=master_agent,
+                    step_number=step_number,
                 )
             except Exception as e:
                 logger.warning(f"Failed to log tool selection to PostgreSQL: {e}")
@@ -711,21 +758,27 @@ class WorkflowLogger:
                 credit_scores=credit_scores,
             )
 
-        # Log to PostgreSQL
+        # Log to PostgreSQL with hierarchy fields
         if self.run_logger.is_postgres_connected():
             try:
-                self.run_logger.postgres.log("consistency_scores", {
-                    "run_id": run_id,
-                    "company_name": company_name,
-                    "model_name": model_name,
-                    "evaluation_type": evaluation_type,
-                    "num_runs": num_runs,
-                    "risk_level_consistency": consistency_data.get("risk_level_consistency", 0),
-                    "score_consistency": consistency_data.get("score_consistency", 0),
-                    "overall_consistency": consistency_data.get("overall_consistency", 0),
-                    "risk_levels": risk_levels,
-                    "credit_scores": credit_scores,
-                })
+                self.run_logger.postgres.log_consistency_score(
+                    run_id=run_id,
+                    company_name=company_name,
+                    model_name=model_name,
+                    evaluation_type=evaluation_type,
+                    num_runs=num_runs,
+                    risk_level_consistency=consistency_data.get("risk_level_consistency", 0),
+                    score_consistency=consistency_data.get("score_consistency", 0),
+                    overall_consistency=consistency_data.get("overall_consistency", 0),
+                    risk_levels=risk_levels,
+                    credit_scores=credit_scores,
+                    # Hierarchy fields
+                    node=node,
+                    node_type="agent",
+                    agent_name=agent_name,
+                    master_agent=master_agent,
+                    step_number=step_number,
+                )
             except Exception as e:
                 logger.warning(f"Failed to log consistency to PostgreSQL: {e}")
 
@@ -1340,22 +1393,28 @@ class WorkflowLogger:
                 evaluation_cost=evaluation_cost,
             )
 
-        # Log to PostgreSQL
+        # Log to PostgreSQL with hierarchy fields
         if self.run_logger.is_postgres_connected():
             try:
-                self.run_logger.postgres.log("llm_judge_results", {
-                    "run_id": run_id,
-                    "company_name": company_name,
-                    "model_used": model_used,
-                    "accuracy_score": accuracy_score,
-                    "completeness_score": completeness_score,
-                    "consistency_score": consistency_score,
-                    "actionability_score": actionability_score,
-                    "data_utilization_score": data_utilization_score,
-                    "overall_score": overall_score,
-                    "overall_reasoning": overall_reasoning,
-                    "suggestions": suggestions or [],
-                })
+                self.run_logger.postgres.log_llm_judge_result(
+                    run_id=run_id,
+                    company_name=company_name,
+                    model_used=model_used,
+                    accuracy_score=accuracy_score,
+                    completeness_score=completeness_score,
+                    consistency_score=consistency_score,
+                    actionability_score=actionability_score,
+                    data_utilization_score=data_utilization_score,
+                    overall_score=overall_score,
+                    overall_reasoning=overall_reasoning,
+                    suggestions=suggestions or [],
+                    # Hierarchy fields
+                    node=node,
+                    node_type="llm",
+                    agent_name=agent_name,
+                    master_agent=master_agent,
+                    step_number=step_number,
+                )
             except Exception as e:
                 logger.warning(f"Failed to log LLM judge result to PostgreSQL: {e}")
 

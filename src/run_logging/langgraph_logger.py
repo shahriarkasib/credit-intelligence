@@ -382,7 +382,7 @@ class LangGraphEventLogger:
             # This includes task_plan, assessment, api_data, search_data, etc.
             import json
             try:
-                event.output_data = self._truncate(json.dumps(output, default=str, indent=2))
+                event.output_data = self._truncate(json.dumps(output, default=str, separators=(',', ':')))
             except Exception:
                 event.output_data = self._truncate(str(output))
         else:
@@ -495,7 +495,12 @@ class LangGraphEventLogger:
         event.input_data = self._truncate(json.dumps(data, default=str))
 
     def _truncate(self, text: str, max_length: int = 10000) -> str:
-        """Truncate text to max length (default 10000 to capture full plans)."""
+        """Truncate text to max length and sanitize for Google Sheets.
+
+        Replaces newlines with ' | ' to prevent weird row spacing in Google Sheets.
+        """
+        # Replace newlines to prevent cell expansion in Google Sheets
+        text = text.replace('\n', ' | ').replace('\r', '')
         if len(text) > max_length:
             return text[:max_length] + "..."
         return text

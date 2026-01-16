@@ -2931,6 +2931,83 @@ async def get_sheets_status():
 
 
 # =============================================================================
+# INTERACTIVE ERD
+# =============================================================================
+
+# Serve the interactive ERD diagram
+BACKEND_STATIC_DIR = Path(__file__).parent.parent / "static"
+
+@app.get("/erd")
+async def serve_erd():
+    """Serve the interactive PostgreSQL ERD diagram."""
+    erd_path = BACKEND_STATIC_DIR / "erd.html"
+    if erd_path.exists():
+        return FileResponse(str(erd_path), media_type="text/html")
+    raise HTTPException(status_code=404, detail="ERD not found")
+
+@app.get("/api/erd/tables")
+async def get_erd_tables():
+    """Get all table definitions for ERD."""
+    tables = [
+        {"name": "wf_runs", "prefix": "wf", "description": "Main workflow runs"},
+        {"name": "wf_llm_calls", "prefix": "wf", "description": "LLM call logs"},
+        {"name": "wf_tool_calls", "prefix": "wf", "description": "Tool execution logs"},
+        {"name": "wf_assessments", "prefix": "wf", "description": "Credit assessments"},
+        {"name": "wf_plans", "prefix": "wf", "description": "Task plans"},
+        {"name": "wf_data_sources", "prefix": "wf", "description": "Data source fetches"},
+        {"name": "wf_state_dumps", "prefix": "wf", "description": "State snapshots"},
+        {"name": "lg_events", "prefix": "lg", "description": "LangGraph events"},
+        {"name": "eval_results", "prefix": "eval", "description": "Evaluation results"},
+        {"name": "eval_tool_selection", "prefix": "eval", "description": "Tool selection metrics"},
+        {"name": "eval_consistency", "prefix": "eval", "description": "Consistency scores"},
+        {"name": "eval_coalition", "prefix": "eval", "description": "Coalition evaluations"},
+        {"name": "eval_agent_metrics", "prefix": "eval", "description": "Agent performance"},
+        {"name": "eval_llm_judge", "prefix": "eval", "description": "LLM judge results"},
+        {"name": "eval_cross_model", "prefix": "eval", "description": "Cross-model comparisons"},
+        {"name": "eval_log_tests", "prefix": "eval", "description": "Log verification tests"},
+        {"name": "meta_prompts", "prefix": "meta", "description": "Prompt templates"},
+        {"name": "meta_agents", "prefix": "meta", "description": "Agent definitions and purposes"},
+    ]
+    return {"tables": tables, "total": len(tables)}
+
+
+@app.get("/api/agents")
+async def get_agents():
+    """Get all agent definitions from meta_agents table."""
+    try:
+        if not POSTGRES_AVAILABLE:
+            raise HTTPException(status_code=503, detail="PostgreSQL not available")
+
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+
+        db_url = os.getenv("HEROKU_POSTGRES_URL") or os.getenv("DATABASE_URL")
+        if db_url and db_url.startswith("postgres://"):
+            db_url = db_url.replace("postgres://", "postgresql://", 1)
+
+        conn = psycopg2.connect(db_url)
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        cursor.execute("""
+            SELECT agent_name, node_name, master_agent, agent_type, purpose, created_at
+            FROM meta_agents
+            ORDER BY agent_type, agent_name
+        """)
+
+        agents = cursor.fetchall()
+        conn.close()
+
+        return {
+            "agents": [dict(agent) for agent in agents],
+            "total": len(agents)
+        }
+
+    except Exception as e:
+        logger.error(f"Error fetching agents: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
 # STATIC FRONTEND SERVING
 # =============================================================================
 
