@@ -19,7 +19,7 @@
             height: 100vh;
         }
         .header {
-            background: rgba(0,0,0,0.3);
+            background: rgba(0,0,0,0.5);
             padding: 15px 20px;
             display: flex;
             justify-content: space-between;
@@ -56,21 +56,23 @@
             position: fixed;
             bottom: 20px;
             left: 20px;
-            background: rgba(0,0,0,0.7);
+            background: rgba(0,0,0,0.85);
             padding: 15px;
             border-radius: 10px;
             z-index: 1000;
+            border: 1px solid rgba(255,255,255,0.2);
         }
         .legend h3 {
             margin-bottom: 10px;
             color: #00d4ff;
+            font-size: 14px;
         }
         .legend-item {
             display: flex;
             align-items: center;
             gap: 10px;
             margin: 5px 0;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
         }
         .legend-color {
             width: 20px;
@@ -86,24 +88,24 @@
             cursor: pointer;
         }
         .table-header {
-            fill: #00d4ff;
-            rx: 8;
-            ry: 8;
+            rx: 6;
+            ry: 6;
         }
         .table-body {
-            fill: rgba(255,255,255,0.05);
-            stroke: rgba(255,255,255,0.2);
-            rx: 0;
-            ry: 0;
+            fill: rgba(0,0,0,0.6);
+            stroke: rgba(255,255,255,0.3);
+            stroke-width: 1;
         }
         .table-title {
             font-weight: bold;
-            fill: #1a1a2e;
-            font-size: 14px;
+            fill: #fff;
+            font-size: 13px;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
         }
         .column-text {
-            fill: #fff;
-            font-size: 11px;
+            fill: #ddd;
+            font-size: 10px;
+            font-family: 'Monaco', 'Menlo', monospace;
         }
         .column-pk {
             fill: #f1c40f;
@@ -115,13 +117,13 @@
             fill: #1abc9c;
         }
         .relationship-line {
-            stroke: rgba(255,255,255,0.3);
-            stroke-width: 2;
+            stroke: rgba(255,255,255,0.2);
+            stroke-width: 1.5;
             fill: none;
         }
         .relationship-line:hover {
             stroke: #00d4ff;
-            stroke-width: 3;
+            stroke-width: 2.5;
         }
         .tooltip {
             position: fixed;
@@ -164,16 +166,12 @@
             font-size: 11px;
             padding: 2px 0;
         }
-        .prefix-wf { border-left: 4px solid #3498db; }
-        .prefix-lg { border-left: 4px solid #e67e22; }
-        .prefix-eval { border-left: 4px solid #2ecc71; }
-        .prefix-meta { border-left: 4px solid #9b59b6; }
         .zoom-info {
             position: fixed;
             bottom: 20px;
             right: 20px;
             background: rgba(0,0,0,0.7);
-            padding: 10px;
+            padding: 10px 15px;
             border-radius: 5px;
             font-size: 12px;
         }
@@ -181,7 +179,7 @@
 </head>
 <body>
     <div class="header">
-        <h1>Credit Intelligence - PostgreSQL ERD</h1>
+        <h1>Credit Intelligence - PostgreSQL ERD (18 Tables)</h1>
         <div class="controls">
             <button onclick="zoomIn()">Zoom In (+)</button>
             <button onclick="zoomOut()">Zoom Out (-)</button>
@@ -194,19 +192,19 @@
         <h3>Table Types</h3>
         <div class="legend-item">
             <div class="legend-color" style="background: #3498db;"></div>
-            <span>wf_* (Workflow Data)</span>
+            <span>wf_* (Workflow - 7 tables)</span>
         </div>
         <div class="legend-item">
             <div class="legend-color" style="background: #e67e22;"></div>
-            <span>lg_* (LangGraph Events)</span>
+            <span>lg_* (LangGraph - 1 table)</span>
         </div>
         <div class="legend-item">
             <div class="legend-color" style="background: #2ecc71;"></div>
-            <span>eval_* (Evaluations)</span>
+            <span>eval_* (Evaluation - 8 tables)</span>
         </div>
         <div class="legend-item">
             <div class="legend-color" style="background: #9b59b6;"></div>
-            <span>meta_* (Metadata)</span>
+            <span>meta_* (Metadata - 2 tables)</span>
         </div>
         <h3 style="margin-top: 15px;">Column Types</h3>
         <div class="legend-item">
@@ -228,15 +226,16 @@
     <div class="zoom-info" id="zoom-info">Zoom: 100%</div>
 
     <script>
-        // Table definitions with columns
+        // Complete table definitions with ALL columns from PostgreSQL schema
         const tables = [
+            // ==================== WORKFLOW TABLES (wf_*) ====================
             {
                 name: "wf_runs",
                 prefix: "wf",
-                x: 400, y: 100,
+                x: 50, y: 80,
                 columns: [
                     { name: "id", type: "BIGSERIAL", pk: true },
-                    { name: "run_id", type: "VARCHAR(64)", uk: true },
+                    { name: "run_id", type: "VARCHAR(64)", join: true },
                     { name: "company_name", type: "VARCHAR(255)", join: true },
                     { name: "node", type: "VARCHAR(100)", join: true },
                     { name: "agent_name", type: "VARCHAR(100)", join: true },
@@ -244,293 +243,515 @@
                     { name: "model", type: "VARCHAR(100)" },
                     { name: "temperature", type: "DECIMAL(3,2)" },
                     { name: "status", type: "VARCHAR(50)" },
+                    { name: "started_at", type: "TIMESTAMPTZ" },
+                    { name: "completed_at", type: "TIMESTAMPTZ" },
                     { name: "risk_level", type: "VARCHAR(50)" },
                     { name: "credit_score", type: "INTEGER" },
                     { name: "confidence", type: "DECIMAL(5,4)" },
+                    { name: "total_time_ms", type: "DECIMAL(15,3)" },
+                    { name: "total_steps", type: "INTEGER" },
+                    { name: "total_llm_calls", type: "INTEGER" },
+                    { name: "tools_used", type: "JSONB" },
                     { name: "evaluation_score", type: "DECIMAL(5,4)" },
+                    { name: "workflow_correct", type: "BOOLEAN" },
+                    { name: "output_correct", type: "BOOLEAN" },
                     { name: "timestamp", type: "TIMESTAMPTZ", pk: true }
                 ]
             },
             {
                 name: "wf_llm_calls",
                 prefix: "wf",
-                x: 50, y: 100,
+                x: 300, y: 80,
                 columns: [
                     { name: "id", type: "BIGSERIAL", pk: true },
-                    { name: "run_id", type: "VARCHAR(64)", fk: "wf_runs" },
+                    { name: "run_id", type: "VARCHAR(64)", fk: "wf_runs", join: true },
                     { name: "company_name", type: "VARCHAR(255)", join: true },
                     { name: "node", type: "VARCHAR(100)", join: true },
+                    { name: "node_type", type: "VARCHAR(50)" },
                     { name: "agent_name", type: "VARCHAR(100)", join: true },
                     { name: "master_agent", type: "VARCHAR(100)", join: true },
                     { name: "step_number", type: "INTEGER", join: true },
                     { name: "call_type", type: "VARCHAR(100)" },
                     { name: "model", type: "VARCHAR(100)" },
+                    { name: "temperature", type: "DECIMAL(3,2)" },
+                    { name: "prompt", type: "TEXT" },
+                    { name: "response", type: "TEXT" },
+                    { name: "reasoning", type: "TEXT" },
+                    { name: "context", type: "TEXT" },
+                    { name: "current_task", type: "TEXT" },
                     { name: "prompt_tokens", type: "INTEGER" },
                     { name: "completion_tokens", type: "INTEGER" },
+                    { name: "total_tokens", type: "INTEGER" },
+                    { name: "input_cost", type: "DECIMAL(12,8)" },
+                    { name: "output_cost", type: "DECIMAL(12,8)" },
                     { name: "total_cost", type: "DECIMAL(12,8)" },
+                    { name: "execution_time_ms", type: "DECIMAL(15,3)" },
+                    { name: "status", type: "VARCHAR(50)" },
+                    { name: "error", type: "TEXT" },
                     { name: "timestamp", type: "TIMESTAMPTZ", pk: true }
                 ]
             },
             {
                 name: "wf_tool_calls",
                 prefix: "wf",
-                x: 50, y: 400,
+                x: 550, y: 80,
                 columns: [
                     { name: "id", type: "BIGSERIAL", pk: true },
-                    { name: "run_id", type: "VARCHAR(64)", fk: "wf_runs" },
+                    { name: "run_id", type: "VARCHAR(64)", fk: "wf_runs", join: true },
                     { name: "company_name", type: "VARCHAR(255)", join: true },
                     { name: "node", type: "VARCHAR(100)", join: true },
+                    { name: "node_type", type: "VARCHAR(50)" },
                     { name: "agent_name", type: "VARCHAR(100)", join: true },
                     { name: "master_agent", type: "VARCHAR(100)", join: true },
                     { name: "step_number", type: "INTEGER", join: true },
                     { name: "tool_name", type: "VARCHAR(100)" },
                     { name: "tool_input", type: "JSONB" },
                     { name: "tool_output", type: "JSONB" },
+                    { name: "parent_node", type: "VARCHAR(100)" },
+                    { name: "workflow_phase", type: "VARCHAR(100)" },
+                    { name: "call_depth", type: "INTEGER" },
+                    { name: "parent_tool_id", type: "VARCHAR(100)" },
                     { name: "execution_time_ms", type: "DECIMAL(15,3)" },
+                    { name: "status", type: "VARCHAR(50)" },
+                    { name: "error", type: "TEXT" },
                     { name: "timestamp", type: "TIMESTAMPTZ", pk: true }
                 ]
             },
             {
                 name: "wf_assessments",
                 prefix: "wf",
-                x: 750, y: 100,
+                x: 800, y: 80,
                 columns: [
                     { name: "id", type: "BIGSERIAL", pk: true },
-                    { name: "run_id", type: "VARCHAR(64)", fk: "wf_runs" },
+                    { name: "run_id", type: "VARCHAR(64)", fk: "wf_runs", join: true },
                     { name: "company_name", type: "VARCHAR(255)", join: true },
                     { name: "node", type: "VARCHAR(100)", join: true },
+                    { name: "node_type", type: "VARCHAR(50)" },
                     { name: "agent_name", type: "VARCHAR(100)", join: true },
+                    { name: "master_agent", type: "VARCHAR(100)", join: true },
                     { name: "step_number", type: "INTEGER", join: true },
+                    { name: "model", type: "VARCHAR(100)" },
+                    { name: "temperature", type: "DECIMAL(3,2)" },
+                    { name: "prompt", type: "TEXT" },
                     { name: "risk_level", type: "VARCHAR(50)" },
                     { name: "credit_score", type: "INTEGER" },
                     { name: "confidence", type: "DECIMAL(5,4)" },
                     { name: "reasoning", type: "TEXT" },
+                    { name: "recommendations", type: "JSONB" },
+                    { name: "duration_ms", type: "DECIMAL(15,3)" },
+                    { name: "status", type: "VARCHAR(50)" },
                     { name: "timestamp", type: "TIMESTAMPTZ", pk: true }
                 ]
             },
             {
                 name: "wf_plans",
                 prefix: "wf",
-                x: 750, y: 350,
+                x: 50, y: 520,
                 columns: [
                     { name: "id", type: "BIGSERIAL", pk: true },
-                    { name: "run_id", type: "VARCHAR(64)", fk: "wf_runs" },
+                    { name: "run_id", type: "VARCHAR(64)", fk: "wf_runs", join: true },
                     { name: "company_name", type: "VARCHAR(255)", join: true },
                     { name: "node", type: "VARCHAR(100)", join: true },
+                    { name: "node_type", type: "VARCHAR(50)" },
                     { name: "agent_name", type: "VARCHAR(100)", join: true },
                     { name: "master_agent", type: "VARCHAR(100)", join: true },
                     { name: "num_tasks", type: "INTEGER" },
+                    { name: "plan_summary", type: "TEXT" },
                     { name: "full_plan", type: "JSONB" },
+                    { name: "task_1", type: "TEXT" },
+                    { name: "task_2", type: "TEXT" },
+                    { name: "task_3", type: "TEXT" },
+                    { name: "task_4", type: "TEXT" },
+                    { name: "task_5", type: "TEXT" },
+                    { name: "task_6", type: "TEXT" },
+                    { name: "task_7", type: "TEXT" },
+                    { name: "task_8", type: "TEXT" },
+                    { name: "task_9", type: "TEXT" },
+                    { name: "task_10", type: "TEXT" },
+                    { name: "created_at", type: "TIMESTAMPTZ" },
+                    { name: "status", type: "VARCHAR(50)" },
                     { name: "timestamp", type: "TIMESTAMPTZ", pk: true }
                 ]
             },
             {
                 name: "wf_data_sources",
                 prefix: "wf",
-                x: 750, y: 550,
+                x: 300, y: 520,
                 columns: [
                     { name: "id", type: "BIGSERIAL", pk: true },
-                    { name: "run_id", type: "VARCHAR(64)", fk: "wf_runs" },
+                    { name: "run_id", type: "VARCHAR(64)", fk: "wf_runs", join: true },
                     { name: "company_name", type: "VARCHAR(255)", join: true },
                     { name: "node", type: "VARCHAR(100)", join: true },
+                    { name: "node_type", type: "VARCHAR(50)" },
                     { name: "agent_name", type: "VARCHAR(100)", join: true },
+                    { name: "master_agent", type: "VARCHAR(100)", join: true },
                     { name: "step_number", type: "INTEGER", join: true },
                     { name: "source_name", type: "VARCHAR(100)" },
                     { name: "records_found", type: "INTEGER" },
+                    { name: "data_summary", type: "TEXT" },
+                    { name: "execution_time_ms", type: "DECIMAL(15,3)" },
+                    { name: "status", type: "VARCHAR(50)" },
+                    { name: "error", type: "TEXT" },
                     { name: "timestamp", type: "TIMESTAMPTZ", pk: true }
                 ]
             },
             {
                 name: "wf_state_dumps",
                 prefix: "wf",
-                x: 750, y: 720,
+                x: 550, y: 520,
                 columns: [
                     { name: "id", type: "BIGSERIAL", pk: true },
-                    { name: "run_id", type: "VARCHAR(64)", fk: "wf_runs" },
+                    { name: "run_id", type: "VARCHAR(64)", fk: "wf_runs", join: true },
                     { name: "company_name", type: "VARCHAR(255)", join: true },
                     { name: "node", type: "VARCHAR(100)", join: true },
+                    { name: "master_agent", type: "VARCHAR(100)", join: true },
                     { name: "step_number", type: "INTEGER", join: true },
                     { name: "company_info_json", type: "JSONB" },
                     { name: "plan_json", type: "JSONB" },
+                    { name: "plan_size_bytes", type: "INTEGER" },
+                    { name: "plan_tasks_count", type: "INTEGER" },
+                    { name: "api_data_summary", type: "TEXT" },
+                    { name: "api_data_size_bytes", type: "INTEGER" },
+                    { name: "api_sources_count", type: "INTEGER" },
+                    { name: "search_data_summary", type: "TEXT" },
+                    { name: "search_data_size_bytes", type: "INTEGER" },
+                    { name: "risk_level", type: "VARCHAR(50)" },
+                    { name: "credit_score", type: "INTEGER" },
+                    { name: "confidence", type: "DECIMAL(5,4)" },
                     { name: "assessment_json", type: "JSONB" },
+                    { name: "coalition_score", type: "DECIMAL(5,4)" },
+                    { name: "agent_metrics_score", type: "DECIMAL(5,4)" },
+                    { name: "evaluation_json", type: "JSONB" },
+                    { name: "errors_json", type: "JSONB" },
+                    { name: "error_count", type: "INTEGER" },
+                    { name: "total_state_size_bytes", type: "INTEGER" },
+                    { name: "duration_ms", type: "DECIMAL(15,3)" },
+                    { name: "status", type: "VARCHAR(50)" },
                     { name: "timestamp", type: "TIMESTAMPTZ", pk: true }
                 ]
             },
+
+            // ==================== LANGGRAPH TABLE (lg_*) ====================
             {
                 name: "lg_events",
                 prefix: "lg",
-                x: 400, y: 400,
+                x: 800, y: 520,
                 columns: [
                     { name: "id", type: "BIGSERIAL", pk: true },
-                    { name: "run_id", type: "VARCHAR(64)", fk: "wf_runs" },
+                    { name: "run_id", type: "VARCHAR(64)", fk: "wf_runs", join: true },
                     { name: "company_name", type: "VARCHAR(255)", join: true },
                     { name: "node", type: "VARCHAR(100)", join: true },
+                    { name: "node_type", type: "VARCHAR(50)" },
                     { name: "agent_name", type: "VARCHAR(100)", join: true },
                     { name: "master_agent", type: "VARCHAR(100)", join: true },
                     { name: "step_number", type: "INTEGER", join: true },
                     { name: "event_type", type: "VARCHAR(100)" },
                     { name: "event_name", type: "VARCHAR(255)" },
+                    { name: "model", type: "VARCHAR(100)" },
+                    { name: "temperature", type: "DECIMAL(3,2)" },
                     { name: "tokens", type: "INTEGER" },
+                    { name: "input_preview", type: "TEXT" },
+                    { name: "output_preview", type: "TEXT" },
                     { name: "duration_ms", type: "DECIMAL(15,3)" },
+                    { name: "status", type: "VARCHAR(50)" },
+                    { name: "error", type: "TEXT" },
                     { name: "timestamp", type: "TIMESTAMPTZ", pk: true }
                 ]
             },
+
+            // ==================== EVALUATION TABLES (eval_*) ====================
             {
                 name: "eval_results",
                 prefix: "eval",
-                x: 1100, y: 100,
+                x: 1050, y: 80,
                 columns: [
                     { name: "id", type: "BIGSERIAL", pk: true },
-                    { name: "run_id", type: "VARCHAR(64)", fk: "wf_runs" },
+                    { name: "run_id", type: "VARCHAR(64)", fk: "wf_runs", join: true },
                     { name: "company_name", type: "VARCHAR(255)", join: true },
                     { name: "node", type: "VARCHAR(100)", join: true },
+                    { name: "node_type", type: "VARCHAR(50)" },
                     { name: "agent_name", type: "VARCHAR(100)", join: true },
+                    { name: "master_agent", type: "VARCHAR(100)", join: true },
                     { name: "step_number", type: "INTEGER", join: true },
+                    { name: "model", type: "VARCHAR(100)" },
                     { name: "tool_selection_score", type: "DECIMAL(5,4)" },
+                    { name: "tool_reasoning", type: "TEXT" },
                     { name: "data_quality_score", type: "DECIMAL(5,4)" },
+                    { name: "data_reasoning", type: "TEXT" },
                     { name: "synthesis_score", type: "DECIMAL(5,4)" },
+                    { name: "synthesis_reasoning", type: "TEXT" },
                     { name: "overall_score", type: "DECIMAL(5,4)" },
+                    { name: "eval_status", type: "VARCHAR(50)" },
+                    { name: "duration_ms", type: "DECIMAL(15,3)" },
+                    { name: "status", type: "VARCHAR(50)" },
                     { name: "timestamp", type: "TIMESTAMPTZ", pk: true }
                 ]
             },
             {
                 name: "eval_tool_selection",
                 prefix: "eval",
-                x: 1100, y: 320,
+                x: 1300, y: 80,
                 columns: [
                     { name: "id", type: "BIGSERIAL", pk: true },
-                    { name: "run_id", type: "VARCHAR(64)", fk: "wf_runs" },
+                    { name: "run_id", type: "VARCHAR(64)", fk: "wf_runs", join: true },
                     { name: "company_name", type: "VARCHAR(255)", join: true },
+                    { name: "node", type: "VARCHAR(100)", join: true },
+                    { name: "node_type", type: "VARCHAR(50)" },
                     { name: "agent_name", type: "VARCHAR(100)", join: true },
+                    { name: "master_agent", type: "VARCHAR(100)", join: true },
                     { name: "step_number", type: "INTEGER", join: true },
+                    { name: "model", type: "VARCHAR(100)" },
                     { name: "selected_tools", type: "JSONB" },
+                    { name: "expected_tools", type: "JSONB" },
+                    { name: "correct_tools", type: "JSONB" },
+                    { name: "missing_tools", type: "JSONB" },
+                    { name: "extra_tools", type: "JSONB" },
                     { name: "precision", type: "DECIMAL(5,4)" },
                     { name: "recall", type: "DECIMAL(5,4)" },
                     { name: "f1_score", type: "DECIMAL(5,4)" },
+                    { name: "reasoning", type: "TEXT" },
+                    { name: "duration_ms", type: "DECIMAL(15,3)" },
+                    { name: "status", type: "VARCHAR(50)" },
                     { name: "timestamp", type: "TIMESTAMPTZ", pk: true }
                 ]
             },
             {
                 name: "eval_consistency",
                 prefix: "eval",
-                x: 1100, y: 520,
+                x: 1550, y: 80,
                 columns: [
                     { name: "id", type: "BIGSERIAL", pk: true },
-                    { name: "run_id", type: "VARCHAR(64)", fk: "wf_runs" },
+                    { name: "run_id", type: "VARCHAR(64)", fk: "wf_runs", join: true },
                     { name: "company_name", type: "VARCHAR(255)", join: true },
+                    { name: "node", type: "VARCHAR(100)", join: true },
+                    { name: "node_type", type: "VARCHAR(50)" },
                     { name: "agent_name", type: "VARCHAR(100)", join: true },
+                    { name: "master_agent", type: "VARCHAR(100)", join: true },
                     { name: "step_number", type: "INTEGER", join: true },
                     { name: "model_name", type: "VARCHAR(100)" },
+                    { name: "evaluation_type", type: "VARCHAR(100)" },
+                    { name: "num_runs", type: "INTEGER" },
                     { name: "risk_level_consistency", type: "DECIMAL(5,4)" },
                     { name: "score_consistency", type: "DECIMAL(5,4)" },
+                    { name: "score_std", type: "DECIMAL(10,4)" },
                     { name: "overall_consistency", type: "DECIMAL(5,4)" },
-                    { name: "timestamp", type: "TIMESTAMPTZ", pk: true }
-                ]
-            },
-            {
-                name: "eval_coalition",
-                prefix: "eval",
-                x: 1100, y: 720,
-                columns: [
-                    { name: "id", type: "BIGSERIAL", pk: true },
-                    { name: "run_id", type: "VARCHAR(64)", fk: "wf_runs" },
-                    { name: "company_name", type: "VARCHAR(255)", join: true },
-                    { name: "agent_name", type: "VARCHAR(100)", join: true },
-                    { name: "step_number", type: "INTEGER", join: true },
-                    { name: "is_correct", type: "BOOLEAN" },
-                    { name: "correctness_score", type: "DECIMAL(5,4)" },
-                    { name: "agreement_score", type: "DECIMAL(5,4)" },
-                    { name: "votes_json", type: "JSONB" },
-                    { name: "timestamp", type: "TIMESTAMPTZ", pk: true }
-                ]
-            },
-            {
-                name: "eval_agent_metrics",
-                prefix: "eval",
-                x: 1450, y: 100,
-                columns: [
-                    { name: "id", type: "BIGSERIAL", pk: true },
-                    { name: "run_id", type: "VARCHAR(64)", fk: "wf_runs" },
-                    { name: "company_name", type: "VARCHAR(255)", join: true },
-                    { name: "agent_name", type: "VARCHAR(100)", join: true },
-                    { name: "step_number", type: "INTEGER", join: true },
-                    { name: "intent_correctness", type: "DECIMAL(5,4)" },
-                    { name: "plan_quality", type: "DECIMAL(5,4)" },
-                    { name: "tool_calls", type: "INTEGER" },
-                    { name: "overall_score", type: "DECIMAL(5,4)" },
-                    { name: "timestamp", type: "TIMESTAMPTZ", pk: true }
-                ]
-            },
-            {
-                name: "eval_llm_judge",
-                prefix: "eval",
-                x: 1450, y: 320,
-                columns: [
-                    { name: "id", type: "BIGSERIAL", pk: true },
-                    { name: "run_id", type: "VARCHAR(64)", fk: "wf_runs" },
-                    { name: "company_name", type: "VARCHAR(255)", join: true },
-                    { name: "agent_name", type: "VARCHAR(100)", join: true },
-                    { name: "step_number", type: "INTEGER", join: true },
-                    { name: "model_used", type: "VARCHAR(100)" },
-                    { name: "accuracy_score", type: "DECIMAL(5,4)" },
-                    { name: "completeness_score", type: "DECIMAL(5,4)" },
-                    { name: "overall_score", type: "DECIMAL(5,4)" },
+                    { name: "eval_status", type: "VARCHAR(50)" },
+                    { name: "risk_levels", type: "JSONB" },
+                    { name: "credit_scores", type: "JSONB" },
+                    { name: "duration_ms", type: "DECIMAL(15,3)" },
+                    { name: "status", type: "VARCHAR(50)" },
                     { name: "timestamp", type: "TIMESTAMPTZ", pk: true }
                 ]
             },
             {
                 name: "eval_cross_model",
                 prefix: "eval",
-                x: 1450, y: 520,
+                x: 1050, y: 520,
                 columns: [
                     { name: "id", type: "BIGSERIAL", pk: true },
-                    { name: "run_id", type: "VARCHAR(64)", fk: "wf_runs" },
+                    { name: "run_id", type: "VARCHAR(64)", fk: "wf_runs", join: true },
                     { name: "company_name", type: "VARCHAR(255)", join: true },
+                    { name: "node", type: "VARCHAR(100)", join: true },
+                    { name: "node_type", type: "VARCHAR(50)" },
                     { name: "agent_name", type: "VARCHAR(100)", join: true },
+                    { name: "master_agent", type: "VARCHAR(100)", join: true },
                     { name: "step_number", type: "INTEGER", join: true },
                     { name: "models_compared", type: "JSONB" },
+                    { name: "num_models", type: "INTEGER" },
+                    { name: "risk_level_agreement", type: "DECIMAL(5,4)" },
+                    { name: "credit_score_mean", type: "DECIMAL(10,4)" },
+                    { name: "credit_score_std", type: "DECIMAL(10,4)" },
+                    { name: "credit_score_range", type: "DECIMAL(10,4)" },
+                    { name: "confidence_agreement", type: "DECIMAL(5,4)" },
+                    { name: "best_model", type: "VARCHAR(100)" },
+                    { name: "best_model_reasoning", type: "TEXT" },
                     { name: "cross_model_agreement", type: "DECIMAL(5,4)" },
+                    { name: "eval_status", type: "VARCHAR(50)" },
+                    { name: "llm_judge_analysis", type: "TEXT" },
+                    { name: "model_recommendations", type: "JSONB" },
+                    { name: "model_results", type: "JSONB" },
+                    { name: "pairwise_comparisons", type: "JSONB" },
+                    { name: "duration_ms", type: "DECIMAL(15,3)" },
+                    { name: "status", type: "VARCHAR(50)" },
+                    { name: "timestamp", type: "TIMESTAMPTZ", pk: true }
+                ]
+            },
+            {
+                name: "eval_llm_judge",
+                prefix: "eval",
+                x: 1300, y: 520,
+                columns: [
+                    { name: "id", type: "BIGSERIAL", pk: true },
+                    { name: "run_id", type: "VARCHAR(64)", fk: "wf_runs", join: true },
+                    { name: "company_name", type: "VARCHAR(255)", join: true },
+                    { name: "node", type: "VARCHAR(100)", join: true },
+                    { name: "node_type", type: "VARCHAR(50)" },
+                    { name: "agent_name", type: "VARCHAR(100)", join: true },
+                    { name: "master_agent", type: "VARCHAR(100)", join: true },
+                    { name: "step_number", type: "INTEGER", join: true },
+                    { name: "model_used", type: "VARCHAR(100)" },
+                    { name: "temperature", type: "DECIMAL(3,2)" },
+                    { name: "accuracy_score", type: "DECIMAL(5,4)" },
+                    { name: "completeness_score", type: "DECIMAL(5,4)" },
+                    { name: "consistency_score", type: "DECIMAL(5,4)" },
+                    { name: "actionability_score", type: "DECIMAL(5,4)" },
+                    { name: "data_utilization_score", type: "DECIMAL(5,4)" },
+                    { name: "overall_score", type: "DECIMAL(5,4)" },
+                    { name: "eval_status", type: "VARCHAR(50)" },
+                    { name: "accuracy_reasoning", type: "TEXT" },
+                    { name: "completeness_reasoning", type: "TEXT" },
+                    { name: "consistency_reasoning", type: "TEXT" },
+                    { name: "actionability_reasoning", type: "TEXT" },
+                    { name: "data_utilization_reasoning", type: "TEXT" },
+                    { name: "overall_reasoning", type: "TEXT" },
+                    { name: "benchmark_alignment", type: "DECIMAL(5,4)" },
+                    { name: "benchmark_comparison", type: "JSONB" },
+                    { name: "suggestions", type: "JSONB" },
+                    { name: "tokens_used", type: "INTEGER" },
+                    { name: "evaluation_cost", type: "DECIMAL(12,8)" },
+                    { name: "duration_ms", type: "DECIMAL(15,3)" },
+                    { name: "status", type: "VARCHAR(50)" },
+                    { name: "timestamp", type: "TIMESTAMPTZ", pk: true }
+                ]
+            },
+            {
+                name: "eval_agent_metrics",
+                prefix: "eval",
+                x: 1550, y: 520,
+                columns: [
+                    { name: "id", type: "BIGSERIAL", pk: true },
+                    { name: "run_id", type: "VARCHAR(64)", fk: "wf_runs", join: true },
+                    { name: "company_name", type: "VARCHAR(255)", join: true },
+                    { name: "node", type: "VARCHAR(100)", join: true },
+                    { name: "node_type", type: "VARCHAR(50)" },
+                    { name: "agent_name", type: "VARCHAR(100)", join: true },
+                    { name: "master_agent", type: "VARCHAR(100)", join: true },
+                    { name: "step_number", type: "INTEGER", join: true },
+                    { name: "model", type: "VARCHAR(100)" },
+                    { name: "intent_correctness", type: "DECIMAL(5,4)" },
+                    { name: "plan_quality", type: "DECIMAL(5,4)" },
+                    { name: "tool_choice_correctness", type: "DECIMAL(5,4)" },
+                    { name: "tool_completeness", type: "DECIMAL(5,4)" },
+                    { name: "trajectory_match", type: "DECIMAL(5,4)" },
+                    { name: "final_answer_quality", type: "DECIMAL(5,4)" },
+                    { name: "step_count", type: "INTEGER" },
+                    { name: "tool_calls", type: "INTEGER" },
+                    { name: "latency_ms", type: "DECIMAL(15,3)" },
+                    { name: "overall_score", type: "DECIMAL(5,4)" },
+                    { name: "eval_status", type: "VARCHAR(50)" },
+                    { name: "intent_details", type: "JSONB" },
+                    { name: "plan_details", type: "JSONB" },
+                    { name: "tool_details", type: "JSONB" },
+                    { name: "trajectory_details", type: "JSONB" },
+                    { name: "answer_details", type: "JSONB" },
+                    { name: "status", type: "VARCHAR(50)" },
+                    { name: "timestamp", type: "TIMESTAMPTZ", pk: true }
+                ]
+            },
+            {
+                name: "eval_coalition",
+                prefix: "eval",
+                x: 1050, y: 1050,
+                columns: [
+                    { name: "id", type: "BIGSERIAL", pk: true },
+                    { name: "run_id", type: "VARCHAR(64)", fk: "wf_runs", join: true },
+                    { name: "company_name", type: "VARCHAR(255)", join: true },
+                    { name: "node", type: "VARCHAR(100)", join: true },
+                    { name: "node_type", type: "VARCHAR(50)" },
+                    { name: "agent_name", type: "VARCHAR(100)", join: true },
+                    { name: "master_agent", type: "VARCHAR(100)", join: true },
+                    { name: "step_number", type: "INTEGER", join: true },
+                    { name: "is_correct", type: "BOOLEAN" },
+                    { name: "correctness_score", type: "DECIMAL(5,4)" },
+                    { name: "confidence", type: "DECIMAL(5,4)" },
+                    { name: "correctness_category", type: "VARCHAR(50)" },
+                    { name: "efficiency_score", type: "DECIMAL(5,4)" },
+                    { name: "quality_score", type: "DECIMAL(5,4)" },
+                    { name: "tool_score", type: "DECIMAL(5,4)" },
+                    { name: "consistency_score", type: "DECIMAL(5,4)" },
+                    { name: "agreement_score", type: "DECIMAL(5,4)" },
+                    { name: "num_evaluators", type: "INTEGER" },
+                    { name: "votes_json", type: "JSONB" },
+                    { name: "evaluation_time_ms", type: "DECIMAL(15,3)" },
+                    { name: "status", type: "VARCHAR(50)" },
                     { name: "timestamp", type: "TIMESTAMPTZ", pk: true }
                 ]
             },
             {
                 name: "eval_log_tests",
                 prefix: "eval",
-                x: 1450, y: 700,
+                x: 1300, y: 1050,
                 columns: [
                     { name: "id", type: "BIGSERIAL", pk: true },
-                    { name: "run_id", type: "VARCHAR(64)", fk: "wf_runs" },
+                    { name: "run_id", type: "VARCHAR(64)", fk: "wf_runs", join: true },
                     { name: "company_name", type: "VARCHAR(255)", join: true },
+                    { name: "runs", type: "INTEGER" },
+                    { name: "langgraph_events", type: "INTEGER" },
+                    { name: "llm_calls", type: "INTEGER" },
+                    { name: "tool_calls", type: "INTEGER" },
+                    { name: "assessments", type: "INTEGER" },
+                    { name: "evaluations", type: "INTEGER" },
+                    { name: "tool_selections", type: "INTEGER" },
+                    { name: "consistency_scores", type: "INTEGER" },
+                    { name: "data_sources", type: "INTEGER" },
+                    { name: "plans", type: "INTEGER" },
+                    { name: "prompts", type: "INTEGER" },
+                    { name: "cross_model_eval", type: "INTEGER" },
+                    { name: "llm_judge_results", type: "INTEGER" },
+                    { name: "agent_metrics", type: "INTEGER" },
+                    { name: "coalition", type: "INTEGER" },
                     { name: "total_sheets_logged", type: "INTEGER" },
                     { name: "verification_status", type: "VARCHAR(50)" },
                     { name: "timestamp", type: "TIMESTAMPTZ", pk: true }
                 ]
             },
+
+            // ==================== METADATA TABLES (meta_*) ====================
             {
                 name: "meta_prompts",
                 prefix: "meta",
-                x: 400, y: 650,
+                x: 50, y: 1050,
                 columns: [
                     { name: "id", type: "BIGSERIAL", pk: true },
-                    { name: "run_id", type: "VARCHAR(64)", fk: "wf_runs" },
+                    { name: "run_id", type: "VARCHAR(64)", fk: "wf_runs", join: true },
                     { name: "company_name", type: "VARCHAR(255)", join: true },
                     { name: "node", type: "VARCHAR(100)", join: true },
+                    { name: "node_type", type: "VARCHAR(50)" },
                     { name: "agent_name", type: "VARCHAR(100)", join: true },
+                    { name: "master_agent", type: "VARCHAR(100)", join: true },
                     { name: "step_number", type: "INTEGER", join: true },
                     { name: "prompt_id", type: "VARCHAR(100)" },
                     { name: "prompt_name", type: "VARCHAR(255)" },
                     { name: "category", type: "VARCHAR(100)" },
                     { name: "system_prompt", type: "TEXT" },
+                    { name: "user_prompt", type: "TEXT" },
                     { name: "variables_json", type: "JSONB" },
+                    { name: "model", type: "VARCHAR(100)" },
+                    { name: "temperature", type: "DECIMAL(3,2)" },
                     { name: "timestamp", type: "TIMESTAMPTZ", pk: true }
+                ]
+            },
+            {
+                name: "meta_agents",
+                prefix: "meta",
+                x: 300, y: 1050,
+                columns: [
+                    { name: "id", type: "SERIAL", pk: true },
+                    { name: "agent_name", type: "VARCHAR(100)" },
+                    { name: "node_name", type: "VARCHAR(100)" },
+                    { name: "master_agent", type: "VARCHAR(100)" },
+                    { name: "agent_type", type: "VARCHAR(50)" },
+                    { name: "purpose", type: "TEXT" },
+                    { name: "created_at", type: "TIMESTAMPTZ" },
+                    { name: "updated_at", type: "TIMESTAMPTZ" }
                 ]
             }
         ];
 
-        // Join columns (columns that can be used for cross-table joins)
+        // Common join columns
         const joinColumns = ["run_id", "company_name", "node", "agent_name", "master_agent", "step_number"];
 
-        // Color mapping
+        // Color mapping for table types
         const prefixColors = {
             "wf": "#3498db",
             "lg": "#e67e22",
@@ -545,58 +766,59 @@
 
         const svg = d3.select('#erd-container')
             .append('svg')
-            .attr('width', width)
-            .attr('height', height);
+            .attr('width', '100%')
+            .attr('height', '100%');
 
+        // Add zoom behavior
         const g = svg.append('g');
+        let currentZoom = 1;
 
-        // Zoom behavior
         const zoom = d3.zoom()
             .scaleExtent([0.1, 4])
             .on('zoom', (event) => {
                 g.attr('transform', event.transform);
-                document.getElementById('zoom-info').textContent = `Zoom: ${Math.round(event.transform.k * 100)}%`;
+                currentZoom = event.transform.k;
+                document.getElementById('zoom-info').textContent = `Zoom: ${Math.round(currentZoom * 100)}%`;
             });
 
         svg.call(zoom);
 
-        // Draw relationships first (behind tables)
-        const relationships = g.append('g').attr('class', 'relationships');
+        // Zoom controls
+        window.zoomIn = () => svg.transition().call(zoom.scaleBy, 1.3);
+        window.zoomOut = () => svg.transition().call(zoom.scaleBy, 0.7);
+        window.resetZoom = () => svg.transition().call(zoom.transform, d3.zoomIdentity);
+        window.fitToScreen = () => {
+            const bounds = g.node().getBBox();
+            const fullWidth = container.clientWidth;
+            const fullHeight = container.clientHeight;
+            const scale = 0.9 * Math.min(fullWidth / bounds.width, fullHeight / bounds.height);
+            const tx = (fullWidth - bounds.width * scale) / 2 - bounds.x * scale;
+            const ty = (fullHeight - bounds.height * scale) / 2 - bounds.y * scale + 30;
+            svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
+        };
 
-        tables.forEach(table => {
-            const fkColumns = table.columns.filter(c => c.fk);
-            fkColumns.forEach(col => {
-                const targetTable = tables.find(t => t.name === col.fk);
-                if (targetTable) {
-                    const path = d3.path();
-                    const sourceX = table.x + 100;
-                    const sourceY = table.y + 30 + (table.columns.indexOf(col) * 18);
-                    const targetX = targetTable.x + 100;
-                    const targetY = targetTable.y + 30;
+        // Draw relationship lines (run_id connections)
+        function updateRelationships() {
+            g.selectAll('.relationship-line').remove();
 
-                    path.moveTo(sourceX, sourceY);
-                    path.bezierCurveTo(
-                        sourceX + (targetX - sourceX) / 2, sourceY,
-                        sourceX + (targetX - sourceX) / 2, targetY,
-                        targetX, targetY
-                    );
-
-                    relationships.append('path')
+            const wfRuns = tables.find(t => t.name === 'wf_runs');
+            tables.forEach(table => {
+                if (table.name !== 'wf_runs' && table.columns.some(c => c.fk === 'wf_runs')) {
+                    g.insert('path', '.table-node')
                         .attr('class', 'relationship-line')
-                        .attr('d', path.toString())
-                        .attr('data-source', table.name)
-                        .attr('data-target', col.fk)
-                        .on('mouseover', function(event) {
-                            d3.select(this).attr('stroke', '#00d4ff').attr('stroke-width', 3);
-                            showRelationshipTooltip(event, table.name, col.fk, col.name);
-                        })
-                        .on('mouseout', function() {
-                            d3.select(this).attr('stroke', 'rgba(255,255,255,0.3)').attr('stroke-width', 2);
-                            hideTooltip();
+                        .attr('d', () => {
+                            const x1 = wfRuns.x + 100;
+                            const y1 = wfRuns.y + 15;
+                            const x2 = table.x + 100;
+                            const y2 = table.y + 15;
+                            const midX = (x1 + x2) / 2;
+                            return `M${x1},${y1} C${midX},${y1} ${midX},${y2} ${x2},${y2}`;
                         });
                 }
             });
-        });
+        }
+
+        updateRelationships();
 
         // Draw tables
         const tableGroups = g.selectAll('.table-node')
@@ -613,43 +835,43 @@
                     updateRelationships();
                 }));
 
-        // Table header
+        // Table header with color based on prefix
         tableGroups.append('rect')
             .attr('class', 'table-header')
-            .attr('width', 200)
-            .attr('height', 30)
+            .attr('width', 220)
+            .attr('height', 28)
             .attr('fill', d => prefixColors[d.prefix]);
 
         // Table title
         tableGroups.append('text')
             .attr('class', 'table-title')
             .attr('x', 10)
-            .attr('y', 20)
-            .text(d => d.name);
+            .attr('y', 19)
+            .text(d => `${d.name} (${d.columns.length})`);
 
         // Table body
         tableGroups.append('rect')
             .attr('class', 'table-body')
-            .attr('y', 30)
-            .attr('width', 200)
-            .attr('height', d => d.columns.length * 18 + 10);
+            .attr('y', 28)
+            .attr('width', 220)
+            .attr('height', d => d.columns.length * 15 + 8);
 
         // Table columns
         tableGroups.each(function(tableData) {
             const group = d3.select(this);
             tableData.columns.forEach((col, i) => {
-                const y = 45 + i * 18;
+                const y = 42 + i * 15;
 
                 // Column prefix (PK/FK/J)
                 let prefix = '';
-                let prefixColor = '#fff';
+                let prefixColor = '#aaa';
                 if (col.pk) { prefix = 'PK '; prefixColor = '#f1c40f'; }
                 else if (col.fk) { prefix = 'FK '; prefixColor = '#e74c3c'; }
                 else if (col.join) { prefix = 'J '; prefixColor = '#1abc9c'; }
 
                 group.append('text')
                     .attr('class', 'column-text')
-                    .attr('x', 10)
+                    .attr('x', 8)
                     .attr('y', y)
                     .attr('fill', prefixColor)
                     .text(prefix + col.name)
@@ -685,76 +907,11 @@
             tooltip.classList.add('visible');
         }
 
-        function showRelationshipTooltip(event, source, target, column) {
-            const tooltip = document.getElementById('tooltip');
-            tooltip.innerHTML = `
-                <h4>Relationship</h4>
-                <div><strong>${source}</strong>.${column}</div>
-                <div style="text-align: center;">↓ FK</div>
-                <div><strong>${target}</strong>.run_id</div>
-            `;
-            tooltip.style.left = event.pageX + 15 + 'px';
-            tooltip.style.top = event.pageY + 15 + 'px';
-            tooltip.classList.add('visible');
-        }
-
         function hideTooltip() {
             document.getElementById('tooltip').classList.remove('visible');
         }
 
-        function updateRelationships() {
-            relationships.selectAll('path').remove();
-            tables.forEach(table => {
-                const fkColumns = table.columns.filter(c => c.fk);
-                fkColumns.forEach(col => {
-                    const targetTable = tables.find(t => t.name === col.fk);
-                    if (targetTable) {
-                        const path = d3.path();
-                        const sourceX = table.x + 100;
-                        const sourceY = table.y + 30 + (table.columns.indexOf(col) * 18);
-                        const targetX = targetTable.x + 100;
-                        const targetY = targetTable.y + 30;
-
-                        path.moveTo(sourceX, sourceY);
-                        path.bezierCurveTo(
-                            sourceX + (targetX - sourceX) / 2, sourceY,
-                            sourceX + (targetX - sourceX) / 2, targetY,
-                            targetX, targetY
-                        );
-
-                        relationships.append('path')
-                            .attr('class', 'relationship-line')
-                            .attr('d', path.toString());
-                    }
-                });
-            });
-        }
-
-        // Zoom controls
-        function zoomIn() {
-            svg.transition().call(zoom.scaleBy, 1.3);
-        }
-
-        function zoomOut() {
-            svg.transition().call(zoom.scaleBy, 0.7);
-        }
-
-        function resetZoom() {
-            svg.transition().call(zoom.transform, d3.zoomIdentity);
-        }
-
-        function fitToScreen() {
-            const bounds = g.node().getBBox();
-            const fullWidth = width;
-            const fullHeight = height - 60;
-            const midX = bounds.x + bounds.width / 2;
-            const midY = bounds.y + bounds.height / 2;
-            const scale = 0.8 / Math.max(bounds.width / fullWidth, bounds.height / fullHeight);
-            const translate = [fullWidth / 2 - scale * midX, fullHeight / 2 - scale * midY + 30];
-            svg.transition().call(zoom.transform, d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale));
-        }
-
-        // Initial fit
+        // Initial fit to screen
         setTimeout(fitToScreen, 100);
     </script>
 </body>
