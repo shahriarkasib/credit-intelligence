@@ -106,13 +106,13 @@
             font-size: 11px;
         }
         .column-pk {
-            fill: #ffd700;
+            fill: #f1c40f;
         }
         .column-fk {
-            fill: #ff6b6b;
+            fill: #e74c3c;
         }
         .column-join {
-            fill: #00ff88;
+            fill: #1abc9c;
         }
         .relationship-line {
             stroke: rgba(255,255,255,0.3);
@@ -160,14 +160,14 @@
             border-top: 1px solid #00d4ff;
         }
         .tooltip .join-entry {
-            color: #00ff88;
+            color: #1abc9c;
             font-size: 11px;
             padding: 2px 0;
         }
-        .prefix-wf { border-left: 4px solid #ff6b6b; }
-        .prefix-lg { border-left: 4px solid #ffd700; }
-        .prefix-eval { border-left: 4px solid #00ff88; }
-        .prefix-meta { border-left: 4px solid #ff88ff; }
+        .prefix-wf { border-left: 4px solid #3498db; }
+        .prefix-lg { border-left: 4px solid #e67e22; }
+        .prefix-eval { border-left: 4px solid #2ecc71; }
+        .prefix-meta { border-left: 4px solid #9b59b6; }
         .zoom-info {
             position: fixed;
             bottom: 20px;
@@ -191,33 +191,34 @@
     </div>
 
     <div class="legend">
-        <h3>Legend</h3>
+        <h3>Table Types</h3>
         <div class="legend-item">
-            <div class="legend-color" style="background: #ff6b6b;"></div>
-            <span>wf_* (Workflow)</span>
+            <div class="legend-color" style="background: #3498db;"></div>
+            <span>wf_* (Workflow Data)</span>
         </div>
         <div class="legend-item">
-            <div class="legend-color" style="background: #ffd700;"></div>
-            <span>lg_* (LangGraph)</span>
+            <div class="legend-color" style="background: #e67e22;"></div>
+            <span>lg_* (LangGraph Events)</span>
         </div>
         <div class="legend-item">
-            <div class="legend-color" style="background: #00ff88;"></div>
-            <span>eval_* (Evaluation)</span>
+            <div class="legend-color" style="background: #2ecc71;"></div>
+            <span>eval_* (Evaluations)</span>
         </div>
         <div class="legend-item">
-            <div class="legend-color" style="background: #ff88ff;"></div>
+            <div class="legend-color" style="background: #9b59b6;"></div>
             <span>meta_* (Metadata)</span>
         </div>
-        <div class="legend-item" style="margin-top: 10px;">
-            <span style="color: #ffd700;">PK</span>
+        <h3 style="margin-top: 15px;">Column Types</h3>
+        <div class="legend-item">
+            <span style="color: #f1c40f; font-weight: bold;">PK</span>
             <span>= Primary Key</span>
         </div>
         <div class="legend-item">
-            <span style="color: #ff6b6b;">FK</span>
+            <span style="color: #e74c3c; font-weight: bold;">FK</span>
             <span>= Foreign Key</span>
         </div>
         <div class="legend-item">
-            <span style="color: #00ff88;">J</span>
+            <span style="color: #1abc9c; font-weight: bold;">J</span>
             <span>= Join Column</span>
         </div>
     </div>
@@ -531,10 +532,10 @@
 
         // Color mapping
         const prefixColors = {
-            "wf": "#ff6b6b",
-            "lg": "#ffd700",
-            "eval": "#00ff88",
-            "meta": "#ff88ff"
+            "wf": "#3498db",
+            "lg": "#e67e22",
+            "eval": "#2ecc71",
+            "meta": "#9b59b6"
         };
 
         // SVG setup
@@ -642,9 +643,9 @@
                 // Column prefix (PK/FK/J)
                 let prefix = '';
                 let prefixColor = '#fff';
-                if (col.pk) { prefix = 'PK '; prefixColor = '#ffd700'; }
-                else if (col.fk) { prefix = 'FK '; prefixColor = '#ff6b6b'; }
-                else if (col.join) { prefix = 'J '; prefixColor = '#00ff88'; }
+                if (col.pk) { prefix = 'PK '; prefixColor = '#f1c40f'; }
+                else if (col.fk) { prefix = 'FK '; prefixColor = '#e74c3c'; }
+                else if (col.join) { prefix = 'J '; prefixColor = '#1abc9c'; }
 
                 group.append('text')
                     .attr('class', 'column-text')
@@ -663,8 +664,8 @@
             let html = `<h4>${table.name}.${column.name}</h4>`;
             html += `<div><strong>Type:</strong> ${column.type}</div>`;
 
-            if (column.pk) html += `<div style="color: #ffd700;">Primary Key</div>`;
-            if (column.fk) html += `<div style="color: #ff6b6b;">Foreign Key → ${column.fk}</div>`;
+            if (column.pk) html += `<div style="color: #f1c40f;">Primary Key</div>`;
+            if (column.fk) html += `<div style="color: #e74c3c;">Foreign Key → ${column.fk}</div>`;
 
             if (column.join || joinColumns.includes(column.name)) {
                 html += `<div class="join-info"><strong>Can join with:</strong></div>`;
