@@ -12,130 +12,141 @@ import psycopg2
 from datetime import datetime, timezone, timedelta
 
 # Static agent definitions
+# These match the actual agent_name values used in graph.py
 AGENT_DEFINITIONS = [
-    # Workflow Nodes (graph.py)
+    # ===========================================
+    # WORKFLOW NODE AGENTS (8 unique agents)
+    # ===========================================
     {
-        "agent_name": "input_parser",
+        "agent_name": "llm_parser",
         "node_name": "parse_input",
         "master_agent": "supervisor",
-        "agent_type": "node",
-        "purpose": "Parses and normalizes company input, extracts company name and metadata from user request"
+        "agent_type": "llm",
+        "purpose": "Parses and normalizes company input using LLM, extracts company name, ticker, jurisdiction"
     },
     {
         "agent_name": "company_validator",
         "node_name": "validate_company",
         "master_agent": "supervisor",
-        "agent_type": "node",
-        "purpose": "Validates company data and checks if company exists, routes to END if validation fails"
+        "agent_type": "agent",
+        "purpose": "Validates company data, determines company type (public/private), creates execution plan"
     },
     {
         "agent_name": "plan_creator",
         "node_name": "create_plan",
         "master_agent": "supervisor",
-        "agent_type": "node",
-        "purpose": "Creates execution plan with prioritized tasks for credit analysis workflow"
+        "agent_type": "agent",
+        "purpose": "Creates task plan with prioritized data sources using LLM-based tool selection"
     },
     {
         "agent_name": "api_agent",
         "node_name": "fetch_api_data",
         "master_agent": "supervisor",
-        "agent_type": "node",
-        "purpose": "Fetches data from external APIs including SEC Edgar, Finnhub, and CourtListener"
+        "agent_type": "tool",
+        "purpose": "Fetches data from external APIs: SEC Edgar, Finnhub, CourtListener"
     },
     {
         "agent_name": "search_agent",
         "node_name": "search_web",
         "master_agent": "supervisor",
-        "agent_type": "node",
-        "purpose": "Performs web search to gather additional company information and news"
-    },
-    {
-        "agent_name": "search_agent_enhanced",
-        "node_name": "search_web_enhanced",
-        "master_agent": "supervisor",
-        "agent_type": "node",
-        "purpose": "Enhanced web search with more queries when API data is limited (conditional route)"
+        "agent_type": "tool",
+        "purpose": "Performs web search for company information (also handles search_web_enhanced node)"
     },
     {
         "agent_name": "llm_analyst",
         "node_name": "synthesize",
         "master_agent": "supervisor",
-        "agent_type": "node",
-        "purpose": "Synthesizes all collected data into comprehensive credit risk assessment with score and recommendations"
+        "agent_type": "llm",
+        "purpose": "Synthesizes all data into credit risk assessment (PUBLIC companies only)"
     },
     {
-        "agent_name": "database_agent",
+        "agent_name": "db_writer",
         "node_name": "save_to_database",
         "master_agent": "supervisor",
-        "agent_type": "node",
-        "purpose": "Saves assessment results to MongoDB and logs workflow data to PostgreSQL and Google Sheets"
+        "agent_type": "storage",
+        "purpose": "Saves results to MongoDB, logs to PostgreSQL and Google Sheets"
     },
     {
-        "agent_name": "evaluator",
-        "node_name": "evaluate_assessment",
+        "agent_name": "workflow_evaluator",
+        "node_name": "evaluate",
         "master_agent": "supervisor",
-        "agent_type": "node",
-        "purpose": "Evaluates assessment quality using multiple evaluation strategies (coalition, LLM judge, agent metrics)"
+        "agent_type": "agent",
+        "purpose": "Evaluates workflow quality using coalition evaluation (PUBLIC companies only)"
     },
 
-    # Core Agent Classes
+    # ===========================================
+    # ORCHESTRATOR AGENTS
+    # ===========================================
     {
         "agent_name": "supervisor",
         "node_name": "workflow_orchestrator",
         "master_agent": "self",
         "agent_type": "orchestrator",
-        "purpose": "Master orchestrator that coordinates all workflow nodes and manages state transitions"
-    },
-    {
-        "agent_name": "tool_supervisor",
-        "node_name": "tool_orchestrator",
-        "master_agent": "supervisor",
-        "agent_type": "orchestrator",
-        "purpose": "Manages tool selection and execution, coordinates specialized tool agents"
-    },
-    {
-        "agent_name": "tool_selector",
-        "node_name": "tool_selection",
-        "master_agent": "tool_supervisor",
-        "agent_type": "utility",
-        "purpose": "Selects appropriate tools based on task requirements and available data sources"
+        "purpose": "Master orchestrator that creates execution plan and coordinates all workflow agents"
     },
 
-    # Evaluation Agents
+    # ===========================================
+    # ROUTER AGENTS (conditional edges)
+    # ===========================================
+    {
+        "agent_name": "validation_router",
+        "node_name": "should_continue_after_validation",
+        "master_agent": "supervisor",
+        "agent_type": "router",
+        "purpose": "Routes to create_plan (continue) or END based on validation result"
+    },
+    {
+        "agent_name": "api_data_router",
+        "node_name": "route_after_api_data",
+        "master_agent": "supervisor",
+        "agent_type": "router",
+        "purpose": "Routes to search_web (normal) or search_web_enhanced based on API data quality"
+    },
+    {
+        "agent_name": "company_type_router",
+        "node_name": "route_after_search_by_company_type",
+        "master_agent": "supervisor",
+        "agent_type": "router",
+        "purpose": "Routes to synthesize (public) or save_to_database (private) based on company type"
+    },
+    {
+        "agent_name": "save_router",
+        "node_name": "route_after_save_by_company_type",
+        "master_agent": "supervisor",
+        "agent_type": "router",
+        "purpose": "Routes to evaluate (public) or END (private) based on company type"
+    },
+
+    # ===========================================
+    # EVALUATION SUB-AGENTS (called by workflow_evaluator)
+    # ===========================================
     {
         "agent_name": "coalition_evaluator",
         "node_name": "eval_coalition",
-        "master_agent": "evaluator",
+        "master_agent": "workflow_evaluator",
         "agent_type": "evaluator",
-        "purpose": "Runs coalition-based evaluation with multiple evaluators voting on assessment quality"
+        "purpose": "Combines multiple evaluators with weighted voting for robust correctness assessment"
     },
     {
         "agent_name": "llm_judge",
         "node_name": "eval_llm_judge",
-        "master_agent": "evaluator",
+        "master_agent": "workflow_evaluator",
         "agent_type": "evaluator",
-        "purpose": "LLM-based judge that scores assessment on accuracy, completeness, consistency, actionability"
+        "purpose": "LLM-based judge scoring accuracy, completeness, consistency, actionability"
     },
     {
         "agent_name": "agent_metrics_evaluator",
         "node_name": "eval_agent_metrics",
-        "master_agent": "evaluator",
+        "master_agent": "workflow_evaluator",
         "agent_type": "evaluator",
-        "purpose": "Evaluates agent performance metrics including tool choice, trajectory, and answer quality"
+        "purpose": "Evaluates agent performance: intent, plan, tools, trajectory, answer quality"
     },
     {
         "agent_name": "consistency_checker",
         "node_name": "eval_consistency",
-        "master_agent": "evaluator",
+        "master_agent": "workflow_evaluator",
         "agent_type": "evaluator",
-        "purpose": "Checks consistency of assessments across multiple runs of the same company"
-    },
-    {
-        "agent_name": "cross_model_evaluator",
-        "node_name": "eval_cross_model",
-        "master_agent": "evaluator",
-        "agent_type": "evaluator",
-        "purpose": "Compares assessment results across different LLM models for cross-validation"
+        "purpose": "Checks consistency with historical runs for same company"
     },
 ]
 

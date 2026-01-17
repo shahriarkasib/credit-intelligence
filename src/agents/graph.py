@@ -469,6 +469,7 @@ def validate_company(state: CreditWorkflowState) -> Dict[str, Any]:
     """
     Human-in-the-loop checkpoint: Validate company before proceeding.
     This node pauses for human approval if the company is unknown.
+    Also creates execution plan showing which agents will run based on company type.
     """
     import time
     start_time = time.time()
@@ -494,13 +495,48 @@ def validate_company(state: CreditWorkflowState) -> Dict[str, Any]:
                 execution_time_ms=(time.time() - start_time) * 1000,
                 success=False,
                 error="Company validation failed",
-                agent_name="supervisor",
+                agent_name="company_validator",
             )
         return result
+
+    # Determine company type for execution plan
+    is_public = company_info.get("is_public_company", False)
+    company_type = "public" if is_public else "private"
+
+    # Create execution plan based on company type
+    # PUBLIC: All agents run
+    # PRIVATE: Skip synthesize (llm_analyst) and evaluate (workflow_evaluator)
+    if is_public:
+        execution_plan = {
+            "company_type": "public",
+            "planned_agents": [
+                {"agent": "plan_creator", "node": "create_plan", "will_run": True},
+                {"agent": "api_agent", "node": "fetch_api_data", "will_run": True},
+                {"agent": "search_agent", "node": "search_web", "will_run": True},
+                {"agent": "llm_analyst", "node": "synthesize", "will_run": True},
+                {"agent": "db_writer", "node": "save_to_database", "will_run": True},
+                {"agent": "workflow_evaluator", "node": "evaluate", "will_run": True},
+            ],
+            "total_agents": 6,
+        }
+    else:
+        execution_plan = {
+            "company_type": "private",
+            "planned_agents": [
+                {"agent": "plan_creator", "node": "create_plan", "will_run": True},
+                {"agent": "api_agent", "node": "fetch_api_data", "will_run": True},
+                {"agent": "search_agent", "node": "search_web", "will_run": True},
+                {"agent": "llm_analyst", "node": "synthesize", "will_run": False},
+                {"agent": "db_writer", "node": "save_to_database", "will_run": True},
+                {"agent": "workflow_evaluator", "node": "evaluate", "will_run": False},
+            ],
+            "total_agents": 4,
+        }
 
     result = {
         "status": "validated",
         "human_approved": True,
+        "execution_plan": execution_plan,
     }
 
     if wf_logger:
@@ -509,31 +545,38 @@ def validate_company(state: CreditWorkflowState) -> Dict[str, Any]:
             company_name=company_name,
             step_name="validate_company",
             input_data={"validation_message": validation_msg, "requires_review": requires_review},
-            output_data={"status": "validated", "human_approved": True},
+            output_data={"status": "validated", "human_approved": True, "company_type": company_type},
             execution_time_ms=(time.time() - start_time) * 1000,
             success=True,
-            agent_name="supervisor",
+            agent_name="company_validator",
         )
 
-    # Log tasks for validate_company agent to plans sheet
+    # Log execution plan to plans sheet - this shows supervisor's plan for which agents will run
     try:
         from run_logging.sheets_logger import get_sheets_logger
         sheets_logger = get_sheets_logger()
         if sheets_logger and sheets_logger.is_connected():
-            validate_tasks = [
-                {"agent": "supervisor", "action": "check_company_exists", "params": {"company_name": company_name}, "priority": 1, "reason": "Verify company info was successfully parsed"},
-                {"agent": "supervisor", "action": "approve_for_analysis", "params": {"company_name": company_name}, "priority": 2, "reason": "Approve company for credit analysis workflow"},
+            # Log the execution plan as supervisor's plan
+            plan_tasks = [
+                {
+                    "agent": "supervisor",
+                    "action": "create_execution_plan",
+                    "company_type": company_type,
+                    "planned_agents": [a["agent"] for a in execution_plan["planned_agents"] if a["will_run"]],
+                    "skipped_agents": [a["agent"] for a in execution_plan["planned_agents"] if not a["will_run"]],
+                    "reason": f"{'Full workflow for public company' if is_public else 'Shortened workflow for private company - skip synthesis and evaluation'}",
+                }
             ]
             sheets_logger.log_plan(
                 run_id=run_id,
                 company_name=company_name,
-                task_plan=validate_tasks,
+                task_plan=plan_tasks,
                 node="validate_company",
                 agent_name="supervisor",
                 status="ok",
             )
     except Exception as e:
-        logger.warning(f"Failed to log validate_company tasks to sheets: {e}")
+        logger.warning(f"Failed to log execution plan to sheets: {e}")
 
     return result
 
@@ -692,7 +735,7 @@ def create_plan(state: CreditWorkflowState) -> Dict[str, Any]:
             run_id=run_id,
             company_name=company_name,
             step_name="create_plan",
-            agent_name="tool_supervisor",
+            agent_name="plan_creator",
             input_data={"company_info": company_info},
             output_data={
                 "num_tasks": len(task_plan),
@@ -716,7 +759,7 @@ def create_plan(state: CreditWorkflowState) -> Dict[str, Any]:
             completion_tokens=llm_metrics.get("completion_tokens", 0),
             execution_time_ms=llm_metrics.get("execution_time_ms", 0),
             node="create_plan",
-            agent_name="tool_supervisor",
+            agent_name="plan_creator",
             step_number=step_number,
             current_task="tool_selection",
             temperature=0.1,
@@ -736,7 +779,7 @@ def create_plan(state: CreditWorkflowState) -> Dict[str, Any]:
                 run_id=run_id,
                 company_name=company_name,
                 node="create_plan",
-                agent_name="tool_supervisor",
+                agent_name="plan_creator",
                 step_number=step_number,
                 prompt_id="tool_selection",
                 prompt_name="Tool Selection",
@@ -759,7 +802,7 @@ def create_plan(state: CreditWorkflowState) -> Dict[str, Any]:
                 company_name=company_name,
                 task_plan=task_plan,
                 node="create_plan",
-                agent_name="tool_supervisor" if tool_selection else "supervisor",
+                agent_name="plan_creator",
                 status="ok",
             )
     except Exception as e:
@@ -779,7 +822,7 @@ def create_plan(state: CreditWorkflowState) -> Dict[str, Any]:
                 # Hierarchy fields
                 node="create_plan",
                 node_type="agent",
-                agent_name="tool_supervisor" if tool_selection else "planner",
+                agent_name="plan_creator",
                 master_agent="supervisor",
                 step_number=3,  # create_plan is step 3
             )
@@ -3042,6 +3085,38 @@ def should_continue_after_validation(state: CreditWorkflowState) -> str:
     return "continue"
 
 
+def route_after_search_by_company_type(state: CreditWorkflowState) -> str:
+    """
+    Route after search based on company type.
+
+    - PUBLIC companies: Continue to synthesize (full workflow)
+    - PRIVATE companies: Skip synthesize, go directly to save_to_database
+    """
+    company_info = state.get("company_info", {})
+    is_public = company_info.get("is_public_company", False)
+
+    if is_public:
+        return "synthesize"
+    else:
+        return "save_to_database"
+
+
+def route_after_save_by_company_type(state: CreditWorkflowState) -> str:
+    """
+    Route after save_to_database based on company type.
+
+    - PUBLIC companies: Continue to evaluate
+    - PRIVATE companies: End workflow (skip evaluate)
+    """
+    company_info = state.get("company_info", {})
+    is_public = company_info.get("is_public_company", False)
+
+    if is_public:
+        return "evaluate"
+    else:
+        return "end"
+
+
 def build_graph() -> StateGraph:
     """Build the LangGraph workflow with evaluation integrated."""
     workflow = StateGraph(
@@ -3088,12 +3163,41 @@ def build_graph() -> StateGraph:
         }
     )
 
-    # Both search paths lead to synthesize
-    workflow.add_edge("search_web", "synthesize")
-    workflow.add_edge("search_web_enhanced", "synthesize")
+    # Conditional edge after search based on company type
+    # PUBLIC: search → synthesize → save_to_database → evaluate → END
+    # PRIVATE: search → save_to_database → END (skip synthesize and evaluate)
+    workflow.add_conditional_edges(
+        "search_web",
+        route_after_search_by_company_type,
+        {
+            "synthesize": "synthesize",
+            "save_to_database": "save_to_database",
+        }
+    )
+    workflow.add_conditional_edges(
+        "search_web_enhanced",
+        route_after_search_by_company_type,
+        {
+            "synthesize": "synthesize",
+            "save_to_database": "save_to_database",
+        }
+    )
 
+    # synthesize always goes to save_to_database (only runs for public)
     workflow.add_edge("synthesize", "save_to_database")
-    workflow.add_edge("save_to_database", "evaluate")  # NEW: Run evaluation after save
+
+    # Conditional edge after save based on company type
+    # PUBLIC: save → evaluate → END
+    # PRIVATE: save → END (skip evaluate)
+    workflow.add_conditional_edges(
+        "save_to_database",
+        route_after_save_by_company_type,
+        {
+            "evaluate": "evaluate",
+            "end": END,
+        }
+    )
+
     workflow.add_edge("evaluate", END)
 
     return workflow
