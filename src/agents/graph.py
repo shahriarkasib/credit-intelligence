@@ -3095,9 +3095,13 @@ def route_after_search_by_company_type(state: CreditWorkflowState) -> str:
     company_info = state.get("company_info", {})
     is_public = company_info.get("is_public_company", False)
 
+    logger.info(f"[ROUTER] route_after_search_by_company_type: company_info={company_info}, is_public={is_public}")
+
     if is_public:
+        logger.info("[ROUTER] Routing to SYNTHESIZE (public company)")
         return "synthesize"
     else:
+        logger.info("[ROUTER] Routing to SAVE_TO_DATABASE (private company - skip synthesize)")
         return "save_to_database"
 
 
@@ -3111,9 +3115,13 @@ def route_after_save_by_company_type(state: CreditWorkflowState) -> str:
     company_info = state.get("company_info", {})
     is_public = company_info.get("is_public_company", False)
 
+    logger.info(f"[ROUTER] route_after_save_by_company_type: company_info={company_info}, is_public={is_public}")
+
     if is_public:
+        logger.info("[ROUTER] Routing to EVALUATE (public company)")
         return "evaluate"
     else:
+        logger.info("[ROUTER] Routing to END (private company - skip evaluate)")
         return "end"
 
 
