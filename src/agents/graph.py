@@ -28,6 +28,17 @@ load_dotenv()
 
 from langgraph.graph import StateGraph, END
 
+# Import node definitions for consistent logging
+from config.node_definitions import (
+    get_node_info,
+    get_agent_name,
+    get_node_type,
+    MASTER_AGENT,
+    NodeType,
+    NODES,
+    AGENTS,
+)
+
 # Import agents
 from agents.supervisor import SupervisorAgent
 from agents.api_agent import APIAgent

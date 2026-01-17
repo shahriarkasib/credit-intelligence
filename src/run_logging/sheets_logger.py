@@ -27,6 +27,46 @@ except ImportError:
     GSPREAD_AVAILABLE = False
     logger.warning("gspread not installed. Google Sheets logging disabled.")
 
+# Import node definitions for consistent logging
+try:
+    from config.node_definitions import get_node_info, get_agent_name, get_node_type, MASTER_AGENT
+    NODE_DEFINITIONS_AVAILABLE = True
+except ImportError:
+    NODE_DEFINITIONS_AVAILABLE = False
+    MASTER_AGENT = "supervisor"
+
+    def get_node_info(node):
+        return {"node": node, "node_type": "agent", "agent_name": node, "master_agent": "supervisor"}
+
+    def get_agent_name(node):
+        return node
+
+    def get_node_type(node):
+        return "agent"
+
+
+def normalize_node_info(node: str, node_type: str = None, agent_name: str = None, master_agent: str = None) -> dict:
+    """
+    Normalize node information using static definitions.
+
+    If node_type or agent_name are provided, they override the static definitions.
+    This ensures consistency while allowing flexibility.
+
+    Returns:
+        dict with keys: node, node_type, agent_name, master_agent
+    """
+    info = get_node_info(node)
+
+    # Allow overrides only if explicitly provided and not empty
+    if node_type:
+        info["node_type"] = node_type
+    if agent_name:
+        info["agent_name"] = agent_name
+    if master_agent:
+        info["master_agent"] = master_agent
+
+    return info
+
 
 class SheetsLogger:
     """
@@ -449,12 +489,15 @@ class SheetsLogger:
         if not self.is_connected():
             return
 
+        # Normalize node info using static definitions
+        node_info = normalize_node_info(node, None, agent_name, master_agent)
+
         row = [
             run_id,
             company_name,
-            node or "",
-            agent_name or "",
-            master_agent or "supervisor",
+            node_info["node"],
+            node_info["agent_name"],
+            node_info["master_agent"],
             model or "",
             temperature if temperature is not None else 0.1,  # Default temperature
             status,
@@ -573,20 +616,23 @@ class SheetsLogger:
         if not self.is_connected():
             return
 
+        # Normalize node info using static definitions
+        node_info = normalize_node_info(node, node_type, agent_name, master_agent)
+
         status = "ok" if success else "fail"
         row = [
             run_id,
             company_name,
-            node or "",
-            node_type or "tool",
-            agent_name or "",
-            master_agent or "supervisor",
+            node_info["node"],
+            node_info["node_type"],
+            node_info["agent_name"],
+            node_info["master_agent"],
             step_number,
             tool_name,
             self._safe_str(tool_input),
             self._safe_str(tool_output),
             # Hierarchy columns
-            parent_node or node or "",  # Default to current node if no parent
+            parent_node or node_info["node"] or "",  # Default to current node if no parent
             workflow_phase or "",  # e.g., "data_collection", "synthesis", "evaluation"
             call_depth,  # 0 = top-level, 1 = nested call, etc.
             parent_tool_id or "",  # ID of parent tool call if nested
@@ -632,13 +678,16 @@ class SheetsLogger:
         if not self.is_connected():
             return
 
+        # Normalize node info using static definitions
+        node_info = normalize_node_info(node or "synthesize", node_type, agent_name, master_agent)
+
         row = [
             run_id,
             company_name,
-            node or "synthesize",
-            node_type or "agent",
-            agent_name or "",
-            master_agent or "supervisor",
+            node_info["node"],
+            node_info["node_type"],
+            node_info["agent_name"],
+            node_info["master_agent"],
             step_number,
             model or "",
             temperature if temperature is not None else 0.1,  # Default temperature
@@ -689,13 +738,16 @@ class SheetsLogger:
         if not self.is_connected():
             return
 
+        # Normalize node info using static definitions
+        node_info = normalize_node_info(node or "evaluate", node_type, agent_name, master_agent)
+
         row = [
             run_id,
             company_name,
-            node or "evaluate",
-            node_type or "agent",
-            agent_name or "",
-            master_agent or "supervisor",
+            node_info["node"],
+            node_info["node_type"],
+            node_info["agent_name"],
+            node_info["master_agent"],
             step_number,
             model or "",
             tool_selection_score,
@@ -762,13 +814,16 @@ class SheetsLogger:
         missing_tools = dedupe(missing_tools) if missing_tools else None
         extra_tools = dedupe(extra_tools) if extra_tools else None
 
+        # Normalize node info using static definitions
+        node_info = normalize_node_info(node or "create_plan", node_type, agent_name, master_agent)
+
         row = [
             run_id,
             company_name,
-            node or "create_plan",
-            node_type or "agent",
-            agent_name or "",
-            master_agent or "supervisor",
+            node_info["node"],
+            node_info["node_type"],
+            node_info["agent_name"],
+            node_info["master_agent"],
             step_number,
             model or "",
             ", ".join(selected_tools) if selected_tools else "",
@@ -874,6 +929,9 @@ class SheetsLogger:
             except Exception:
                 pass  # Cost calculation optional
 
+        # Normalize node info using static definitions
+        node_info = normalize_node_info(node, node_type, agent_name, master_agent)
+
         # Row matches llm_calls sheet columns:
         # run_id, company_name, node, node_type, agent_name, master_agent, step_number,
         # call_type, model, temperature,
@@ -886,10 +944,10 @@ class SheetsLogger:
         row = [
             run_id,
             company_name,
-            node or "",
-            node_type or "llm",
-            agent_name or "",
-            master_agent or "supervisor",
+            node_info["node"],
+            node_info["node_type"],
+            node_info["agent_name"],
+            node_info["master_agent"],
             step_number,
             call_type,
             model,
@@ -947,13 +1005,16 @@ class SheetsLogger:
         if not self.is_connected():
             return
 
+        # Normalize node info using static definitions
+        node_info = normalize_node_info(node or "evaluate", node_type, agent_name, master_agent)
+
         row = [
             run_id,
             company_name,
-            node or "evaluate",
-            node_type or "agent",
-            agent_name or "",
-            master_agent or "supervisor",
+            node_info["node"],
+            node_info["node_type"],
+            node_info["agent_name"],
+            node_info["master_agent"],
             step_number,
             model_name,
             evaluation_type,
@@ -1001,14 +1062,17 @@ class SheetsLogger:
         if not self.is_connected():
             return
 
+        # Normalize node info using static definitions
+        node_info = normalize_node_info(node or "fetch_api_data", node_type, agent_name, master_agent)
+
         status = "ok" if success else "fail"
         row = [
             run_id,
             company_name,
-            node or "fetch_api_data",
-            node_type or "tool",
-            agent_name or "",
-            master_agent or "supervisor",
+            node_info["node"],
+            node_info["node_type"],
+            node_info["agent_name"],
+            node_info["master_agent"],
             step_number,
             source_name,
             records_found,
@@ -1055,13 +1119,16 @@ class SheetsLogger:
         if not self.is_connected():
             return
 
+        # Normalize node info using static definitions
+        node_info = normalize_node_info(node, node_type, agent_name, master_agent)
+
         row = [
             run_id,
             company_name,
-            node or "",
-            node_type or "",
-            agent_name or "",
-            master_agent or "supervisor",
+            node_info["node"],
+            node_info["node_type"],
+            node_info["agent_name"],
+            node_info["master_agent"],
             step_number,
             event_type,
             event_name,
@@ -1127,13 +1194,16 @@ class SheetsLogger:
         if not self.is_connected():
             return
 
+        # Normalize node info using static definitions
+        node_info = normalize_node_info(node, node_type, agent_name, master_agent)
+
         row = [
             run_id,
             company_name,
-            node or "",
-            node_type or "agent",
-            agent_name or "",
-            master_agent or "supervisor",
+            node_info["node"],
+            node_info["node_type"],
+            node_info["agent_name"],
+            node_info["master_agent"],
             step_number,
             model or "",
             round(intent_correctness, 4),
@@ -1201,13 +1271,16 @@ class SheetsLogger:
         if not self.is_connected():
             return
 
+        # Normalize node info using static definitions
+        node_info = normalize_node_info(node, node_type, agent_name, master_agent)
+
         row = [
             run_id,
             company_name,
-            node or "",
-            node_type or "llm",
-            agent_name or "",
-            master_agent or "supervisor",
+            node_info["node"],
+            node_info["node_type"],
+            node_info["agent_name"],
+            node_info["master_agent"],
             step_number,
             model_used,
             temperature if temperature is not None else 0.1,
@@ -1300,6 +1373,15 @@ class SheetsLogger:
         if not self.is_connected():
             return
 
+        # Normalize node info using static definitions
+        # For coalition, default to evaluate node with coalition_evaluator agent
+        node_info = normalize_node_info(
+            node or "evaluate",
+            node_type or "evaluator",
+            agent_name or "coalition_evaluator",
+            master_agent
+        )
+
         # Coalition sheet columns:
         # run_id, company_name, node, node_type, agent_name, master_agent, step_number,
         # is_correct, correctness_score, confidence, correctness_category,
@@ -1309,10 +1391,10 @@ class SheetsLogger:
         row = [
             run_id,
             company_name,
-            node or "evaluate",
-            node_type or "evaluator",
-            agent_name or "coalition_evaluator",
-            master_agent or "supervisor",
+            node_info["node"],
+            node_info["node_type"],
+            node_info["agent_name"],
+            node_info["master_agent"],
             step_number,
             "yes" if is_correct else "no",
             round(correctness_score, 4),
@@ -1506,13 +1588,16 @@ class SheetsLogger:
         if not self.is_connected():
             return
 
+        # Normalize node info using static definitions
+        node_info = normalize_node_info(node, node_type, agent_name, master_agent)
+
         row = [
             eval_id,
             company_name,
-            node or "",
-            node_type or "agent",
-            agent_name or "",
-            master_agent or "supervisor",
+            node_info["node"],
+            node_info["node_type"],
+            node_info["agent_name"],
+            node_info["master_agent"],
             step_number,
             ", ".join(models_compared) if models_compared else "",
             num_models,
@@ -1590,12 +1675,15 @@ class SheetsLogger:
             else:
                 task_columns.append("")
 
+        # Normalize node info using static definitions
+        node_info = normalize_node_info(node or "create_plan", None, agent_name, master_agent)
+
         row = [
             run_id,
             company_name,
-            node or "create_plan",
-            agent_name or "",
-            master_agent or "supervisor",
+            node_info["node"],
+            node_info["agent_name"],
+            node_info["master_agent"],
             num_tasks,
             plan_summary,
             self._safe_str(task_plan),  # Full plan as JSON
@@ -1654,12 +1742,15 @@ class SheetsLogger:
         if not self.is_connected():
             return
 
+        # Normalize node info using static definitions
+        node_info = normalize_node_info(node, None, agent_name, master_agent)
+
         row = [
             run_id,
             company_name,
-            node or "",
-            agent_name or "",
-            master_agent or "supervisor",
+            node_info["node"],
+            node_info["agent_name"],
+            node_info["master_agent"],
             step_number,
             prompt_id,
             prompt_name,
