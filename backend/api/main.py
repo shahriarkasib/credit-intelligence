@@ -411,10 +411,11 @@ async def run_workflow_with_streaming(
 
     # Define workflow steps (matching the LangGraph nodes)
     # Format: (node_name, display_name, agent_name)
+    # Agent names must match config/node_definitions.py for consistency
     step_definitions = [
         ("parse_input", "Parsing Input", "llm_parser"),
-        ("validate_company", "Validating Company", "supervisor"),
-        ("create_plan", "Creating Plan", "tool_supervisor"),
+        ("validate_company", "Validating Company", "company_validator"),
+        ("create_plan", "Creating Plan", "plan_creator"),
         ("fetch_api_data", "Fetching API Data", "api_agent"),
         ("search_web", "Searching Web", "search_agent"),
         ("synthesize", "Synthesizing Assessment", "llm_analyst"),
