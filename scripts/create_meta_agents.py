@@ -25,14 +25,14 @@ AGENT_DEFINITIONS = [
         "purpose": "Parses and normalizes company input using LLM, extracts company name, ticker, jurisdiction"
     },
     {
-        "agent_name": "company_validator",
+        "agent_name": "supervisor",
         "node_name": "validate_company",
         "master_agent": "supervisor",
         "agent_type": "agent",
         "purpose": "Validates company data, determines company type (public/private), creates execution plan"
     },
     {
-        "agent_name": "plan_creator",
+        "agent_name": "tool_supervisor",
         "node_name": "create_plan",
         "master_agent": "supervisor",
         "agent_type": "agent",

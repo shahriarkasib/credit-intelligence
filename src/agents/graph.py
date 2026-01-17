@@ -506,7 +506,7 @@ def validate_company(state: CreditWorkflowState) -> Dict[str, Any]:
                 execution_time_ms=(time.time() - start_time) * 1000,
                 success=False,
                 error="Company validation failed",
-                agent_name="company_validator",
+                agent_name="supervisor",
             )
         return result
 
@@ -559,7 +559,7 @@ def validate_company(state: CreditWorkflowState) -> Dict[str, Any]:
             output_data={"status": "validated", "human_approved": True, "company_type": company_type},
             execution_time_ms=(time.time() - start_time) * 1000,
             success=True,
-            agent_name="company_validator",
+            agent_name="supervisor",
         )
 
     # Log execution plan to plans sheet - this shows supervisor's plan for which agents will run
@@ -746,7 +746,7 @@ def create_plan(state: CreditWorkflowState) -> Dict[str, Any]:
             run_id=run_id,
             company_name=company_name,
             step_name="create_plan",
-            agent_name="plan_creator",
+            agent_name="tool_supervisor",
             input_data={"company_info": company_info},
             output_data={
                 "num_tasks": len(task_plan),
@@ -770,7 +770,7 @@ def create_plan(state: CreditWorkflowState) -> Dict[str, Any]:
             completion_tokens=llm_metrics.get("completion_tokens", 0),
             execution_time_ms=llm_metrics.get("execution_time_ms", 0),
             node="create_plan",
-            agent_name="plan_creator",
+            agent_name="tool_supervisor",
             step_number=step_number,
             current_task="tool_selection",
             temperature=0.1,
@@ -790,7 +790,7 @@ def create_plan(state: CreditWorkflowState) -> Dict[str, Any]:
                 run_id=run_id,
                 company_name=company_name,
                 node="create_plan",
-                agent_name="plan_creator",
+                agent_name="tool_supervisor",
                 step_number=step_number,
                 prompt_id="tool_selection",
                 prompt_name="Tool Selection",
@@ -813,7 +813,7 @@ def create_plan(state: CreditWorkflowState) -> Dict[str, Any]:
                 company_name=company_name,
                 task_plan=task_plan,
                 node="create_plan",
-                agent_name="plan_creator",
+                agent_name="tool_supervisor",
                 status="ok",
             )
     except Exception as e:
@@ -833,7 +833,7 @@ def create_plan(state: CreditWorkflowState) -> Dict[str, Any]:
                 # Hierarchy fields
                 node="create_plan",
                 node_type="agent",
-                agent_name="plan_creator",
+                agent_name="tool_supervisor",
                 master_agent="supervisor",
                 step_number=3,  # create_plan is step 3
             )

@@ -29,8 +29,8 @@ class NodeType:
 NODE_DEFINITIONS = {
     # Workflow nodes
     "parse_input": (NodeType.LLM, "llm_parser"),
-    "validate_company": (NodeType.AGENT, "company_validator"),
-    "create_plan": (NodeType.AGENT, "plan_creator"),
+    "validate_company": (NodeType.AGENT, "supervisor"),
+    "create_plan": (NodeType.AGENT, "tool_supervisor"),
     "fetch_api_data": (NodeType.TOOL, "api_agent"),
     "search_web": (NodeType.TOOL, "search_agent"),
     "search_web_enhanced": (NodeType.TOOL, "search_agent"),
@@ -123,8 +123,8 @@ NODES = {
 AGENTS = {
     # Workflow agents
     "LLM_PARSER": "llm_parser",
-    "COMPANY_VALIDATOR": "company_validator",
-    "PLAN_CREATOR": "plan_creator",
+    "SUPERVISOR": "supervisor",
+    "TOOL_SUPERVISOR": "tool_supervisor",
     "API_AGENT": "api_agent",
     "SEARCH_AGENT": "search_agent",
     "LLM_ANALYST": "llm_analyst",
