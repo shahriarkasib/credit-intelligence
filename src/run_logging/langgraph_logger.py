@@ -48,6 +48,7 @@ except ImportError:
 NODE_TO_AGENT = {
     "parse_input": "llm_parser",
     "validate_company": "supervisor",
+    "create_execution_plan": "supervisor",
     "create_plan": "tool_supervisor",
     "fetch_api_data": "api_agent",
     "search_web": "search_agent",
@@ -64,6 +65,7 @@ NODE_TO_AGENT = {
 NODE_TO_STEP = {
     "parse_input": 1,
     "validate_company": 2,
+    "create_execution_plan": 2,
     "create_plan": 3,
     "fetch_api_data": 4,
     "search_web": 5,
