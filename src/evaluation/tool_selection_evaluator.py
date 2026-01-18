@@ -74,15 +74,16 @@ class ToolSelectionEvaluator:
     """
 
     # Ground truth: what tools SHOULD be selected for different company types
+    # Use actual tool names for consistency across all sheets
     EXPECTED_TOOLS = {
-        # Public US companies - SEC + Market Data
-        "public_us": ["fetch_sec_data", "fetch_market_data"],
-        # Public non-US - Market Data + Web Search
-        "public_non_us": ["fetch_market_data", "web_search"],
-        # Private companies - Web Search + Legal
-        "private": ["web_search", "fetch_legal_data"],
-        # Unknown - Web Search to determine
-        "unknown": ["web_search"],
+        # Public US companies - SEC + Finnhub + CourtListener + Search
+        "public_us": ["fetch_sec_edgar", "fetch_finnhub", "fetch_court_listener", "web_search"],
+        # Public non-US - Finnhub + Search
+        "public_non_us": ["fetch_finnhub", "web_search"],
+        # Private companies - Web Search + CourtListener
+        "private": ["web_search", "fetch_court_listener"],
+        # Unknown - Enhanced Web Search to gather info
+        "unknown": ["web_search_enhanced"],
     }
 
     # Known public companies (simplified - in production, this would be a database)

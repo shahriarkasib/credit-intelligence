@@ -293,7 +293,7 @@ class SheetsLogger:
             ],
             # Sheet 10: Plans - Full task plans created for each run
             "plans": [
-                "run_id", "company_name", "node", "agent_name", "master_agent",
+                "run_id", "company_name", "node", "node_type", "action_for", "agent_name", "master_agent",
                 "num_tasks", "plan_summary",
                 # Full plan as JSON with all task details
                 "full_plan",
@@ -1678,10 +1678,17 @@ class SheetsLogger:
         # Normalize node info using static definitions
         node_info = normalize_node_info(node or "create_plan", None, agent_name, master_agent)
 
+        # Determine action_for based on node_type
+        # tool nodes = action by tool, agent/llm/storage/router/evaluator = action by agent
+        node_type = node_info.get("node_type", "agent")
+        action_for = "tool" if node_type == "tool" else "agent"
+
         row = [
             run_id,
             company_name,
             node_info["node"],
+            node_type,
+            action_for,
             node_info["agent_name"],
             node_info["master_agent"],
             num_tasks,
@@ -1961,7 +1968,7 @@ class SheetsLogger:
                 "timestamp", "generated_by"
             ],
             "plans": [
-                "run_id", "company_name", "node", "agent_name", "master_agent",
+                "run_id", "company_name", "node", "node_type", "action_for", "agent_name", "master_agent",
                 "num_tasks", "plan_summary",
                 "full_plan",
                 "task_1", "task_2", "task_3", "task_4", "task_5",

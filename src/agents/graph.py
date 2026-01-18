@@ -593,6 +593,19 @@ def validate_company(state: CreditWorkflowState) -> Dict[str, Any]:
                 agent_name="supervisor",
                 status="ok",
             )
+
+            # Log to langgraph_events so it appears in the workflow trace
+            event_logger = get_current_event_logger()
+            if event_logger:
+                event_logger.log_node_enter("create_execution_plan", {"company_type": company_type})
+                event_logger.log_node_exit(
+                    node_name="create_execution_plan",
+                    output_state={
+                        "company_type": company_type,
+                        "planned_agents": planned,
+                        "skipped_agents": skipped,
+                    },
+                )
     except Exception as e:
         logger.warning(f"Failed to log execution plan to sheets: {e}")
 
@@ -1853,17 +1866,26 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
 
         # 1. Evaluate tool selection
         # Extract tools that were planned to be used based on task actions
+        # Use actual tool names for consistency across all sheets
         planned_tools = []
         for task in task_plan:
             action = task.get("action", "").lower()
             if "sec" in action or "edgar" in action:
-                planned_tools.append("fetch_sec_data")
+                planned_tools.append("fetch_sec_edgar")
             elif "finnhub" in action or "market" in action:
-                planned_tools.append("fetch_market_data")
-            elif "court" in action or "sanction" in action or "opencorporates" in action:
-                planned_tools.append("fetch_legal_data")
+                planned_tools.append("fetch_finnhub")
+            elif "court" in action or "legal" in action or "sanction" in action or "opencorporates" in action:
+                planned_tools.append("fetch_court_listener")
+            elif "search_enhanced" in action or "web_search_enhanced" in action:
+                planned_tools.append("web_search_enhanced")
             elif "search" in action or "web" in action:
                 planned_tools.append("web_search")
+
+        # Also check what search mode was used (normal vs enhanced)
+        search_status = state.get("status", "")
+        if "enhanced" in search_status and "web_search" in planned_tools:
+            # Replace web_search with web_search_enhanced if enhanced search was used
+            planned_tools = [t if t != "web_search" else "web_search_enhanced" for t in planned_tools]
 
         # Get tool selection reasoning from create_plan (if LLM-based selection was used)
         tool_selection_reasoning = state.get("tool_selection", {})
