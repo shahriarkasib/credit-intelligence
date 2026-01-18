@@ -299,6 +299,8 @@ class LangGraphEventLogger:
             # Determine node_type based on event_type
             if event_type in ("on_tool_start", "on_tool_end"):
                 lg_event.node_type = "tool"
+                # For tool events, use the actual tool name as the node (e.g., fetch_sec_edgar)
+                lg_event.node = event_name
             elif event_type in ("on_chat_model_start", "on_chat_model_end", "on_llm_start", "on_llm_end"):
                 lg_event.node_type = "llm"
             elif event_type in ("on_chain_start", "on_chain_end"):
@@ -309,6 +311,8 @@ class LangGraphEventLogger:
                     lg_event.node_type = "chain"
             elif event_type in ("on_retriever_start", "on_retriever_end"):
                 lg_event.node_type = "tool"
+                # For retriever events, use the actual tool name as the node
+                lg_event.node = event_name
             else:
                 lg_event.node_type = "other"
 
