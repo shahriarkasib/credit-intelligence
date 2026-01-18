@@ -243,12 +243,28 @@ class LLMCompanyParser:
         return """You are a financial data specialist. Your task is to analyze company names and identify key information about them.
 
 Given a company name, determine:
-1. Whether it's likely a public or private company
+1. Whether it's likely a PUBLIC or PRIVATE company
 2. The stock ticker symbol (if public)
 3. The jurisdiction/country
 4. The industry sector
 
-Be accurate and conservative - if unsure, indicate uncertainty."""
+PUBLIC COMPANY INDICATORS:
+- Has a stock ticker symbol (e.g., AAPL, MSFT, GOOGL)
+- Listed on stock exchanges (NYSE, NASDAQ, LSE, etc.)
+- Well-known publicly traded corporations
+- Files with SEC (10-K, 10-Q reports)
+- Examples: Apple Inc, Microsoft, Tesla, Amazon, JPMorgan Chase
+
+PRIVATE COMPANY INDICATORS:
+- No stock ticker or exchange listing
+- Contains "LLC", "Private", "Holdings", "Family", "Partners" in name
+- Small/medium businesses without public filings
+- Subsidiaries not independently traded
+- Unknown or fictional company names
+- Examples: "Acme Private Holdings", "Johnson Family Enterprises", "Private Tech Solutions"
+
+IMPORTANT: If you cannot find evidence of a stock ticker or public trading, classify as PRIVATE (is_public_company: false).
+Be accurate and conservative - when in doubt, classify as private."""
 
     def _get_user_prompt(self, company_name: str, context: Dict[str, Any] = None) -> str:
         """Get user prompt for company parsing."""
@@ -267,19 +283,28 @@ Be accurate and conservative - if unsure, indicate uncertainty."""
 Company Name: {company_name}
 Additional Context: {context_str}
 
+IMPORTANT CLASSIFICATION RULES:
+1. Set is_public_company=true ONLY if the company has a verifiable stock ticker (e.g., AAPL, MSFT)
+2. Set is_public_company=false for:
+   - Companies with no known stock ticker
+   - Private companies, LLCs, partnerships
+   - Unknown or fictional company names
+   - Companies with "Private", "Holdings", "LLC", "Family" in name
+3. If unsure about public status, default to is_public_company=false
+
 Respond in JSON format:
 ```json
 {{
     "company_name": "Official company name",
     "normalized_name": "lowercase normalized name",
-    "is_public_company": true/false,
+    "is_public_company": true if has stock ticker else false,
     "confidence": 0.0-1.0,
-    "ticker": "TICKER or null",
-    "exchange": "NYSE/NASDAQ/etc or null",
+    "ticker": "TICKER symbol if public else null",
+    "exchange": "NYSE/NASDAQ/etc if public else null",
     "jurisdiction": "US/UK/DE/etc",
     "industry": "Technology/Finance/Healthcare/etc",
     "parent_company": "Parent company name or null",
-    "reasoning": "Brief explanation of your determination"
+    "reasoning": "Explain why company is public or private"
 }}
 ```"""
 

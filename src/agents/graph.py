@@ -1812,10 +1812,17 @@ def save_to_database(state: CreditWorkflowState) -> Dict[str, Any]:
         is_public = company_info.get("is_public_company", False)
         if not is_public and wf_logger:
             # Private companies don't go through evaluate, so log run here
+            run_info = wf_logger._run_info.get(run_id, {})
+            started_at = run_info.get("started_at", time.time())
+            completed_at = time.time()
+            duration_ms = (completed_at - started_at) * 1000
+
             wf_logger.log_run_summary(
                 run_id=run_id,
                 company_name=company_name,
                 status="completed",
+                node="save_to_database",
+                agent_name="db_writer",
                 risk_level="unknown",  # Private companies don't have assessment
                 credit_score=0,
                 confidence=0.0,
@@ -1824,12 +1831,14 @@ def save_to_database(state: CreditWorkflowState) -> Dict[str, Any]:
                 data_quality_score=0.0,
                 synthesis_score=0.0,
                 overall_score=0.0,
-                workflow_correct="yes",
-                output_correct="n/a",
                 total_tokens=0,
                 total_cost=0.0,
                 errors=state.get("errors", []),
-                run_duration_ms=(time.time() - start_time) * 1000,
+                duration_ms=duration_ms,
+                total_steps=wf_logger._step_counter.get(run_id, 0),
+                llm_calls_count=wf_logger._llm_call_counter.get(run_id, 0),
+                started_at=datetime.fromtimestamp(started_at).isoformat() if started_at else "",
+                completed_at=datetime.fromtimestamp(completed_at).isoformat() if completed_at else "",
             )
             logger.info(f"Logged run summary for private company: {company_name}")
 

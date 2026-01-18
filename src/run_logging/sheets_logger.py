@@ -492,12 +492,14 @@ class SheetsLogger:
         # Normalize node info using static definitions
         node_info = normalize_node_info(node, None, agent_name, master_agent)
 
+        # Row must match headers: run_id, company_name, node, agent_name, model, temperature,
+        # status, started_at, completed_at, risk_level, credit_score, confidence, total_time_ms,
+        # total_steps, total_llm_calls, tools_used, evaluation_score, timestamp, generated_by
         row = [
             run_id,
             company_name,
             node_info["node"],
             node_info["agent_name"],
-            node_info["master_agent"],
             model or "",
             temperature if temperature is not None else 0.1,  # Default temperature
             status,
@@ -511,9 +513,6 @@ class SheetsLogger:
             total_llm_calls,
             ", ".join(tools_used) if tools_used else "",
             evaluation_score if evaluation_score is not None else "",
-            # Correctness columns
-            "yes" if workflow_correct else ("no" if workflow_correct is False else ""),
-            "yes" if output_correct else ("no" if output_correct is False else ""),
             datetime.utcnow().isoformat(),  # timestamp
             "Us",  # generated_by: We generate run summaries
         ]

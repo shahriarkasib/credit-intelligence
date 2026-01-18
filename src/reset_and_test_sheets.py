@@ -300,12 +300,12 @@ def reinitialize_sheets(spreadsheet):
 def run_company_analyses():
     """Run 3 company analyses."""
     print("\n" + "="*60)
-    print("STEP 3: RUNNING 3 COMPANY ANALYSES")
+    print("STEP 3: RUNNING 2 COMPANY ANALYSES (PUBLIC + PRIVATE)")
     print("="*60)
 
     from agents.graph import run_sync_with_logging
 
-    companies = ["Apple Inc", "Microsoft Corporation", "Tesla Inc"]
+    companies = ["Apple Inc", "Private Tech Solutions LLC"]  # Public and private company
     results = []
 
     for company in companies:
