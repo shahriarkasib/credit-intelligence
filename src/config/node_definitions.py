@@ -30,6 +30,7 @@ NODE_DEFINITIONS = {
     # Workflow nodes
     "parse_input": (NodeType.LLM, "llm_parser"),
     "validate_company": (NodeType.AGENT, "supervisor"),
+    "create_execution_plan": (NodeType.AGENT, "supervisor"),  # Execution plan after validation
     "create_plan": (NodeType.AGENT, "tool_supervisor"),
     "fetch_api_data": (NodeType.TOOL, "api_agent"),
     "search_web": (NodeType.TOOL, "search_agent"),

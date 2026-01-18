@@ -562,12 +562,12 @@ def validate_company(state: CreditWorkflowState) -> Dict[str, Any]:
             agent_name="supervisor",
         )
 
-    # Log execution plan to plans sheet - this shows supervisor's plan for which agents will run
+    # Log execution plan to plans sheet as a SEPARATE entry after validate_company
+    # This is the supervisor's plan showing which agents will/won't run based on company type
     try:
         from run_logging.sheets_logger import get_sheets_logger
         sheets_logger = get_sheets_logger()
         if sheets_logger and sheets_logger.is_connected():
-            # Log the execution plan as supervisor's plan
             planned = [a["agent"] for a in execution_plan["planned_agents"] if a["will_run"]]
             skipped = [a["agent"] for a in execution_plan["planned_agents"] if not a["will_run"]]
 
@@ -584,11 +584,12 @@ def validate_company(state: CreditWorkflowState) -> Dict[str, Any]:
 
             logger.info(f"[{run_id[:8]}] Logging execution plan: company_type={company_type}, planned={planned}, skipped={skipped}")
 
+            # Log as separate "create_execution_plan" node (after validate_company)
             sheets_logger.log_plan(
                 run_id=run_id,
                 company_name=company_name,
                 task_plan=plan_tasks,
-                node="validate_company",
+                node="create_execution_plan",  # Separate node for execution plan
                 agent_name="supervisor",
                 status="ok",
             )
@@ -919,6 +920,9 @@ def fetch_api_data(state: CreditWorkflowState) -> Dict[str, Any]:
             )
 
             # Log individual data sources AND tool calls
+            # Only log actual API tools, not internal keys like 'company' or 'errors'
+            actual_api_tools = ["sec_edgar", "finnhub", "court_listener"]
+
             for source_name, source_data in api_data.items():
                 records = 0
                 if isinstance(source_data, dict):
@@ -931,19 +935,40 @@ def fetch_api_data(state: CreditWorkflowState) -> Dict[str, Any]:
                 if source_name in tool_start_times:
                     tool_duration = (time.time() - tool_start_times[source_name]) * 1000
 
-                # Log tool completion to LangGraph events
-                if event_logger:
-                    event_logger.log_tool_event(
+                # Only log actual API tools to tool_calls and langgraph_events
+                if source_name in actual_api_tools:
+                    # Log tool completion to LangGraph events
+                    if event_logger:
+                        event_logger.log_tool_event(
+                            tool_name=f"fetch_{source_name}",
+                            status="completed",
+                            node="fetch_api_data",
+                            input_data=json.dumps({"ticker": company_info.get("ticker"), "company": company_name}),
+                            output_data=json.dumps({"records": records, "success": bool(source_data)}, default=str),
+                            duration_ms=tool_duration,
+                            error=None if source_data else "No data returned",
+                        )
+
+                    # Log as tool call with hierarchy tracking
+                    wf_logger.log_tool_call(
+                        run_id=run_id,
+                        company_name=company_name,
                         tool_name=f"fetch_{source_name}",
-                        status="completed",
+                        tool_input={"ticker": company_info.get("ticker"), "company": company_name},
+                        tool_output=source_data,
+                        execution_time_ms=tool_duration or 0,
+                        success=bool(source_data),
+                        # Node tracking
                         node="fetch_api_data",
-                        input_data=json.dumps({"ticker": company_info.get("ticker"), "company": company_name}),
-                        output_data=json.dumps({"records": records, "success": bool(source_data)}, default=str),
-                        duration_ms=tool_duration,
-                        error=None if source_data else "No data returned",
+                        agent_name="api_agent",
+                        step_number=step_number,
+                        # Hierarchy tracking
+                        parent_node="fetch_api_data",
+                        workflow_phase="data_collection",
+                        call_depth=0,
                     )
 
-                # Log as data source
+                # Log all sources to data_sources sheet (for completeness)
                 wf_logger.log_data_source(
                     run_id=run_id,
                     company_name=company_name,
@@ -955,25 +980,6 @@ def fetch_api_data(state: CreditWorkflowState) -> Dict[str, Any]:
                     node="fetch_api_data",
                     agent_name="api_agent",
                     step_number=step_number,
-                )
-
-                # Log as tool call with hierarchy tracking
-                wf_logger.log_tool_call(
-                    run_id=run_id,
-                    company_name=company_name,
-                    tool_name=f"fetch_{source_name}",
-                    tool_input={"ticker": company_info.get("ticker"), "company": company_name},
-                    tool_output=source_data,
-                    execution_time_ms=tool_duration or 0,
-                    success=bool(source_data),
-                    # Node tracking
-                    node="fetch_api_data",
-                    agent_name="api_agent",
-                    step_number=step_number,
-                    # Hierarchy tracking
-                    parent_node="fetch_api_data",
-                    workflow_phase="data_collection",
-                    call_depth=0,
                 )
 
         # Log tasks for fetch_api_data agent to plans sheet
@@ -1093,51 +1099,6 @@ def search_web(state: CreditWorkflowState) -> Dict[str, Any]:
                 step_number=step_number,
             )
 
-            # Log tool calls for search operations
-            search_tools = [
-                ("search_company_info", "General company information search"),
-                ("search_news", "News articles search"),
-                ("search_financial_news", "Financial news search"),
-            ]
-            for tool_name, tool_desc in search_tools:
-                wf_logger.log_tool_call(
-                    run_id=run_id,
-                    company_name=company_name,
-                    tool_name=tool_name,
-                    tool_input={"company_name": company_name, "query_type": tool_desc},
-                    tool_output={"num_results": num_results // len(search_tools) if num_results > 0 else 0},
-                    execution_time_ms=tool_duration / len(search_tools),
-                    success=bool(search_data),
-                    node="search_web",
-                    node_type="tool",
-                    agent_name="search_agent",
-                    step_number=step_number,
-                    parent_node="search_web",
-                    workflow_phase="data_collection",
-                )
-
-        # Log tasks for search_web agent to plans sheet
-        try:
-            from run_logging.sheets_logger import get_sheets_logger
-            sheets_logger = get_sheets_logger()
-            if sheets_logger and sheets_logger.is_connected():
-                search_tasks = [
-                    {"agent": "search_agent", "action": "search_company_info", "params": {"company_name": company_name}, "priority": 1, "reason": "Search for general company information on the web"},
-                    {"agent": "search_agent", "action": "search_news_articles", "params": {"company_name": company_name}, "priority": 2, "reason": "Search for recent news articles about the company"},
-                    {"agent": "search_agent", "action": "analyze_sentiment", "params": {"company_name": company_name}, "priority": 3, "reason": "Analyze sentiment from news and web content"},
-                    {"agent": "search_agent", "action": "extract_key_findings", "params": {"company_name": company_name}, "priority": 4, "reason": "Extract key findings from search results"},
-                ]
-                sheets_logger.log_plan(
-                    run_id=run_id,
-                    company_name=company_name,
-                    task_plan=search_tasks,
-                    node="search_web",
-                    agent_name="search_agent",
-                    status="ok",
-                )
-        except Exception as e:
-            logger.warning(f"Failed to log search_web tasks to sheets: {e}")
-
         return result
 
     except Exception as e:
@@ -1241,55 +1202,6 @@ def search_web_enhanced(state: CreditWorkflowState) -> Dict[str, Any]:
                 agent_name="search_agent",
                 step_number=step_number,
             )
-
-            # Log tool calls for enhanced search operations
-            enhanced_search_tools = [
-                ("search_company_info_enhanced", "Enhanced company information search"),
-                ("search_financial_performance", "Financial performance and earnings search"),
-                ("search_legal_regulatory", "Legal and regulatory matters search"),
-                ("search_credit_analysis", "Credit rating and analysis search"),
-                ("search_industry_competitors", "Industry competitors search"),
-            ]
-            for tool_name, tool_desc in enhanced_search_tools:
-                wf_logger.log_tool_call(
-                    run_id=run_id,
-                    company_name=company_name,
-                    tool_name=tool_name,
-                    tool_input={"company_name": company_name, "query_type": tool_desc, "mode": "enhanced"},
-                    tool_output={"num_results": num_results // len(enhanced_search_tools) if num_results > 0 else 0},
-                    execution_time_ms=tool_duration / len(enhanced_search_tools),
-                    success=bool(search_data),
-                    node="search_web_enhanced",
-                    node_type="tool",
-                    agent_name="search_agent",
-                    step_number=step_number,
-                    parent_node="search_web_enhanced",
-                    workflow_phase="data_collection",
-                )
-
-        # Log tasks for search_web_enhanced agent to plans sheet
-        try:
-            from run_logging.sheets_logger import get_sheets_logger
-            sheets_logger = get_sheets_logger()
-            if sheets_logger and sheets_logger.is_connected():
-                search_enhanced_tasks = [
-                    {"agent": "search_agent", "action": "search_company_info_enhanced", "params": {"company_name": company_name}, "priority": 1, "reason": "Enhanced search for company information (API data limited)"},
-                    {"agent": "search_agent", "action": "search_financial_performance", "params": {"company_name": company_name}, "priority": 2, "reason": "Search for financial performance and earnings data"},
-                    {"agent": "search_agent", "action": "search_legal_regulatory", "params": {"company_name": company_name}, "priority": 3, "reason": "Search for legal issues, lawsuits, and regulatory matters"},
-                    {"agent": "search_agent", "action": "search_credit_analysis", "params": {"company_name": company_name}, "priority": 4, "reason": "Search for credit rating and financial analysis"},
-                    {"agent": "search_agent", "action": "search_industry_competitors", "params": {"company_name": company_name}, "priority": 5, "reason": "Search for industry competitors and market position"},
-                    {"agent": "search_agent", "action": "extract_enhanced_findings", "params": {"company_name": company_name}, "priority": 6, "reason": "Extract key findings from enhanced search results"},
-                ]
-                sheets_logger.log_plan(
-                    run_id=run_id,
-                    company_name=company_name,
-                    task_plan=search_enhanced_tasks,
-                    node="search_web_enhanced",
-                    agent_name="search_agent",
-                    status="ok",
-                )
-        except Exception as e:
-            logger.warning(f"Failed to log search_web_enhanced tasks to sheets: {e}")
 
         return result
 
