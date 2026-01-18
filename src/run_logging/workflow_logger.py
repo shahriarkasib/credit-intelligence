@@ -1044,37 +1044,27 @@ class WorkflowLogger:
                 llm_calls_count=llm_calls_count,
             )
 
-        # Log to Google Sheets
+        # Log to Google Sheets (use log_run, not deprecated log_run_summary)
         if self.sheets_logger.is_connected():
-            self.sheets_logger.log_run_summary(
+            self.sheets_logger.log_run(
                 run_id=run_id,
                 company_name=company_name,
                 status=status,
                 node=node,
                 agent_name=agent_name,
+                master_agent=master_agent,
                 model=model,
                 temperature=temperature,
-                total_steps=total_steps,
                 risk_level=risk_level,
                 credit_score=credit_score,
                 confidence=confidence,
-                reasoning=reasoning,
-                tool_selection_score=tool_selection_score,
-                data_quality_score=data_quality_score,
-                synthesis_score=synthesis_score,
-                overall_score=overall_score,
-                final_decision=final_decision,
-                decision_reasoning=decision_reasoning,
-                errors=errors,
-                warnings=warnings,
+                total_time_ms=duration_ms,
+                total_steps=total_steps,
+                total_llm_calls=llm_calls_count,
                 tools_used=tools_used,
-                agents_used=agents_used,
+                evaluation_score=overall_score,
                 started_at=started_at,
                 completed_at=completed_at,
-                duration_ms=duration_ms,
-                total_tokens=total_tokens,
-                total_cost=total_cost,
-                llm_calls_count=llm_calls_count,
             )
 
         logger.info(f"[{run_id[:8]}] Run summary logged: {company_name} - {risk_level} (score: {credit_score})")
