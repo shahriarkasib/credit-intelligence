@@ -667,11 +667,11 @@ class LangGraphEventLogger:
             company_name=self.company_name,
             event_type=event_type,
             event_name=tool_name,
-            node=effective_node,
+            node=tool_name,  # Use actual tool name as node for tool events
             node_type="tool",
-            agent_name=NODE_TO_AGENT.get(effective_node, "workflow"),
+            agent_name=NODE_TO_AGENT.get(effective_node, "workflow"),  # Keep agent_name lookup based on graph node
             master_agent="supervisor",
-            step_number=NODE_TO_STEP.get(effective_node, 0),
+            step_number=NODE_TO_STEP.get(effective_node, 0),  # Keep step_number lookup based on graph node
             status=status,
             input_data=self._truncate(input_data) if input_data else "",
             output_data=self._truncate(output_data) if output_data else "",
