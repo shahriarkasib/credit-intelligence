@@ -1737,7 +1737,9 @@ def save_to_database(state: CreditWorkflowState) -> Dict[str, Any]:
     import time
     start_time = time.time()
     run_id = state.get("run_id", "unknown")
-    company_name = state.get("company_name", "")
+    # Get company_name from company_info first, fallback to state
+    company_info = state.get("company_info", {})
+    company_name = company_info.get("company_name") or state.get("company_name", "")
 
     if not db or not db.is_connected():
         if wf_logger:
@@ -1768,7 +1770,6 @@ def save_to_database(state: CreditWorkflowState) -> Dict[str, Any]:
         db.save_all_raw_data(company_name, api_data, search_data)
 
         # Save/update company profile
-        company_info = state.get("company_info", {})
         if company_info:
             db.save_company(company_info)
 
@@ -1808,7 +1809,6 @@ def save_to_database(state: CreditWorkflowState) -> Dict[str, Any]:
             logger.warning(f"Failed to log save_to_database tasks to sheets: {e}")
 
         # For PRIVATE companies, log run summary here (they skip evaluate)
-        company_info = state.get("company_info", {})
         is_public = company_info.get("is_public_company", False)
         if not is_public and wf_logger:
             # Private companies don't go through evaluate, so log run here
