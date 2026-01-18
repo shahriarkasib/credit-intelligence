@@ -568,16 +568,22 @@ def validate_company(state: CreditWorkflowState) -> Dict[str, Any]:
         sheets_logger = get_sheets_logger()
         if sheets_logger and sheets_logger.is_connected():
             # Log the execution plan as supervisor's plan
+            planned = [a["agent"] for a in execution_plan["planned_agents"] if a["will_run"]]
+            skipped = [a["agent"] for a in execution_plan["planned_agents"] if not a["will_run"]]
+
             plan_tasks = [
                 {
                     "agent": "supervisor",
                     "action": "create_execution_plan",
                     "company_type": company_type,
-                    "planned_agents": [a["agent"] for a in execution_plan["planned_agents"] if a["will_run"]],
-                    "skipped_agents": [a["agent"] for a in execution_plan["planned_agents"] if not a["will_run"]],
+                    "planned_agents": planned,
+                    "skipped_agents": skipped,
                     "reason": f"{'Full workflow for public company' if is_public else 'Shortened workflow for private company - skip synthesis and evaluation'}",
                 }
             ]
+
+            logger.info(f"[{run_id[:8]}] Logging execution plan: company_type={company_type}, planned={planned}, skipped={skipped}")
+
             sheets_logger.log_plan(
                 run_id=run_id,
                 company_name=company_name,
