@@ -1087,6 +1087,29 @@ def search_web(state: CreditWorkflowState) -> Dict[str, Any]:
                 step_number=step_number,
             )
 
+            # Log tool calls for search operations
+            search_tools = [
+                ("search_company_info", "General company information search"),
+                ("search_news", "News articles search"),
+                ("search_financial_news", "Financial news search"),
+            ]
+            for tool_name, tool_desc in search_tools:
+                wf_logger.log_tool_call(
+                    run_id=run_id,
+                    company_name=company_name,
+                    tool_name=tool_name,
+                    tool_input={"company_name": company_name, "query_type": tool_desc},
+                    tool_output={"num_results": num_results // len(search_tools) if num_results > 0 else 0},
+                    execution_time_ms=tool_duration / len(search_tools),
+                    success=bool(search_data),
+                    node="search_web",
+                    node_type="tool",
+                    agent_name="search_agent",
+                    step_number=step_number,
+                    parent_node="search_web",
+                    workflow_phase="data_collection",
+                )
+
         # Log tasks for search_web agent to plans sheet
         try:
             from run_logging.sheets_logger import get_sheets_logger
@@ -1212,6 +1235,31 @@ def search_web_enhanced(state: CreditWorkflowState) -> Dict[str, Any]:
                 agent_name="search_agent",
                 step_number=step_number,
             )
+
+            # Log tool calls for enhanced search operations
+            enhanced_search_tools = [
+                ("search_company_info_enhanced", "Enhanced company information search"),
+                ("search_financial_performance", "Financial performance and earnings search"),
+                ("search_legal_regulatory", "Legal and regulatory matters search"),
+                ("search_credit_analysis", "Credit rating and analysis search"),
+                ("search_industry_competitors", "Industry competitors search"),
+            ]
+            for tool_name, tool_desc in enhanced_search_tools:
+                wf_logger.log_tool_call(
+                    run_id=run_id,
+                    company_name=company_name,
+                    tool_name=tool_name,
+                    tool_input={"company_name": company_name, "query_type": tool_desc, "mode": "enhanced"},
+                    tool_output={"num_results": num_results // len(enhanced_search_tools) if num_results > 0 else 0},
+                    execution_time_ms=tool_duration / len(enhanced_search_tools),
+                    success=bool(search_data),
+                    node="search_web_enhanced",
+                    node_type="tool",
+                    agent_name="search_agent",
+                    step_number=step_number,
+                    parent_node="search_web_enhanced",
+                    workflow_phase="data_collection",
+                )
 
         # Log tasks for search_web_enhanced agent to plans sheet
         try:
