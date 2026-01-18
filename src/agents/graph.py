@@ -950,16 +950,18 @@ def fetch_api_data(state: CreditWorkflowState) -> Dict[str, Any]:
                         )
 
                     # Log as tool call with hierarchy tracking
+                    # Use actual tool name as node for consistency across all sheets
+                    actual_tool_name = f"fetch_{source_name}"
                     wf_logger.log_tool_call(
                         run_id=run_id,
                         company_name=company_name,
-                        tool_name=f"fetch_{source_name}",
+                        tool_name=actual_tool_name,
                         tool_input={"ticker": company_info.get("ticker"), "company": company_name},
                         tool_output=source_data,
                         execution_time_ms=tool_duration or 0,
                         success=bool(source_data),
-                        # Node tracking
-                        node="fetch_api_data",
+                        # Node tracking - use actual tool name for consistency
+                        node=actual_tool_name,
                         agent_name="api_agent",
                         step_number=step_number,
                         # Hierarchy tracking
@@ -1085,6 +1087,22 @@ def search_web(state: CreditWorkflowState) -> Dict[str, Any]:
                 success=True,
                 agent_name="search_agent",
             )
+            # Log as tool call for tool_calls sheet
+            wf_logger.log_tool_call(
+                run_id=run_id,
+                company_name=company_name,
+                tool_name="web_search",
+                tool_input={"company_name": company_name},
+                tool_output={"num_results": num_results, "success": bool(search_data)},
+                execution_time_ms=tool_duration,
+                success=bool(search_data),
+                node="web_search",  # Use actual tool name
+                agent_name="search_agent",
+                step_number=step_number,
+                parent_node="search_web",
+                workflow_phase="data_collection",
+                call_depth=0,
+            )
             # Log as data source
             wf_logger.log_data_source(
                 run_id=run_id,
@@ -1188,6 +1206,22 @@ def search_web_enhanced(state: CreditWorkflowState) -> Dict[str, Any]:
                 execution_time_ms=tool_duration,
                 success=True,
                 agent_name="search_agent",
+            )
+            # Log as tool call for tool_calls sheet
+            wf_logger.log_tool_call(
+                run_id=run_id,
+                company_name=company_name,
+                tool_name="web_search_enhanced",
+                tool_input={"company_name": company_name, "mode": "enhanced"},
+                tool_output={"num_results": num_results, "mode": "enhanced", "success": bool(search_data)},
+                execution_time_ms=tool_duration,
+                success=bool(search_data),
+                node="web_search_enhanced",  # Use actual tool name
+                agent_name="search_agent",
+                step_number=step_number,
+                parent_node="search_web_enhanced",
+                workflow_phase="data_collection",
+                call_depth=0,
             )
             # Log as data source
             wf_logger.log_data_source(
