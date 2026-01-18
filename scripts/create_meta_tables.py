@@ -151,6 +151,14 @@ NODE_DEFINITIONS = [
 AGENT_DEFINITIONS = [
     # Core workflow agents
     {
+        "agent_name": "workflow",
+        "agent_type": "orchestrator",
+        "master_agent": "self",
+        "nodes": ["__start__", "__end__"],
+        "tools": [],
+        "purpose": "Root workflow orchestrator - represents the overall LangGraph execution",
+    },
+    {
         "agent_name": "llm_parser",
         "agent_type": "llm",
         "master_agent": "supervisor",

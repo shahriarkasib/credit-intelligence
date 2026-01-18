@@ -1664,11 +1664,26 @@ class SheetsLogger:
         num_tasks = len(task_plan)
         plan_summary = f"Created {num_tasks} tasks for {company_name}"
 
+        # Add action_for to each task in the plan
+        enhanced_task_plan = []
+        for task in task_plan:
+            if isinstance(task, dict):
+                enhanced_task = task.copy()
+                # Determine action_for based on action content
+                action = task.get("action", "").lower()
+                if any(kw in action for kw in ["fetch", "search", "api", "web"]):
+                    enhanced_task["action_for"] = "tool"
+                else:
+                    enhanced_task["action_for"] = "agent"
+                enhanced_task_plan.append(enhanced_task)
+            else:
+                enhanced_task_plan.append(task)
+
         # Extract individual tasks for easy viewing (up to 10)
         task_columns = []
         for i in range(10):
-            if i < len(task_plan):
-                task = task_plan[i]
+            if i < len(enhanced_task_plan):
+                task = enhanced_task_plan[i]
                 # Format task as readable string
                 task_str = json.dumps(task, default=str) if isinstance(task, dict) else str(task)
                 task_columns.append(self._safe_str(task_str, max_length=5000))
@@ -1693,7 +1708,7 @@ class SheetsLogger:
             node_info["master_agent"],
             num_tasks,
             plan_summary,
-            self._safe_str(task_plan),  # Full plan as JSON
+            self._safe_str(enhanced_task_plan),  # Full plan as JSON with action_for
             *task_columns,  # task_1 through task_10
             datetime.utcnow().isoformat(),  # created_at
             status,
