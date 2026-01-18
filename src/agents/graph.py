@@ -1807,6 +1807,32 @@ def save_to_database(state: CreditWorkflowState) -> Dict[str, Any]:
         except Exception as e:
             logger.warning(f"Failed to log save_to_database tasks to sheets: {e}")
 
+        # For PRIVATE companies, log run summary here (they skip evaluate)
+        company_info = state.get("company_info", {})
+        is_public = company_info.get("is_public_company", False)
+        if not is_public and wf_logger:
+            # Private companies don't go through evaluate, so log run here
+            wf_logger.log_run_summary(
+                run_id=run_id,
+                company_name=company_name,
+                status="completed",
+                risk_level="unknown",  # Private companies don't have assessment
+                credit_score=0,
+                confidence=0.0,
+                reasoning="Private company - limited data available, no credit assessment performed",
+                tool_selection_score=0.0,
+                data_quality_score=0.0,
+                synthesis_score=0.0,
+                overall_score=0.0,
+                workflow_correct="yes",
+                output_correct="n/a",
+                total_tokens=0,
+                total_cost=0.0,
+                errors=state.get("errors", []),
+                run_duration_ms=(time.time() - start_time) * 1000,
+            )
+            logger.info(f"Logged run summary for private company: {company_name}")
+
         return {"status": "complete_saved"}
 
     except Exception as e:
