@@ -455,10 +455,13 @@ class ToolSelectionEvaluator:
             # Parse response
             evaluation = self._parse_llm_evaluation(response.content)
 
-            # Build result
+            # Build result - use our predefined expected_tools for consistency
+            # Don't rely on LLM to define expected tools - use our EXPECTED_TOOLS
+            expected_tools = self.get_expected_tools(company_name)
+
             result = ToolSelectionResult(
                 company_name=company_name,
-                expected_tools=evaluation.get("appropriate_tools", []) + evaluation.get("missing_tools", []),
+                expected_tools=expected_tools,
                 selected_tools=selected_tools,
                 precision=evaluation.get("precision", 0.0),
                 recall=evaluation.get("recall", 0.0),

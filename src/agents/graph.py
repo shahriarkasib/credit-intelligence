@@ -1881,11 +1881,21 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
             elif "search" in action or "web" in action:
                 planned_tools.append("web_search")
 
-        # Also check what search mode was used (normal vs enhanced)
+        # Always add the search tool that was actually used
+        # Search is always performed after API fetch, so it should always be in planned_tools
         search_status = state.get("status", "")
-        if "enhanced" in search_status and "web_search" in planned_tools:
-            # Replace web_search with web_search_enhanced if enhanced search was used
-            planned_tools = [t if t != "web_search" else "web_search_enhanced" for t in planned_tools]
+        search_data = state.get("search_data", {})
+
+        # Determine which search was used
+        if search_data:  # Search was performed
+            if "enhanced" in search_status or "search_complete_enhanced" in search_status:
+                if "web_search_enhanced" not in planned_tools:
+                    planned_tools.append("web_search_enhanced")
+                # Remove regular web_search if enhanced was used
+                planned_tools = [t for t in planned_tools if t != "web_search"]
+            else:
+                if "web_search" not in planned_tools and "web_search_enhanced" not in planned_tools:
+                    planned_tools.append("web_search")
 
         # Get tool selection reasoning from create_plan (if LLM-based selection was used)
         tool_selection_reasoning = state.get("tool_selection", {})
