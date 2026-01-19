@@ -1044,30 +1044,10 @@ class WorkflowLogger:
                 llm_calls_count=llm_calls_count,
             )
 
-        # Log to Google Sheets (use log_run, not deprecated log_run_summary)
-        if self.sheets_logger.is_connected():
-            self.sheets_logger.log_run(
-                run_id=run_id,
-                company_name=company_name,
-                status=status,
-                node=node,
-                agent_name=agent_name,
-                master_agent=master_agent,
-                model=model,
-                temperature=temperature,
-                risk_level=risk_level,
-                credit_score=credit_score,
-                confidence=confidence,
-                total_time_ms=duration_ms,
-                total_steps=total_steps,
-                total_llm_calls=llm_calls_count,
-                tools_used=tools_used,
-                evaluation_score=overall_score,
-                started_at=started_at,
-                completed_at=completed_at,
-            )
+        # NOTE: Don't log to sheets here - complete_run() already logs to runs sheet
+        # This method only logs to MongoDB run_summaries collection
 
-        logger.info(f"[{run_id[:8]}] Run summary logged: {company_name} - {risk_level} (score: {credit_score})")
+        logger.info(f"[{run_id[:8]}] Run summary logged to MongoDB: {company_name} - {risk_level} (score: {credit_score})")
 
     def log_agent_metrics(
         self,

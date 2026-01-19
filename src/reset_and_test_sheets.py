@@ -55,14 +55,22 @@ def get_sheets_client():
 
 
 def clear_all_sheets(spreadsheet):
-    """Clear all data from all sheets."""
+    """Clear all data from all sheets except meta tables."""
     print("\n" + "="*60)
-    print("STEP 1: CLEARING ALL SHEETS")
+    print("STEP 1: CLEARING ALL SHEETS (except meta tables)")
     print("="*60)
+
+    # Meta tables should never be cleared
+    meta_tables = ['meta_agents', 'meta_nodes', 'meta_tools']
 
     worksheets = spreadsheet.worksheets()
 
     for ws in worksheets:
+        # Skip meta tables
+        if ws.title in meta_tables:
+            print(f"  ⊘ Skipped {ws.title} (meta table - protected)")
+            continue
+
         try:
             # Get all values to count rows
             all_values = ws.get_all_values()
@@ -80,7 +88,7 @@ def clear_all_sheets(spreadsheet):
         except Exception as e:
             print(f"  ✗ Error clearing {ws.title}: {e}")
 
-    print("\n  All sheets cleared!")
+    print("\n  All sheets cleared (meta tables preserved)!")
 
 
 def reinitialize_sheets(spreadsheet):
@@ -129,13 +137,6 @@ def reinitialize_sheets(spreadsheet):
             "duration_ms", "status",
             "timestamp", "generated_by"
         ],
-        "step_logs": [
-            "run_id", "company_name", "node", "node_type", "agent_name",
-            "step_name", "step_number", "model", "temperature",
-            "input_summary", "output_summary",
-            "execution_time_ms", "status", "error",
-            "timestamp", "generated_by"
-        ],
         "llm_calls": [
             "run_id", "company_name", "node", "node_type", "agent_name", "step_number",
             "call_type", "model", "temperature", "context",
@@ -159,37 +160,11 @@ def reinitialize_sheets(spreadsheet):
             "execution_time_ms", "status", "error",
             "timestamp", "generated_by"
         ],
-        "langsmith_traces": [
-            "run_id", "company_name", "node", "node_type", "agent_name", "step_number",
-            "step_name", "run_type", "model", "temperature",
-            "input_preview", "output_preview",
-            "latency_ms", "status", "error",
-            "timestamp", "generated_by"
-        ],
         "langgraph_events": [
             "run_id", "company_name", "node", "node_type", "agent_name", "step_number",
             "event_type", "event_name", "model", "temperature", "tokens",
             "input_preview", "output_preview",
             "duration_ms", "status", "error",
-            "timestamp", "generated_by"
-        ],
-        "llm_calls_detailed": [
-            "run_id", "company_name", "node", "node_type", "agent_name", "step_number",
-            "llm_provider", "model", "temperature",
-            "prompt", "context", "response", "reasoning",
-            "prompt_tokens", "completion_tokens", "total_tokens",
-            "input_cost", "output_cost", "total_cost",
-            "response_time_ms", "status", "error",
-            "timestamp", "generated_by"
-        ],
-        "run_summaries": [
-            "run_id", "company_name", "node", "node_type", "model", "temperature",
-            "status", "risk_level", "credit_score", "confidence", "reasoning",
-            "tool_selection_score", "data_quality_score", "synthesis_score", "overall_score",
-            "final_decision", "decision_reasoning",
-            "errors", "warnings", "tools_used", "agents_used", "total_steps",
-            "started_at", "completed_at", "duration_ms",
-            "total_tokens", "total_cost", "llm_calls_count",
             "timestamp", "generated_by"
         ],
         "agent_metrics": [
@@ -200,18 +175,6 @@ def reinitialize_sheets(spreadsheet):
             "overall_score",
             "intent_details", "plan_details", "tool_details",
             "trajectory_details", "answer_details",
-            "status", "timestamp", "generated_by"
-        ],
-        "unified_metrics": [
-            "run_id", "company_name", "node", "node_type", "agent_name", "step_number", "model",
-            "faithfulness", "hallucination", "answer_relevancy",
-            "factual_accuracy", "final_answer_quality", "accuracy_score",
-            "same_model_consistency", "cross_model_consistency",
-            "risk_level_agreement", "semantic_similarity", "consistency_score",
-            "intent_correctness", "plan_quality", "tool_choice_correctness",
-            "tool_completeness", "trajectory_match", "agent_final_answer",
-            "agent_efficiency_score",
-            "overall_quality_score", "libraries_used", "evaluation_time_ms",
             "status", "timestamp", "generated_by"
         ],
         "llm_judge_results": [
@@ -226,17 +189,6 @@ def reinitialize_sheets(spreadsheet):
             "tokens_used", "evaluation_cost", "duration_ms", "status",
             "timestamp", "generated_by"
         ],
-        "model_consistency": [
-            "eval_id", "company_name", "node", "node_type", "agent_name", "step_number",
-            "model_name", "num_runs",
-            "risk_level_consistency", "credit_score_mean", "credit_score_std",
-            "confidence_variance", "reasoning_similarity",
-            "risk_factors_overlap", "recommendations_overlap",
-            "overall_consistency", "is_consistent", "consistency_grade",
-            "llm_judge_analysis", "llm_judge_concerns",
-            "run_details",
-            "duration_ms", "status", "timestamp", "generated_by"
-        ],
         "cross_model_eval": [
             "eval_id", "company_name", "node", "node_type", "agent_name", "step_number",
             "models_compared", "num_models",
@@ -248,31 +200,6 @@ def reinitialize_sheets(spreadsheet):
             "model_results", "pairwise_comparisons",
             "duration_ms", "status", "timestamp", "generated_by"
         ],
-        "deepeval_metrics": [
-            "run_id", "company_name", "node", "node_type", "agent_name", "step_number",
-            "model_used",
-            "answer_relevancy", "faithfulness", "hallucination",
-            "contextual_relevancy", "bias", "toxicity",
-            "overall_score",
-            "answer_relevancy_reason", "faithfulness_reason", "hallucination_reason",
-            "contextual_relevancy_reason", "bias_reason",
-            "input_query", "context_summary", "assessment_summary",
-            "evaluation_model", "evaluation_time_ms", "status",
-            "timestamp", "generated_by"
-        ],
-        "openevals_metrics": [
-            "run_id", "company_name", "node", "node_type", "agent_name", "step_number",
-            "model_used",
-            "intent_correctness", "plan_quality",
-            "tool_choice_correctness", "tool_completeness",
-            "trajectory_match", "final_answer_quality",
-            "step_count", "tool_calls", "latency_ms",
-            "overall_score",
-            "intent_details", "plan_details", "tool_details",
-            "trajectory_details", "answer_details",
-            "evaluation_time_ms", "status",
-            "timestamp", "generated_by"
-        ]
     }
 
     existing_sheets = {ws.title: ws for ws in spreadsheet.worksheets()}
