@@ -77,6 +77,10 @@ class PostgresStorage:
                 ("evaluation_score", "DECIMAL(5,4)", True, False),
                 ("workflow_correct", "BOOLEAN", True, False),
                 ("output_correct", "BOOLEAN", True, False),
+                # Performance scores (3 key metrics)
+                ("tool_overall_score", "DECIMAL(5,4)", True, False),
+                ("agent_overall_score", "DECIMAL(5,4)", True, False),
+                ("workflow_overall_score", "DECIMAL(5,4)", True, False),
                 ("timestamp", "TIMESTAMPTZ", False, True),  # Partition key
             ],
             "primary_key": ["id", "timestamp"],

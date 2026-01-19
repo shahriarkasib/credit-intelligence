@@ -1817,6 +1817,7 @@ def save_to_database(state: CreditWorkflowState) -> Dict[str, Any]:
             completed_at = time.time()
             duration_ms = (completed_at - started_at) * 1000
 
+            # Log to MongoDB via log_run_summary
             wf_logger.log_run_summary(
                 run_id=run_id,
                 company_name=company_name,
@@ -1840,6 +1841,39 @@ def save_to_database(state: CreditWorkflowState) -> Dict[str, Any]:
                 started_at=datetime.fromtimestamp(started_at).isoformat() if started_at else "",
                 completed_at=datetime.fromtimestamp(completed_at).isoformat() if completed_at else "",
             )
+
+            # ALSO log to Google Sheets runs sheet (since complete_run is skipped for private companies)
+            if sheets_logger and sheets_logger.is_connected():
+                # For private companies: tool_overall_score = 0.4 (only success rate contributes)
+                # agent_overall_score = 0.0 (not evaluated), workflow_overall_score = 0.0 (not evaluated)
+                sheets_logger.log_run(
+                    run_id=run_id,
+                    company_name=company_name,
+                    node="save_to_database",
+                    agent_name="db_writer",
+                    master_agent="supervisor",
+                    model="",  # No LLM used for private company assessment
+                    temperature=0.1,
+                    status="completed",
+                    risk_level="unknown",
+                    credit_score=0,
+                    confidence=0.0,
+                    total_time_ms=duration_ms,
+                    total_steps=wf_logger._step_counter.get(run_id, 0),
+                    total_llm_calls=wf_logger._llm_call_counter.get(run_id, 0),
+                    tools_used=[],  # Private companies have limited tool usage
+                    evaluation_score=0.0,
+                    started_at=datetime.fromtimestamp(started_at).isoformat() if started_at else "",
+                    completed_at=datetime.fromtimestamp(completed_at).isoformat() if completed_at else "",
+                    workflow_correct=None,  # Not evaluated
+                    output_correct=None,  # Not evaluated
+                    # Performance scores (3 key metrics)
+                    tool_overall_score=0.4,  # Only success rate contributes
+                    agent_overall_score=0.0,  # Not evaluated for private companies
+                    workflow_overall_score=0.0,  # Not evaluated for private companies
+                )
+                logger.info(f"Logged run to sheets for private company: {company_name}")
+
             logger.info(f"Logged run summary for private company: {company_name}")
 
         return {"status": "complete_saved"}
@@ -2404,9 +2438,76 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
 
                 except Exception as secondary_error:
                     logger.warning(f"Secondary model analysis failed: {secondary_error}")
+                    # Log the error to cross_model_eval sheet so we know why it failed
+                    try:
+                        from run_logging.sheets_logger import get_sheets_logger
+                        sheets_logger = get_sheets_logger()
+                        if sheets_logger and sheets_logger.is_connected():
+                            error_msg = str(secondary_error)
+                            # Detect rate limit errors
+                            is_rate_limit = "429" in error_msg or "rate limit" in error_msg.lower()
+                            sheets_logger.log_cross_model_eval(
+                                eval_id=run_id,
+                                company_name=company_name,
+                                models_compared=[primary_model, "llama-3.1-8b-instant"],
+                                num_models=2,
+                                node="evaluate",
+                                node_type="evaluation",
+                                agent_name="cross_model_evaluator",
+                                step_number=8,
+                                risk_level_agreement=0.0,
+                                credit_score_mean=0.0,
+                                credit_score_std=0.0,
+                                credit_score_range=0.0,
+                                confidence_agreement=0.0,
+                                best_model="",
+                                best_model_reasoning="",
+                                cross_model_agreement=0.0,
+                                llm_judge_analysis=f"FAILED: {error_msg[:500]}",
+                                model_recommendations=["Rate limit error - retry later" if is_rate_limit else "Check error logs"],
+                                model_results={},
+                                duration_ms=0.0,
+                                status="error_rate_limit" if is_rate_limit else "error",
+                            )
+                            logger.info(f"Logged cross-model eval error to sheets: {error_msg[:100]}")
+                    except Exception as log_err:
+                        logger.debug(f"Failed to log cross-model error: {log_err}")
 
         except Exception as cross_model_error:
             logger.warning(f"Cross-model evaluation failed: {cross_model_error}")
+            # Log the error to cross_model_eval sheet
+            try:
+                from run_logging.sheets_logger import get_sheets_logger
+                sheets_logger = get_sheets_logger()
+                if sheets_logger and sheets_logger.is_connected():
+                    error_msg = str(cross_model_error)
+                    is_rate_limit = "429" in error_msg or "rate limit" in error_msg.lower()
+                    sheets_logger.log_cross_model_eval(
+                        eval_id=run_id,
+                        company_name=company_name,
+                        models_compared=[],
+                        num_models=0,
+                        node="evaluate",
+                        node_type="evaluation",
+                        agent_name="cross_model_evaluator",
+                        step_number=8,
+                        risk_level_agreement=0.0,
+                        credit_score_mean=0.0,
+                        credit_score_std=0.0,
+                        credit_score_range=0.0,
+                        confidence_agreement=0.0,
+                        best_model="",
+                        best_model_reasoning="",
+                        cross_model_agreement=0.0,
+                        llm_judge_analysis=f"FAILED: {error_msg[:500]}",
+                        model_recommendations=["Rate limit error - retry later" if is_rate_limit else "Check error logs"],
+                        model_results={},
+                        duration_ms=0.0,
+                        status="error_rate_limit" if is_rate_limit else "error",
+                    )
+                    logger.info(f"Logged cross-model eval error to sheets: {error_msg[:100]}")
+            except Exception as log_err:
+                logger.debug(f"Failed to log cross-model error: {log_err}")
         # ============ END CROSS-MODEL EVALUATION ============
 
         # ============ SAME-MODEL CONSISTENCY (MULTIPLE RUNS) ============
@@ -3116,6 +3217,91 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                 )
         except Exception as e:
             logger.warning(f"Failed to log evaluate tasks to sheets: {e}")
+
+        # Log Performance Summary - aggregated metrics for the 3 key performance areas
+        try:
+            from run_logging.sheets_logger import get_sheets_logger
+            perf_sheets = get_sheets_logger()
+            if perf_sheets and perf_sheets.is_connected():
+                # Calculate tool success rate from tool calls
+                tool_success_rate = 1.0  # Default to 1.0 if no tool calls
+                if state.get("tool_calls"):
+                    tool_calls_list = state.get("tool_calls", [])
+                    if tool_calls_list:
+                        successes = sum(1 for tc in tool_calls_list if tc.get("status") == "ok")
+                        tool_success_rate = successes / len(tool_calls_list) if tool_calls_list else 1.0
+
+                # Get tool precision/recall/f1 (from tool_eval if available)
+                tool_precision = 0.0
+                tool_recall = 0.0
+                tool_f1 = 0.0
+                try:
+                    if tool_eval:
+                        tool_precision = getattr(tool_eval, 'precision', 0.0) or 0.0
+                        tool_recall = getattr(tool_eval, 'recall', 0.0) or 0.0
+                        tool_f1 = getattr(tool_eval, 'f1_score', 0.0) or 0.0
+                except NameError:
+                    pass
+
+                # Get agent metrics (intent_correctness, plan_quality, etc.)
+                agent_intent = 0.0
+                agent_plan_quality = 0.0
+                agent_tool_choice = 0.0
+                agent_trajectory = 0.0
+                agent_answer = 0.0
+                try:
+                    agent_metrics_data = evaluation.get("agent_metrics", {})
+                    if agent_metrics_data:
+                        agent_intent = agent_metrics_data.get("intent_correctness", 0.0) or 0.0
+                        agent_plan_quality = agent_metrics_data.get("plan_quality", 0.0) or 0.0
+                        agent_tool_choice = agent_metrics_data.get("tool_choice_correctness", 0.0) or 0.0
+                        agent_trajectory = agent_metrics_data.get("trajectory_match", 0.0) or 0.0
+                        agent_answer = agent_metrics_data.get("final_answer_quality", 0.0) or 0.0
+                except Exception:
+                    pass
+
+                # Get coalition correctness
+                coalition_correctness = 0.0
+                try:
+                    if coalition_result and hasattr(coalition_result, 'correctness_score'):
+                        coalition_correctness = coalition_result.correctness_score or 0.0
+                except NameError:
+                    pass
+
+                total_time = (time.time() - start_time) * 1000
+
+                # Calculate overall scores for PostgreSQL logging
+                tool_overall = (
+                    tool_success_rate * 0.4 +
+                    tool_precision * 0.2 +
+                    tool_recall * 0.2 +
+                    tool_f1 * 0.2
+                )
+                agent_overall = (
+                    agent_intent * 0.20 +
+                    agent_plan_quality * 0.25 +
+                    agent_tool_choice * 0.20 +
+                    agent_trajectory * 0.15 +
+                    agent_answer * 0.20
+                )
+                workflow_overall = (
+                    data_quality_score * 0.25 +
+                    synthesis_score * 0.30 +
+                    evaluation.get("overall_score", 0.0) * 0.25 +
+                    coalition_correctness * 0.20
+                )
+                overall_perf = (tool_overall + agent_overall + workflow_overall) / 3
+
+                # Update the runs sheet with the 3 performance scores
+                perf_sheets.update_run_performance(
+                    run_id=run_id,
+                    tool_overall_score=tool_overall,
+                    agent_overall_score=agent_overall,
+                    workflow_overall_score=workflow_overall,
+                )
+                logger.info(f"[{run_id[:8]}] Performance scores updated in runs: tool={tool_overall:.2f}, agent={agent_overall:.2f}, workflow={workflow_overall:.2f}")
+        except Exception as perf_err:
+            logger.warning(f"Performance scores update failed: {perf_err}")
 
         return {
             "evaluation": evaluation,

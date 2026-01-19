@@ -27,8 +27,11 @@ flowchart TB
         PARSE[parse_input<br/>llm_parser] --> VALIDATE
         VALIDATE[validate_company<br/>supervisor] --> PLAN
         PLAN[create_plan<br/>tool_supervisor] --> FETCH
-        FETCH[fetch_api_data<br/>api_agent] --> SEARCH
-        SEARCH[search_web<br/>search_agent] --> SYNTH
+        FETCH[fetch_api_data<br/>api_agent] --> ROUTE{Data Quality<br/>Check}
+        ROUTE -->|≥2 sources| SEARCH[search_web<br/>search_agent]
+        ROUTE -->|<2 sources| SEARCH_ENH[search_web_enhanced<br/>search_agent]
+        SEARCH --> SYNTH
+        SEARCH_ENH --> SYNTH
         SYNTH[synthesize<br/>llm_analyst] --> SAVE
         SAVE[save_to_database<br/>db_writer] --> EVAL
         EVAL[evaluate_assessment<br/>workflow_evaluator] --> EXIT([End])
@@ -253,7 +256,7 @@ flowchart TB
 
 ## Entities Hierarchy Diagram (Database Schema)
 
-This ER diagram shows all 17 tables in PostgreSQL/Google Sheets and their relationships. All tables are linked to `RUNS` via `run_id`.
+This ER diagram shows all 18 tables in PostgreSQL/Google Sheets and their relationships. All tables are linked to `RUNS` via `run_id`.
 
 ```mermaid
 erDiagram
@@ -295,6 +298,9 @@ erDiagram
         int total_tokens
         float total_cost
         int llm_calls_count
+        float tool_overall_score "0.0-1.0"
+        float agent_overall_score "0.0-1.0"
+        float workflow_overall_score "0.0-1.0"
         timestamptz timestamp
     }
 
@@ -556,8 +562,14 @@ stateDiagram-v2
     ValidateCompany --> [*]: rejected
 
     CreatePlan --> FetchAPIData: task_plan
-    FetchAPIData --> SearchWeb: api_data
+    FetchAPIData --> DataQualityCheck: api_data
+
+    state DataQualityCheck <<choice>>
+    DataQualityCheck --> SearchWeb: ≥2 API sources
+    DataQualityCheck --> SearchWebEnhanced: <2 API sources
+
     SearchWeb --> Synthesize: search_data
+    SearchWebEnhanced --> Synthesize: enhanced_search_data
 
     Synthesize --> SaveToDatabase: assessment
     SaveToDatabase --> EvaluateAssessment: saved
@@ -673,7 +685,8 @@ sequenceDiagram
 | validate_company | `supervisor` | Validates company |
 | create_plan | `tool_supervisor` | LLM tool selection |
 | fetch_api_data | `api_agent` | Fetches API data |
-| search_web | `search_agent` | Web search |
+| search_web | `search_agent` | Web search (normal mode, ≥2 API sources) |
+| search_web_enhanced | `search_agent` | Web search (enhanced mode, <2 API sources) |
 | synthesize | `llm_analyst` | Credit synthesis |
 | save_to_database | `db_writer` | Database storage |
 | evaluate_assessment | `workflow_evaluator` | All evaluation tasks |
@@ -726,8 +739,11 @@ WORKFLOW (LangGraph StateGraph)
 │   │   ├── Data Sources: SEC EDGAR, Finnhub, CourtListener
 │   │   └── Output: api_data
 │   │
-│   ├── search_web
+│   ├── search_web (or search_web_enhanced via conditional routing)
 │   │   ├── Agent: search_agent
+│   │   ├── Conditional: route_after_api_data checks API data quality
+│   │   │   ├── ≥2 API sources with data → search_web (normal)
+│   │   │   └── <2 API sources with data → search_web_enhanced
 │   │   ├── Tools: WebSearchTool, TavilySearch
 │   │   ├── Data Sources: Tavily API, Web Scraper
 │   │   └── Output: search_data
@@ -771,9 +787,13 @@ The workflow is a LangGraph StateGraph that orchestrates the entire credit asses
 | `graph` | StateGraph | LangGraph compiled graph |
 | `state_class` | CreditWorkflowState | TypedDict defining all state fields |
 | `entry_point` | string | First node to execute ("parse_input") |
-| `nodes` | Dict[str, Callable] | Map of node names to functions |
+| `nodes` | Dict[str, Callable] | Map of node names to functions (includes search_web_enhanced) |
 | `edges` | List[Tuple] | Transitions between nodes |
-| `conditionals` | Dict | Conditional routing logic |
+| `conditionals` | Dict | Conditional routing logic (route_after_api_data for data quality) |
+
+**Conditional Edges:**
+1. After `validate_company` → routes to END if validation fails
+2. After `fetch_api_data` → routes to `search_web` or `search_web_enhanced` based on data quality
 
 ---
 
@@ -914,7 +934,7 @@ Each node is a function that transforms the workflow state.
 
 #### 3.5 search_web
 
-**Purpose:** Search web for additional company information
+**Purpose:** Search web for additional company information (normal mode)
 
 | Property | Value |
 |----------|-------|
@@ -922,6 +942,7 @@ Each node is a function that transforms the workflow state.
 | node | "search_web" |
 | agent_name | **`search_agent`** |
 | tools | WebSearch, Tavily |
+| condition | Activated when ≥2 API data sources have data |
 
 **Tools Used:**
 - `WebSearchTool` -> General web search
@@ -933,6 +954,44 @@ Each node is a function that transforms the workflow state.
     "search_data": {
         "news": [...],
         "web_results": [...],
+        "scraped_content": {...}
+    }
+}
+```
+
+#### 3.5b search_web_enhanced
+
+**Purpose:** Enhanced web search when API data is limited (compensates for missing API data)
+
+| Property | Value |
+|----------|-------|
+| step_number | 5 |
+| node | "search_web_enhanced" |
+| agent_name | **`search_agent`** |
+| tools | WebSearch, Tavily (enhanced queries) |
+| condition | Activated when <2 API data sources have data |
+
+**Routing Logic:**
+The `route_after_api_data` function counts successful API data sources:
+- SEC Edgar: Has filings data?
+- Finnhub: Has profile or financials?
+- CourtListener: Has cases data?
+
+If ≥2 sources have data → normal `search_web`
+If <2 sources have data → `search_web_enhanced`
+
+**Enhanced Search Queries:**
+- `{company_name} financial performance 2024`
+- `{company_name} legal issues lawsuits`
+- `{company_name} credit rating analysis`
+- `{company_name} industry competitors`
+
+**Output:**
+```python
+{
+    "search_data": {
+        "news": [...],
+        "web_results": [...],  # More results from enhanced queries
         "scraped_content": {...}
     }
 }
@@ -1079,6 +1138,12 @@ Web search and content scraping.
 | `web_search` | WebSearchDataSource | Web search |
 | `tavily` | TavilySearchDataSource | Tavily AI search |
 | `scraper` | WebScraper | Content scraper |
+
+**Methods:**
+| Method | Description |
+|--------|-------------|
+| `search_company(company_name)` | Normal search mode |
+| `search_company_enhanced(company_name)` | Enhanced search with additional queries |
 
 #### 4.6 LLMAnalystAgent (llm_analyst)
 
@@ -1341,11 +1406,31 @@ INPUT: company_name
     │
     ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ 5. SEARCH_WEB (agent_name: search_agent)                        │
-│    ├── Tool Execution:                                          │
+│ 4b. DATA QUALITY CHECK (route_after_api_data)                   │
+│    ├── Count API sources with data:                             │
+│    │   ├── SEC Edgar: has filings?                             │
+│    │   ├── Finnhub: has profile/financials?                    │
+│    │   └── CourtListener: has cases?                           │
+│    └── Route Decision:                                          │
+│        ├── ≥2 sources → search_web (normal)                    │
+│        └── <2 sources → search_web_enhanced                    │
+└─────────────────────────────────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ 5. SEARCH_WEB or SEARCH_WEB_ENHANCED (agent_name: search_agent) │
+│    ├── Normal Mode (search_web):                                │
 │    │   ├── WebSearchTool → web search results                  │
 │    │   ├── TavilySearch → AI-powered search                    │
 │    │   └── WebScraper → company website content                │
+│    │                                                            │
+│    ├── Enhanced Mode (search_web_enhanced):                     │
+│    │   ├── All normal searches PLUS:                           │
+│    │   ├── "{company} financial performance 2024"              │
+│    │   ├── "{company} legal issues lawsuits"                   │
+│    │   ├── "{company} credit rating analysis"                  │
+│    │   └── "{company} industry competitors"                    │
+│    │                                                            │
 │    └── Output: search_data {news, web_results, scraped}        │
 └─────────────────────────────────────────────────────────────────┘
     │
@@ -1481,13 +1566,18 @@ src/
 
 The Credit Intelligence system is a hierarchical multi-agent workflow:
 
-1. **Workflow** orchestrates the entire process
-2. **Nodes** are discrete steps in the workflow
+1. **Workflow** orchestrates the entire process with conditional routing
+2. **Nodes** are discrete steps in the workflow (9 nodes including search_web_enhanced)
 3. **Agents** execute within nodes (8 canonical agent names)
 4. **Tools** are used by agents to fetch data
 5. **Data Sources** connect to external APIs
 6. **LLM Calls** power analysis and decision-making
 7. **Evaluators** measure output quality (all use `workflow_evaluator`)
 8. **Loggers** record everything to both PostgreSQL and Google Sheets (dual-write)
+9. **Conditional Routing** adapts the workflow based on data quality (route_after_api_data)
+
+**Key Conditional Edges:**
+- After `fetch_api_data`: Routes to `search_web` (≥2 API sources) or `search_web_enhanced` (<2 API sources)
+- After `validate_company`: Routes to END if validation fails
 
 Each entity has well-defined inputs, outputs, and relationships, enabling comprehensive tracing and evaluation of the credit assessment process.

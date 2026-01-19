@@ -1017,15 +1017,13 @@ export default function CreditIntelligenceStudio() {
               <SlidersHorizontal className="w-4 h-4" />
               Settings
             </Link>
-            <a
+            <Link
               href="/erd"
-              target="_blank"
-              rel="noopener noreferrer"
               className="flex items-center gap-2 px-3 py-1.5 text-sm bg-studio-panel hover:bg-studio-border rounded transition-colors"
             >
               <Database className="w-4 h-4" />
               ERD
-            </a>
+            </Link>
             <button
               onClick={() => setShowHelpModal(true)}
               className="flex items-center gap-2 px-3 py-1.5 text-sm bg-yellow-600 hover:bg-yellow-700 rounded transition-colors"

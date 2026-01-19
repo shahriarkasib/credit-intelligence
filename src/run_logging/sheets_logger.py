@@ -214,6 +214,8 @@ class SheetsLogger:
                 "total_steps", "total_llm_calls", "tools_used", "evaluation_score",
                 # Correctness columns
                 "workflow_correct", "output_correct",
+                # Performance scores (3 key metrics)
+                "tool_overall_score", "agent_overall_score", "workflow_overall_score",
                 "timestamp", "generated_by"
             ],
             # Sheet 2: Tool execution logs (with hierarchy tracking)
@@ -484,6 +486,10 @@ class SheetsLogger:
         # Correctness fields
         workflow_correct: bool = None,
         output_correct: bool = None,
+        # Performance scores (3 key metrics)
+        tool_overall_score: float = None,
+        agent_overall_score: float = None,
+        workflow_overall_score: float = None,
     ):
         """Log a run summary (non-blocking)."""
         if not self.is_connected():
@@ -492,14 +498,18 @@ class SheetsLogger:
         # Normalize node info using static definitions
         node_info = normalize_node_info(node, None, agent_name, master_agent)
 
-        # Row must match headers: run_id, company_name, node, agent_name, model, temperature,
+        # Row must match headers exactly (25 columns):
+        # run_id, company_name, node, agent_name, master_agent, model, temperature,
         # status, started_at, completed_at, risk_level, credit_score, confidence, total_time_ms,
-        # total_steps, total_llm_calls, tools_used, evaluation_score, timestamp, generated_by
+        # total_steps, total_llm_calls, tools_used, evaluation_score,
+        # workflow_correct, output_correct, tool_overall_score, agent_overall_score, workflow_overall_score,
+        # timestamp, generated_by
         row = [
             run_id,
             company_name,
             node_info["node"],
             node_info["agent_name"],
+            node_info["master_agent"],  # master_agent column
             model or "",
             temperature if temperature is not None else 0.1,  # Default temperature
             status,
@@ -513,6 +523,13 @@ class SheetsLogger:
             total_llm_calls,
             ", ".join(tools_used) if tools_used else "",
             evaluation_score if evaluation_score is not None else "",
+            # Correctness columns (updated later by update_run_correctness)
+            "yes" if workflow_correct else ("no" if workflow_correct is False else ""),
+            "yes" if output_correct else ("no" if output_correct is False else ""),
+            # Performance scores (3 key metrics)
+            round(tool_overall_score, 4) if tool_overall_score is not None else "",
+            round(agent_overall_score, 4) if agent_overall_score is not None else "",
+            round(workflow_overall_score, 4) if workflow_overall_score is not None else "",
             datetime.utcnow().isoformat(),  # timestamp
             "Us",  # generated_by: We generate run summaries
         ]
@@ -585,6 +602,68 @@ class SheetsLogger:
 
             except Exception as e:
                 logger.error(f"Failed to update run correctness in sheets: {e}")
+
+        _sheets_executor.submit(_update)
+
+    def update_run_performance(
+        self,
+        run_id: str,
+        tool_overall_score: float = None,
+        agent_overall_score: float = None,
+        workflow_overall_score: float = None,
+    ):
+        """
+        Update the 3 performance score columns for an existing run.
+
+        This is called after evaluation completes to update the run
+        with performance scores that weren't available when the run was initially logged.
+
+        Args:
+            run_id: The run ID to update
+            tool_overall_score: Overall tool performance (0-1)
+            agent_overall_score: Overall agent performance (0-1)
+            workflow_overall_score: Overall workflow performance (0-1)
+        """
+        if not self.is_connected():
+            return
+
+        def _update():
+            try:
+                sheet = self._get_sheet("runs")
+                if not sheet:
+                    logger.warning("Could not get runs sheet for update")
+                    return
+
+                # Find the row with this run_id
+                all_values = sheet.get_all_values()
+                row_index = None
+
+                # Search from bottom up (most recent runs first)
+                for i in range(len(all_values) - 1, 0, -1):
+                    if all_values[i] and all_values[i][0] == run_id:
+                        row_index = i + 1  # gspread uses 1-based indexing
+                        break
+
+                if row_index is None:
+                    logger.warning(f"Could not find run {run_id} in runs sheet for performance update")
+                    return
+
+                # Performance scores are columns 21-23 (U, V, W)
+                # Based on header: ... workflow_correct(19), output_correct(20),
+                # tool_overall_score(21/U), agent_overall_score(22/V), workflow_overall_score(23/W)
+                tool_value = round(tool_overall_score, 4) if tool_overall_score is not None else ""
+                agent_value = round(agent_overall_score, 4) if agent_overall_score is not None else ""
+                workflow_value = round(workflow_overall_score, 4) if workflow_overall_score is not None else ""
+
+                # Update all 3 cells
+                sheet.update(f"U{row_index}", [[tool_value]])
+                sheet.update(f"V{row_index}", [[agent_value]])
+                sheet.update(f"W{row_index}", [[workflow_value]])
+
+                logger.info(f"Updated run {run_id} performance: tool={tool_value}, agent={agent_value}, workflow={workflow_value}")
+
+            except Exception as e:
+                logger.error(f"Failed to update run performance in sheets: {e}")
 
         _sheets_executor.submit(_update)
 
@@ -1917,6 +1996,7 @@ class SheetsLogger:
                 "risk_level", "credit_score", "confidence", "total_time_ms",
                 "total_steps", "total_llm_calls", "tools_used", "evaluation_score",
                 "workflow_correct", "output_correct",
+                "tool_overall_score", "agent_overall_score", "workflow_overall_score",
                 "timestamp", "generated_by"
             ],
             "tool_calls": [
@@ -2128,7 +2208,8 @@ class SheetsLogger:
             "runs", "langgraph_events", "llm_calls", "tool_calls",
             "assessments", "evaluations", "tool_selections",
             "consistency_scores", "data_sources", "plans", "prompts",
-            "cross_model_eval", "llm_judge_results", "agent_metrics", "coalition", "log_tests"
+            "cross_model_eval", "llm_judge_results", "agent_metrics", "coalition",
+            "log_tests", "performance_summary"
         ]
 
         results = {

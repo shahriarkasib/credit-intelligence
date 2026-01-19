@@ -52,6 +52,9 @@ erDiagram
         decimal total_time_ms
         int total_steps
         int total_llm_calls
+        decimal tool_overall_score
+        decimal agent_overall_score
+        decimal workflow_overall_score
         timestamptz timestamp
     }
 
@@ -369,8 +372,8 @@ SSL: require
 
 ## Storage Summary
 
-- **Google Sheets**: 17 sheets
-- **PostgreSQL**: 17 base tables + 192 monthly partitions = 209 tables
+- **Google Sheets**: 17 sheets (runs sheet includes 3 performance metrics columns)
+- **PostgreSQL**: 17 base tables + monthly partitions
 - **MongoDB**: 17 collections (mirrors Google Sheets)
 
 ### Partitioning

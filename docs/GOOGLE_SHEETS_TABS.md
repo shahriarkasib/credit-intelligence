@@ -42,7 +42,7 @@ This document describes all 17 tabs in the Credit Intelligence Google Sheets log
 
 ## Tab 1: `runs`
 
-**Purpose:** High-level summary of each credit analysis run.
+**Purpose:** High-level summary of each credit analysis run, including 3 key performance metrics.
 
 **Key Columns:**
 - `run_id` - Unique identifier for the run
@@ -53,8 +53,11 @@ This document describes all 17 tabs in the Credit Intelligence Google Sheets log
 - `evaluation_score` - Overall evaluation score
 - `total_time_ms` - Total execution time
 - `tools_used` - List of tools executed
+- `tool_overall_score` - Overall tool performance (0-1)
+- `agent_overall_score` - Overall agent performance (0-1)
+- `workflow_overall_score` - Overall workflow performance (0-1)
 
-**When Logged:** Once per run, at completion.
+**When Logged:** Once per run, at completion. Performance scores updated after evaluation.
 
 ---
 

@@ -217,6 +217,10 @@ class PostgresLogger:
         evaluation_score: float = 0.0,
         workflow_correct: bool = None,
         output_correct: bool = None,
+        # Performance scores (3 key metrics)
+        tool_overall_score: float = None,
+        agent_overall_score: float = None,
+        workflow_overall_score: float = None,
         **kwargs,
     ) -> bool:
         """Log a run summary - matches Google Sheets 'runs' schema."""
@@ -253,6 +257,10 @@ class PostgresLogger:
             "evaluation_score": evaluation_score,
             "workflow_correct": workflow_correct,
             "output_correct": output_correct,
+            # Performance scores (3 key metrics)
+            "tool_overall_score": tool_overall_score,
+            "agent_overall_score": agent_overall_score,
+            "workflow_overall_score": workflow_overall_score,
         }
         data.update(kwargs)
         return self.log("runs", data)
