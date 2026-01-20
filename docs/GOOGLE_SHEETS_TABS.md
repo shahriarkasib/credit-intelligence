@@ -1,6 +1,6 @@
 # Google Sheets Tab Documentation
 
-This document describes all 17 tabs in the Credit Intelligence Google Sheets logging system.
+This document describes all 18 tabs in the Credit Intelligence Google Sheets logging system.
 
 **Spreadsheet ID:** `1E8unWiaAEvxeCby_s_r2Y7g9iW4PznukuC1tpWG58s0`
 
@@ -27,6 +27,7 @@ This document describes all 17 tabs in the Credit Intelligence Google Sheets log
 | 15 | `llm_judge_results` | LLM-as-Judge results | LLM |
 | 16 | `agent_metrics` | Agent efficiency | Rule-Based |
 | 17 | `log_tests` | Logging verification | Internal |
+| 18 | `node_scoring` | LLM judge node quality | LLM |
 
 ---
 
@@ -347,6 +348,43 @@ overall_score = (intent*0.15) + (plan*0.15) + (tool_prec*0.20) +
 
 ---
 
+## Tab 18: `node_scoring`
+
+**Purpose:** LLM-as-Judge quality scores for each node's execution.
+
+**Key Columns:**
+- `node` - Graph node name (parse_input, validate_company, etc.)
+- `node_type` - Type of node (llm, tool, supervisor, etc.)
+- `agent_name` - Canonical agent name executing the node
+- `master_agent` - Top-level agent (typically "supervisor")
+- `step_number` - Order in workflow execution
+- `task_description` - What the node was supposed to do
+- `task_completed` - Did the node complete its task? (true/false)
+- `quality_score` - LLM judge quality score (0.0-1.0)
+- `quality_reasoning` - LLM explanation for the score
+- `input_summary` - Summary of node input
+- `output_summary` - Summary of node output
+- `judge_model` - Model used for evaluation
+
+**Evaluation Criteria by Node:**
+| Node | Success Criteria |
+|------|------------------|
+| parse_input | Correctly identified public/private, valid ticker, confidence > 0.5 |
+| validate_company | Confirmed company exists, appropriate validation status |
+| create_plan | Plan has 3-10 tasks, tools relevant for company type |
+| fetch_api_data | Made API calls, retrieved data from ≥1 source (PUBLIC only) |
+| search_web | Executed searches, found relevant results |
+| search_web_enhanced | Enhanced search with additional queries (PRIVATE companies) |
+| synthesize | Valid risk_level, credit_score (300-850), confidence (0-1) |
+| save_to_database | Data saved without errors |
+| evaluate_assessment | Produced evaluation scores |
+
+**Provider:** Groq (llama-3.3-70b-versatile) - **FREE**
+
+**When Logged:** After all evaluations complete (one entry per node per run).
+
+---
+
 ## Evaluation Framework Summary
 
 | Framework | Tab | Provider | Model | Cost | Metrics |
@@ -355,6 +393,7 @@ overall_score = (intent*0.15) + (plan*0.15) + (tool_prec*0.20) +
 | DeepEval | deepeval_metrics | Groq | llama-3.3-70b | Free | hallucination, faithfulness |
 | OpenEvals | openevals_metrics | OpenAI | gpt-4o-mini | $0.001 | helpfulness, coherence |
 | LLM Judge | llm_judge_results | Groq | llama-3.3-70b | Free | accuracy, completeness |
+| Node Scoring | node_scoring | Groq | llama-3.3-70b | Free | task_completed, quality_score |
 
 ---
 
@@ -379,11 +418,12 @@ overall_score = (intent*0.15) + (plan*0.15) + (tool_prec*0.20) +
 | parse_input | `llm_parser` | Parses company input |
 | validate_company | `supervisor` | Validates company |
 | create_plan | `tool_supervisor` | LLM tool selection |
-| fetch_api_data | `api_agent` | Fetches API data |
-| search_web | `search_agent` | Web search |
+| fetch_api_data | `api_agent` | Fetches API data (PUBLIC companies only) |
+| search_web | `search_agent` | Web search (normal mode) |
+| search_web_enhanced | `search_agent` | Enhanced web search (PRIVATE companies or low API data) |
 | synthesize | `llm_analyst` | Credit synthesis |
 | save_to_database | `db_writer` | Database storage |
-| evaluate_assessment | `workflow_evaluator` | All evaluations |
+| evaluate_assessment | `workflow_evaluator` | All evaluations + node scoring |
 
 ---
 

@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 # Import LangChain ChatGroq for LLM-as-judge evaluation
 try:
-    from config.langchain_llm import get_chat_groq, is_langchain_groq_available
+    from config.langchain_llm import get_chat_llm, get_chat_groq, is_langchain_groq_available
     from config.langchain_callbacks import CostTrackerCallback
     from langchain_core.messages import HumanMessage
     LANGCHAIN_GROQ_AVAILABLE = is_langchain_groq_available()
@@ -435,7 +435,7 @@ class ToolSelectionEvaluator:
 
         # Call LLM
         try:
-            llm = get_chat_groq(model=model, temperature=0.1, callbacks=callbacks)
+            llm = get_chat_llm(model=model, temperature=0.1, callbacks=callbacks)
             if not llm:
                 raise RuntimeError("Failed to create LLM instance")
 

@@ -301,8 +301,16 @@ def reinitialize_sheets(spreadsheet):
             "assessments", "evaluations", "tool_selections",
             "consistency_scores", "data_sources", "plans", "prompts",
             "cross_model_eval", "llm_judge_results", "agent_metrics", "coalition",
+            "node_scoring",
             # Summary
             "total_sheets_logged", "verification_status",
+            "timestamp", "generated_by"
+        ],
+        # Sheet 18: Node Scoring - LLM judge quality scores for each node
+        "node_scoring": [
+            "run_id", "company_name", "node", "node_type", "agent_name", "master_agent", "step_number",
+            "task_description", "task_completed", "quality_score", "quality_reasoning",
+            "input_summary", "output_summary", "judge_model",
             "timestamp", "generated_by"
         ],
         # Sheet 17: State Dumps - Full workflow state snapshots

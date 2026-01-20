@@ -542,6 +542,32 @@ class PostgresStorage:
             "foreign_keys": [("run_id", "wf_runs", "run_id")],
         },
 
+        # Node Scoring (LLM judge quality scores) - matches Google Sheets "node_scoring" exactly
+        "eval_node_scoring": {
+            "prefix": "",
+            "columns": [
+                ("id", "BIGSERIAL", False, False),
+                ("run_id", "VARCHAR(64)", False, False),
+                ("company_name", "VARCHAR(255)", True, False),
+                ("node", "VARCHAR(100)", True, False),
+                ("node_type", "VARCHAR(50)", True, False),
+                ("agent_name", "VARCHAR(100)", True, False),
+                ("master_agent", "VARCHAR(100)", True, False),
+                ("step_number", "INTEGER", True, False),
+                ("task_description", "TEXT", True, False),
+                ("task_completed", "BOOLEAN", True, False),
+                ("quality_score", "DECIMAL(5,4)", True, False),
+                ("quality_reasoning", "TEXT", True, False),
+                ("input_summary", "TEXT", True, False),
+                ("output_summary", "TEXT", True, False),
+                ("judge_model", "VARCHAR(100)", True, False),
+                ("timestamp", "TIMESTAMPTZ", False, True),
+            ],
+            "primary_key": ["id", "timestamp"],
+            "indexes": ["run_id", "node", "agent_name", "quality_score"],
+            "foreign_keys": [("run_id", "wf_runs", "run_id")],
+        },
+
         # Log Tests (evaluation/verification) - matches Google Sheets "log_tests" exactly
         "eval_log_tests": {
             "prefix": "",
@@ -565,6 +591,7 @@ class PostgresStorage:
                 ("llm_judge_results", "INTEGER", True, False),
                 ("agent_metrics", "INTEGER", True, False),
                 ("coalition", "INTEGER", True, False),
+                ("node_scoring", "INTEGER", True, False),
                 ("total_sheets_logged", "INTEGER", True, False),  # Match Sheets column name
                 ("verification_status", "VARCHAR(50)", True, False),
                 ("timestamp", "TIMESTAMPTZ", False, True),
@@ -938,6 +965,7 @@ class PostgresStorage:
         "llm_judge_results": "eval_llm_judge",
         "agent_metrics": "eval_agent_metrics",
         "coalition": "eval_coalition",
+        "node_scoring": "eval_node_scoring",
         "log_tests": "eval_log_tests",
         "state_dumps": "wf_state_dumps",
         "api_keys": "meta_api_keys",

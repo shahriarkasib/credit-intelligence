@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 # Import LangChain ChatGroq (preferred)
 try:
-    from config.langchain_llm import get_chat_groq, is_langchain_groq_available
+    from config.langchain_llm import get_chat_llm, get_chat_groq, is_langchain_groq_available
     from config.langchain_callbacks import CostTrackerCallback
     from langchain_core.messages import HumanMessage
     LANGCHAIN_GROQ_AVAILABLE = is_langchain_groq_available()
@@ -253,7 +253,7 @@ Respond ONLY with the JSON object."""
             tracker = get_cost_tracker()
             callbacks.append(CostTrackerCallback(tracker=tracker, call_type=call_type))
 
-        llm = get_chat_groq(
+        llm = get_chat_llm(
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,

@@ -33,6 +33,7 @@ erDiagram
     wf_runs ||--o{ eval_llm_judge : "run_id"
     wf_runs ||--o{ eval_cross_model : "run_id"
     wf_runs ||--o{ eval_log_tests : "run_id"
+    wf_runs ||--o{ eval_node_scoring : "run_id"
 
     %% Metadata tables
     wf_runs ||--o{ meta_prompts : "run_id"
@@ -307,8 +308,28 @@ erDiagram
         int data_sources
         int plans
         int prompts
+        int node_scoring
         int total_sheets_logged
         varchar verification_status
+        timestamptz timestamp
+    }
+
+    eval_node_scoring {
+        bigint id PK
+        varchar run_id FK
+        varchar company_name J
+        varchar node J
+        varchar node_type J
+        varchar agent_name J
+        varchar master_agent J
+        int step_number J
+        text task_description
+        boolean task_completed
+        decimal quality_score
+        text quality_reasoning
+        text input_summary
+        text output_summary
+        varchar judge_model
         timestamptz timestamp
     }
 
@@ -335,9 +356,9 @@ erDiagram
 |----------|--------|-------|--------|
 | Workflow | `wf_*` | 7 | wf_runs, wf_llm_calls, wf_tool_calls, wf_assessments, wf_plans, wf_data_sources, wf_state_dumps |
 | LangGraph | `lg_*` | 1 | lg_events |
-| Evaluation | `eval_*` | 8 | eval_results, eval_tool_selection, eval_consistency, eval_coalition, eval_agent_metrics, eval_llm_judge, eval_cross_model, eval_log_tests |
+| Evaluation | `eval_*` | 9 | eval_results, eval_tool_selection, eval_consistency, eval_coalition, eval_agent_metrics, eval_llm_judge, eval_cross_model, eval_log_tests, eval_node_scoring |
 | Metadata | `meta_*` | 1 | meta_prompts |
-| **Total** | | **17** | |
+| **Total** | | **18** | |
 
 ## Storage Mapping
 
@@ -359,6 +380,7 @@ erDiagram
 | llm_judge_results | eval_llm_judge |
 | cross_model_eval | eval_cross_model |
 | log_tests | eval_log_tests |
+| node_scoring | eval_node_scoring |
 | prompts | meta_prompts |
 
 ## Database Connection
@@ -372,12 +394,12 @@ SSL: require
 
 ## Storage Summary
 
-- **Google Sheets**: 17 sheets (runs sheet includes 3 performance metrics columns)
-- **PostgreSQL**: 17 base tables + monthly partitions
-- **MongoDB**: 17 collections (mirrors Google Sheets)
+- **Google Sheets**: 18 sheets (runs sheet includes 3 performance metrics columns)
+- **PostgreSQL**: 18 base tables + monthly partitions
+- **MongoDB**: 18 collections (mirrors Google Sheets)
 
 ### Partitioning
 All PostgreSQL tables are partitioned by `timestamp`:
 - Pattern: `{table_name}_2026_{MM}` (e.g., wf_runs_2026_01)
-- 16 partitioned tables × 12 months = 192 partitions
+- 17 partitioned tables × 12 months = 204 partitions
 - meta_prompts has 12 partitions

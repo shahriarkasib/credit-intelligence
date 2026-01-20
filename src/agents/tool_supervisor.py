@@ -20,7 +20,7 @@ except ImportError:
 
 # Import LangChain LLM factory (preferred)
 try:
-    from config.langchain_llm import get_chat_groq, get_llm_for_prompt, get_llm_config_for_prompt, is_langchain_groq_available
+    from config.langchain_llm import get_chat_llm, get_chat_groq, get_llm_for_prompt, get_llm_config_for_prompt, is_langchain_groq_available
     from config.langchain_callbacks import CostTrackerCallback
     from langchain_core.messages import HumanMessage
     LANGCHAIN_GROQ_AVAILABLE = is_langchain_groq_available()
@@ -378,7 +378,7 @@ Respond with a JSON object:
             callbacks.append(CostTrackerCallback(tracker=tracker, call_type=call_type))
 
         # Get ChatGroq instance
-        llm = get_chat_groq(
+        llm = get_chat_llm(
             model=self.model,
             temperature=temperature,
             callbacks=callbacks,
@@ -497,7 +497,7 @@ Respond with a JSON object:
         if not llm:
             # Fallback to default
             logger.warning(f"Failed to get LLM for prompt '{prompt_id}', falling back to default")
-            llm = get_chat_groq(model=self.model, temperature=0.1, callbacks=callbacks)
+            llm = get_chat_llm(model=self.model, temperature=0.1, callbacks=callbacks)
 
         if not llm:
             raise RuntimeError(f"Failed to create LLM instance for prompt '{prompt_id}'")

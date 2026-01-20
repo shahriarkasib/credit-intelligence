@@ -268,6 +268,28 @@ const tables = {
       ],
     },
     {
+      name: 'eval_node_scoring',
+      description: 'LLM judge quality scores for each node',
+      columns: [
+        { name: 'id', type: 'bigint', key: 'PK' },
+        { name: 'run_id', type: 'varchar', key: 'FK' },
+        { name: 'company_name', type: 'varchar', key: 'J' },
+        { name: 'node', type: 'varchar', key: 'J' },
+        { name: 'node_type', type: 'varchar' },
+        { name: 'agent_name', type: 'varchar', key: 'J' },
+        { name: 'master_agent', type: 'varchar' },
+        { name: 'step_number', type: 'int' },
+        { name: 'task_description', type: 'text' },
+        { name: 'task_completed', type: 'boolean' },
+        { name: 'quality_score', type: 'decimal' },
+        { name: 'quality_reasoning', type: 'text' },
+        { name: 'input_summary', type: 'text' },
+        { name: 'output_summary', type: 'text' },
+        { name: 'judge_model', type: 'varchar' },
+        { name: 'timestamp', type: 'timestamptz' },
+      ],
+    },
+    {
       name: 'eval_log_tests',
       description: 'Logging verification',
       columns: [

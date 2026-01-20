@@ -128,7 +128,7 @@ ANTHROPIC_MODELS = {
 MODELS = GROQ_MODELS
 
 # Default settings
-DEFAULT_PROVIDER = "groq"
+DEFAULT_PROVIDER = os.getenv("LLM_PROVIDER", "openai")  # Changed from groq due to rate limits
 DEFAULT_TEMPERATURE = 0.1
 DEFAULT_MAX_TOKENS = 2000
 
@@ -192,6 +192,45 @@ def get_chat_groq(
 def get_model_id(model: str) -> str:
     """Get the actual model ID from an alias."""
     return MODELS.get(model, model)
+
+
+def get_chat_llm(
+    model: str = "primary",
+    temperature: float = DEFAULT_TEMPERATURE,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+    callbacks: Optional[List[Any]] = None,
+    api_key: Optional[str] = None,
+    provider: Optional[str] = None,
+) -> Optional[Any]:
+    """
+    Create a Chat LLM instance using the configured provider.
+
+    Args:
+        model: Model name or alias (primary, fast, balanced)
+        temperature: Sampling temperature (0-1)
+        max_tokens: Maximum tokens in response
+        callbacks: List of LangChain callback handlers
+        api_key: API key (provider-specific)
+        provider: Override provider (groq, openai, anthropic). Defaults to DEFAULT_PROVIDER.
+
+    Returns:
+        Chat LLM instance or None if not available
+    """
+    provider = provider or DEFAULT_PROVIDER
+
+    # Normalize model to alias if it's a Groq model name
+    model_alias = model
+    for alias, groq_model in GROQ_MODELS.items():
+        if model == groq_model:
+            model_alias = alias
+            break
+
+    if provider == "openai":
+        return _get_chat_openai(model_alias, temperature, max_tokens, callbacks, api_key)
+    elif provider == "anthropic":
+        return _get_chat_anthropic(model_alias, temperature, max_tokens, callbacks, api_key)
+    else:  # groq
+        return get_chat_groq(model_alias, temperature, max_tokens, callbacks, api_key)
 
 
 def is_langchain_groq_available() -> bool:

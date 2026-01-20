@@ -26,15 +26,18 @@ flowchart TB
         ENTRY([Start]) --> PARSE
         PARSE[parse_input<br/>llm_parser] --> VALIDATE
         VALIDATE[validate_company<br/>supervisor] --> PLAN
-        PLAN[create_plan<br/>tool_supervisor] --> FETCH
-        FETCH[fetch_api_data<br/>api_agent] --> ROUTE{Data Quality<br/>Check}
+        PLAN[create_plan<br/>tool_supervisor] --> TYPE{Company Type<br/>Check}
+        TYPE -->|PUBLIC| FETCH[fetch_api_data<br/>api_agent]
+        TYPE -->|PRIVATE| SEARCH_ENH[search_web_enhanced<br/>search_agent]
+        FETCH --> ROUTE{Data Quality<br/>Check}
         ROUTE -->|≥2 sources| SEARCH[search_web<br/>search_agent]
-        ROUTE -->|<2 sources| SEARCH_ENH[search_web_enhanced<br/>search_agent]
+        ROUTE -->|<2 sources| SEARCH_ENH
         SEARCH --> SYNTH
         SEARCH_ENH --> SYNTH
         SYNTH[synthesize<br/>llm_analyst] --> SAVE
         SAVE[save_to_database<br/>db_writer] --> EVAL
-        EVAL[evaluate_assessment<br/>workflow_evaluator] --> EXIT([End])
+        EVAL[evaluate_assessment<br/>workflow_evaluator] --> SCORE[Node Scoring<br/>LLM Judge]
+        SCORE --> EXIT([End])
     end
 
     subgraph Tools["Tools Layer"]
@@ -275,6 +278,7 @@ erDiagram
     RUNS ||--|| LLM_JUDGE_RESULTS : "has one"
     RUNS ||--|| AGENT_METRICS : "has one"
     RUNS ||--|| LOG_TESTS : "has one"
+    RUNS ||--o{ NODE_SCORING : "has many"
 
     RUNS {
         serial id PK
@@ -505,6 +509,25 @@ erDiagram
         timestamptz timestamp
     }
 
+    NODE_SCORING {
+        serial id PK
+        string run_id FK
+        string company_name
+        string node
+        string node_type
+        string agent_name
+        string master_agent
+        int step_number
+        text task_description
+        boolean task_completed
+        decimal quality_score "0.0-1.0"
+        text quality_reasoning
+        text input_summary
+        text output_summary
+        string judge_model
+        timestamptz timestamp
+    }
+
     API_KEYS {
         serial id PK
         string key_name UK
@@ -545,6 +568,7 @@ erDiagram
 | llm_judge_results | runs.run_id | 1:1 | One LLM judge evaluation per run |
 | agent_metrics | runs.run_id | 1:1 | One agent metrics summary per run |
 | log_tests | runs.run_id | 1:1 | One log verification per run |
+| node_scoring | runs.run_id | 1:N | LLM judge quality scores per node |
 | api_keys | - | - | Standalone, runtime API key storage |
 | companies | - | - | Standalone, company data cache |
 
@@ -561,7 +585,12 @@ stateDiagram-v2
 
     ValidateCompany --> [*]: rejected
 
-    CreatePlan --> FetchAPIData: task_plan
+    CreatePlan --> CompanyTypeCheck: task_plan
+
+    state CompanyTypeCheck <<choice>>
+    CompanyTypeCheck --> FetchAPIData: PUBLIC
+    CompanyTypeCheck --> SearchWebEnhanced: PRIVATE
+
     FetchAPIData --> DataQualityCheck: api_data
 
     state DataQualityCheck <<choice>>
@@ -606,7 +635,8 @@ stateDiagram-v2
         DataQualityEval --> SynthesisEval
         SynthesisEval --> LLMJudge
         LLMJudge --> AgentMetrics
-        AgentMetrics --> [*]
+        AgentMetrics --> NodeScoring
+        NodeScoring --> [*]
     }
 ```
 
@@ -793,7 +823,8 @@ The workflow is a LangGraph StateGraph that orchestrates the entire credit asses
 
 **Conditional Edges:**
 1. After `validate_company` → routes to END if validation fails
-2. After `fetch_api_data` → routes to `search_web` or `search_web_enhanced` based on data quality
+2. After `create_plan` → routes to `fetch_api_data` (PUBLIC) or `search_web_enhanced` (PRIVATE) based on company type
+3. After `fetch_api_data` → routes to `search_web` or `search_web_enhanced` based on data quality
 
 ---
 
@@ -1244,6 +1275,7 @@ Data sources are API connectors that handle authentication and data transformati
 | `credit_synthesis` | synthesis | llm_analyst | Produce credit assessment |
 | `credit_analysis` | analysis | llm_analyst | Full credit analysis |
 | `validation` | validation | supervisor | Validate assessment |
+| `node_scoring_judge` | evaluation | workflow_evaluator | LLM judge for node quality scoring |
 
 #### 7.2 LLM Providers & Models
 
@@ -1352,6 +1384,7 @@ Relational database for structured logging and analytics (via Heroku Postgres).
 | llm_judge_results | LLM judge results |
 | agent_metrics | Agent efficiency metrics |
 | log_tests | Log verification records |
+| node_scoring | LLM judge node quality scores |
 | api_keys | Runtime API key storage |
 
 **Key Features:**
@@ -1577,7 +1610,11 @@ The Credit Intelligence system is a hierarchical multi-agent workflow:
 9. **Conditional Routing** adapts the workflow based on data quality (route_after_api_data)
 
 **Key Conditional Edges:**
+- After `create_plan`: Routes to `fetch_api_data` (PUBLIC companies) or `search_web_enhanced` (PRIVATE companies)
 - After `fetch_api_data`: Routes to `search_web` (≥2 API sources) or `search_web_enhanced` (<2 API sources)
 - After `validate_company`: Routes to END if validation fails
+
+**LLM Judge Node Scoring:**
+After all evaluations, an LLM judge evaluates each node's execution quality using the `node_scoring_judge` prompt. This provides quality scores (0-1) for every node in the workflow, logged to the `node_scoring` table/sheet.
 
 Each entity has well-defined inputs, outputs, and relationships, enabling comprehensive tracing and evaluation of the credit assessment process.

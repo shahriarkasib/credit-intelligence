@@ -1197,6 +1197,88 @@ class WorkflowLogger:
 
         logger.info(f"[{run_id[:8]}] Agent metrics logged: overall_score={overall_score:.4f}")
 
+    def log_node_scoring(
+        self,
+        run_id: str,
+        company_name: str,
+        node: str,
+        node_type: str = "",
+        agent_name: str = "",
+        master_agent: str = "supervisor",
+        step_number: int = 0,
+        task_description: str = "",
+        task_completed: bool = True,
+        quality_score: float = 0.0,
+        quality_reasoning: str = "",
+        input_summary: str = "",
+        output_summary: str = "",
+        judge_model: str = "",
+    ):
+        """
+        Log LLM judge quality score for a node.
+
+        This method logs the quality assessment of each node's execution
+        to both Google Sheets and PostgreSQL.
+
+        Args:
+            run_id: Unique identifier for the workflow run
+            company_name: Name of the company being assessed
+            node: Node name (e.g., fetch_api_data, search_web)
+            node_type: Type of node (tool, agent, llm, router)
+            agent_name: Agent executing the node
+            master_agent: Supervising agent
+            step_number: Execution order
+            task_description: What the node was supposed to do
+            task_completed: Whether the node completed successfully
+            quality_score: LLM judge score (0-1)
+            quality_reasoning: LLM judge explanation
+            input_summary: Summary of input data
+            output_summary: Summary of output data
+            judge_model: LLM model used for judging
+        """
+        # Log to Google Sheets
+        if self.sheets_logger.is_connected():
+            self.sheets_logger.log_node_scoring(
+                run_id=run_id,
+                company_name=company_name,
+                node=node,
+                node_type=node_type,
+                agent_name=agent_name,
+                master_agent=master_agent,
+                step_number=step_number,
+                task_description=task_description,
+                task_completed=task_completed,
+                quality_score=quality_score,
+                quality_reasoning=quality_reasoning,
+                input_summary=input_summary,
+                output_summary=output_summary,
+                judge_model=judge_model,
+            )
+
+        # Log to PostgreSQL
+        if self.run_logger.is_postgres_connected():
+            try:
+                self.run_logger.postgres.log_node_scoring(
+                    run_id=run_id,
+                    company_name=company_name,
+                    node=node,
+                    node_type=node_type,
+                    agent_name=agent_name,
+                    master_agent=master_agent,
+                    step_number=step_number,
+                    task_description=task_description,
+                    task_completed=task_completed,
+                    quality_score=quality_score,
+                    quality_reasoning=quality_reasoning,
+                    input_summary=input_summary,
+                    output_summary=output_summary,
+                    judge_model=judge_model,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to log node scoring to PostgreSQL: {e}")
+
+        logger.info(f"[{run_id[:8]}] Node scoring logged: {node} - quality_score={quality_score:.4f}")
+
     def log_unified_metrics(
         self,
         run_id: str,

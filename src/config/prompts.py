@@ -231,7 +231,7 @@ Company: {company_name}
 ## Required Output
 Provide a structured credit assessment with:
 1. Overall Risk Level (LOW/MODERATE/HIGH/CRITICAL)
-2. Credit Score Estimate (300-850)
+2. Credit Score Estimate (0-100)
 3. Confidence Score (0-100%)
 4. Key Risk Factors
 5. Positive Indicators
@@ -274,6 +274,82 @@ Provide your validation as JSON with:
 - corrections: list of suggested changes
 - confidence: your confidence score
 - reasoning: explanation of your review""",
+    },
+
+    "node_scoring_judge": {
+        "id": "node_scoring_judge",
+        "name": "Node Scoring Judge",
+        "description": "LLM judge that evaluates quality of each node's execution",
+        "category": "evaluation",
+        "variables": ["node_name", "task_description", "input_summary", "output_summary", "expected_behavior"],
+        "llm_config": {
+            "model": "fast",  # Quick evaluation per node
+            "temperature": 0.0,  # Deterministic scoring
+        },
+        "system_prompt": """You are a quality assurance evaluator for a credit intelligence workflow system.
+
+Your task is to evaluate whether a specific node in the workflow executed its task properly.
+
+For each node type, here are the expected behaviors:
+
+**parse_input** (llm_parser):
+- Task: Parse company name and identify company type, ticker, jurisdiction, industry
+- Success: Correctly identified public/private status, valid ticker if public, confidence > 0.5
+
+**validate_company** (supervisor):
+- Task: Validate parsed company information
+- Success: Confirmed company exists, set appropriate validation status
+
+**create_plan** (tool_supervisor):
+- Task: Create execution plan with appropriate tools
+- Success: Selected tools appropriate for company type (PUBLIC: API tools + web search, PRIVATE: web search only)
+
+**fetch_api_data** (api_agent) - PUBLIC COMPANIES ONLY:
+- Task: Fetch data from SEC, Finnhub, CourtListener APIs
+- Success: Made API calls, retrieved data from at least 1 source
+
+**search_web / search_web_enhanced** (search_agent):
+- Task: Search web for company information
+- Success: Executed searches, found relevant results
+
+**synthesize** (llm_analyst):
+- Task: Analyze data and produce credit assessment
+- Success: Valid risk_level (low/medium/high/critical), credit_score (0-100), confidence (0-1), reasoning provided
+
+**save_to_database** (db_writer):
+- Task: Save run data to database
+- Success: Data saved without errors
+
+**evaluate_assessment** (workflow_evaluator):
+- Task: Evaluate assessment quality
+- Success: Produced evaluation scores
+
+Score from 0.0 to 1.0 based on how well the node performed its task.""",
+        "user_template": """## Node: {node_name}
+
+## Task Description
+{task_description}
+
+## Input Summary
+{input_summary}
+
+## Output Summary
+{output_summary}
+
+## Expected Behavior
+{expected_behavior}
+
+## Evaluation Instructions
+1. Did the node complete its task?
+2. Was the output quality acceptable?
+3. Were there any errors or issues?
+
+Respond with JSON:
+{{
+    "quality_score": 0.0-1.0,
+    "task_completed": true/false,
+    "reasoning": "Explanation of score"
+}}""",
     },
 }
 

@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 # Import LangChain ChatGroq (preferred)
 try:
-    from config.langchain_llm import get_chat_groq, is_langchain_groq_available
+    from config.langchain_llm import get_chat_llm, get_chat_groq, is_langchain_groq_available
     from config.langchain_callbacks import CostTrackerCallback
     from langchain_core.messages import HumanMessage, SystemMessage
     LANGCHAIN_GROQ_AVAILABLE = is_langchain_groq_available()
@@ -161,7 +161,7 @@ class LLMCompanyParser:
             tracker = get_cost_tracker()
             callbacks.append(CostTrackerCallback(tracker=tracker, call_type=call_type))
 
-        llm = get_chat_groq(
+        llm = get_chat_llm(
             model=self.model,
             temperature=temperature,
             max_tokens=max_tokens,
@@ -169,7 +169,7 @@ class LLMCompanyParser:
         )
 
         if not llm:
-            raise RuntimeError("Failed to create ChatGroq instance")
+            raise RuntimeError("Failed to create Chat LLM instance")
 
         messages = [
             SystemMessage(content=system_prompt),
@@ -192,7 +192,7 @@ class LLMCompanyParser:
             "total_tokens": total_tokens,
             "prompt_used": user_prompt,
             "system_prompt": system_prompt,
-            "llm_backend": "langchain_chatgroq",
+            "llm_backend": "langchain_chat_llm",
         }
 
         return response.content, metrics

@@ -189,6 +189,16 @@ except ImportError:
     get_langgraph_logger = None
     logger.warning("LangGraph event logger not available")
 
+# Import LLM factory for node scoring
+try:
+    from config.langchain_llm import get_chat_llm, get_chat_groq, is_langchain_groq_available
+    from config.prompts import get_prompt
+    NODE_SCORING_LLM_AVAILABLE = is_langchain_groq_available()
+except ImportError:
+    NODE_SCORING_LLM_AVAILABLE = False
+    get_chat_llm = None
+    get_prompt = None
+
 # Initialize workflow logger
 wf_logger = get_workflow_logger() if get_workflow_logger else None
 
@@ -515,8 +525,9 @@ def validate_company(state: CreditWorkflowState) -> Dict[str, Any]:
     company_type = "public" if is_public else "private"
 
     # Create execution plan based on company type
-    # PUBLIC: All agents run
-    # PRIVATE: Skip synthesize (llm_analyst) and evaluate (workflow_evaluator)
+    # PUBLIC: All agents run (full API data + web search + synthesis + evaluation)
+    # PRIVATE: Skip fetch_api_data (no API data available), use enhanced web search,
+    #          but run full synthesis and evaluation
     if is_public:
         execution_plan = {
             "company_type": "public",
@@ -535,13 +546,13 @@ def validate_company(state: CreditWorkflowState) -> Dict[str, Any]:
             "company_type": "private",
             "planned_agents": [
                 {"agent": "plan_creator", "node": "create_plan", "will_run": True},
-                {"agent": "api_agent", "node": "fetch_api_data", "will_run": True},
-                {"agent": "search_agent", "node": "search_web", "will_run": True},
-                {"agent": "llm_analyst", "node": "synthesize", "will_run": False},
+                {"agent": "api_agent", "node": "fetch_api_data", "will_run": False},  # Skip for private
+                {"agent": "search_agent", "node": "search_web_enhanced", "will_run": True},  # Enhanced search
+                {"agent": "llm_analyst", "node": "synthesize", "will_run": True},  # Now runs for private
                 {"agent": "db_writer", "node": "save_to_database", "will_run": True},
-                {"agent": "workflow_evaluator", "node": "evaluate", "will_run": False},
+                {"agent": "workflow_evaluator", "node": "evaluate", "will_run": True},  # Now runs for private
             ],
-            "total_agents": 4,
+            "total_agents": 5,  # All except api_agent
         }
 
     result = {
@@ -578,7 +589,7 @@ def validate_company(state: CreditWorkflowState) -> Dict[str, Any]:
                     "company_type": company_type,
                     "planned_agents": planned,
                     "skipped_agents": skipped,
-                    "reason": f"{'Full workflow for public company' if is_public else 'Shortened workflow for private company - skip synthesis and evaluation'}",
+                    "reason": f"{'Full workflow for public company' if is_public else 'Full workflow for private company - skip API agent, use enhanced web search'}",
                 }
             ]
 
@@ -1808,73 +1819,8 @@ def save_to_database(state: CreditWorkflowState) -> Dict[str, Any]:
         except Exception as e:
             logger.warning(f"Failed to log save_to_database tasks to sheets: {e}")
 
-        # For PRIVATE companies, log run summary here (they skip evaluate)
-        is_public = company_info.get("is_public_company", False)
-        if not is_public and wf_logger:
-            # Private companies don't go through evaluate, so log run here
-            run_info = wf_logger._run_info.get(run_id, {})
-            started_at = run_info.get("started_at", time.time())
-            completed_at = time.time()
-            duration_ms = (completed_at - started_at) * 1000
-
-            # Log to MongoDB via log_run_summary
-            wf_logger.log_run_summary(
-                run_id=run_id,
-                company_name=company_name,
-                status="completed",
-                node="save_to_database",
-                agent_name="db_writer",
-                risk_level="unknown",  # Private companies don't have assessment
-                credit_score=0,
-                confidence=0.0,
-                reasoning="Private company - limited data available, no credit assessment performed",
-                tool_selection_score=0.0,
-                data_quality_score=0.0,
-                synthesis_score=0.0,
-                overall_score=0.0,
-                total_tokens=0,
-                total_cost=0.0,
-                errors=state.get("errors", []),
-                duration_ms=duration_ms,
-                total_steps=wf_logger._step_counter.get(run_id, 0),
-                llm_calls_count=wf_logger._llm_call_counter.get(run_id, 0),
-                started_at=datetime.fromtimestamp(started_at).isoformat() if started_at else "",
-                completed_at=datetime.fromtimestamp(completed_at).isoformat() if completed_at else "",
-            )
-
-            # ALSO log to Google Sheets runs sheet (since complete_run is skipped for private companies)
-            if sheets_logger and sheets_logger.is_connected():
-                # For private companies: tool_overall_score = 0.4 (only success rate contributes)
-                # agent_overall_score = 0.0 (not evaluated), workflow_overall_score = 0.0 (not evaluated)
-                sheets_logger.log_run(
-                    run_id=run_id,
-                    company_name=company_name,
-                    node="save_to_database",
-                    agent_name="db_writer",
-                    master_agent="supervisor",
-                    model="",  # No LLM used for private company assessment
-                    temperature=0.1,
-                    status="completed",
-                    risk_level="unknown",
-                    credit_score=0,
-                    confidence=0.0,
-                    total_time_ms=duration_ms,
-                    total_steps=wf_logger._step_counter.get(run_id, 0),
-                    total_llm_calls=wf_logger._llm_call_counter.get(run_id, 0),
-                    tools_used=[],  # Private companies have limited tool usage
-                    evaluation_score=0.0,
-                    started_at=datetime.fromtimestamp(started_at).isoformat() if started_at else "",
-                    completed_at=datetime.fromtimestamp(completed_at).isoformat() if completed_at else "",
-                    workflow_correct=None,  # Not evaluated
-                    output_correct=None,  # Not evaluated
-                    # Performance scores (3 key metrics)
-                    tool_overall_score=0.4,  # Only success rate contributes
-                    agent_overall_score=0.0,  # Not evaluated for private companies
-                    workflow_overall_score=0.0,  # Not evaluated for private companies
-                )
-                logger.info(f"Logged run to sheets for private company: {company_name}")
-
-            logger.info(f"Logged run summary for private company: {company_name}")
+        # Note: Both PUBLIC and PRIVATE companies now go through the full evaluate workflow
+        # No special handling needed here - run summary is logged in evaluate_assessment
 
         return {"status": "complete_saved"}
 
@@ -1897,6 +1843,446 @@ def save_to_database(state: CreditWorkflowState) -> Dict[str, Any]:
             "status": "complete_db_error",
             "errors": state.get("errors", []) + [f"DB save error: {str(e)}"],
         }
+
+
+# =============================================================================
+# NODE SCORING WITH LLM JUDGE
+# =============================================================================
+
+# Node task definitions for LLM judge evaluation
+NODE_TASK_DEFINITIONS = {
+    # === AGENTS (high-level nodes) ===
+    "parse_input": {
+        "task": "Parse company name and identify: is_public_company, ticker, jurisdiction, industry, confidence",
+        "success_criteria": "Correctly identified public/private status, valid ticker if public, reasonable confidence score (>0.5), valid jurisdiction",
+        "agent_name": "llm_parser",
+        "node_type": "agent",
+    },
+    "validate_company": {
+        "task": "Validate parsed company information and confirm company exists",
+        "success_criteria": "Validated company exists, confirmed or corrected company type, set appropriate validation status",
+        "agent_name": "supervisor",
+        "node_type": "agent",
+    },
+    "create_plan": {
+        "task": "Create execution plan with appropriate tools for company type",
+        "success_criteria": "Selected tools appropriate for company type (PUBLIC: SEC/Finnhub APIs + web search, PRIVATE: web search only), tools are relevant to credit assessment",
+        "agent_name": "tool_supervisor",
+        "node_type": "agent",
+    },
+    "fetch_api_data": {
+        "task": "Fetch data from SEC, Finnhub, CourtListener APIs",
+        "success_criteria": "Attempted all relevant API calls, retrieved data from at least 1 source, handled errors gracefully",
+        "agent_name": "api_agent",
+        "node_type": "agent",
+    },
+    "search_web": {
+        "task": "Search web for company information using standard queries",
+        "success_criteria": "Executed web searches, found relevant results, scraped useful content",
+        "agent_name": "search_agent",
+        "node_type": "agent",
+    },
+    "search_web_enhanced": {
+        "task": "Search web for company information using enhanced queries (compensating for limited API data)",
+        "success_criteria": "Executed multiple enhanced web searches, found comprehensive results, scraped useful content from multiple sources",
+        "agent_name": "search_agent",
+        "node_type": "agent",
+    },
+    "synthesize": {
+        "task": "Analyze all collected data and produce credit assessment with risk level, score, and reasoning",
+        "success_criteria": "Produced valid risk_level (low/medium/high/critical), credit_score in range 0-100, confidence score 0-1, comprehensive reasoning provided",
+        "agent_name": "llm_analyst",
+        "node_type": "llm",
+    },
+    "save_to_database": {
+        "task": "Save run data to MongoDB database",
+        "success_criteria": "Data saved successfully without errors",
+        "agent_name": "db_writer",
+        "node_type": "agent",
+    },
+    "evaluate_assessment": {
+        "task": "Evaluate the quality of the assessment using multiple metrics",
+        "success_criteria": "Produced evaluation scores for tool selection, data quality, synthesis quality",
+        "agent_name": "workflow_evaluator",
+        "node_type": "evaluator",
+    },
+
+    # === INDIVIDUAL TOOLS (inside agents) ===
+    # Tools inside fetch_api_data (api_agent)
+    "fetch_sec_edgar": {
+        "task": "Fetch SEC EDGAR filings for the company (10-K, 10-Q, 8-K forms)",
+        "success_criteria": "Retrieved SEC filings if company is public, returned empty result with no error if private, handled API errors gracefully",
+        "agent_name": "api_agent",
+        "node_type": "tool",
+        "parent_agent": "fetch_api_data",
+    },
+    "fetch_finnhub": {
+        "task": "Fetch financial data from Finnhub API (profile, financials, news)",
+        "success_criteria": "Retrieved company profile and financials if public company, handled rate limits gracefully, returned structured data",
+        "agent_name": "api_agent",
+        "node_type": "tool",
+        "parent_agent": "fetch_api_data",
+    },
+    "fetch_court_listener": {
+        "task": "Fetch legal cases from CourtListener API",
+        "success_criteria": "Searched for legal cases involving the company, returned relevant cases if any, handled API errors gracefully",
+        "agent_name": "api_agent",
+        "node_type": "tool",
+        "parent_agent": "fetch_api_data",
+    },
+
+    # Tools inside search_web / search_web_enhanced (search_agent)
+    "web_search": {
+        "task": "Search the web for company information using DuckDuckGo/Tavily",
+        "success_criteria": "Executed search queries, found relevant results (>0 results), returned structured search results",
+        "agent_name": "search_agent",
+        "node_type": "tool",
+        "parent_agent": "search_web",
+    },
+    "web_search_enhanced": {
+        "task": "Perform enhanced web search with multiple queries for comprehensive coverage",
+        "success_criteria": "Executed multiple search queries, found comprehensive results from multiple sources, handled rate limits",
+        "agent_name": "search_agent",
+        "node_type": "tool",
+        "parent_agent": "search_web_enhanced",
+    },
+    "tavily_search": {
+        "task": "Search using Tavily API for high-quality search results",
+        "success_criteria": "Executed Tavily search, returned relevant results, handled API errors gracefully",
+        "agent_name": "search_agent",
+        "node_type": "tool",
+        "parent_agent": "search_web",
+    },
+}
+
+
+def evaluate_node_with_llm_judge(
+    node_name: str,
+    input_summary: str,
+    output_summary: str,
+    task_completed: bool,
+    model: str = "fast",
+) -> Dict[str, Any]:
+    """
+    Evaluate a single node's execution quality using LLM-as-judge.
+
+    Args:
+        node_name: Name of the node (e.g., 'parse_input', 'fetch_api_data')
+        input_summary: Summary of input data to the node
+        output_summary: Summary of output data from the node
+        task_completed: Whether the node completed without errors
+        model: LLM model to use for judging ('fast' for quick evaluation)
+
+    Returns:
+        Dict with quality_score (0-1), task_completed (bool), quality_reasoning (str)
+    """
+    if not NODE_SCORING_LLM_AVAILABLE or not get_chat_llm:
+        # Fallback to simple rule-based scoring if LLM not available
+        return {
+            "quality_score": 0.8 if task_completed else 0.2,
+            "task_completed": task_completed,
+            "quality_reasoning": "LLM judge not available, using rule-based fallback",
+            "judge_model": "rule_based",
+        }
+
+    # Get node task definition
+    node_def = NODE_TASK_DEFINITIONS.get(node_name, {
+        "task": f"Execute {node_name} step",
+        "success_criteria": "Task completed successfully",
+        "agent_name": node_name,
+        "node_type": "agent",
+    })
+
+    try:
+        # Create LLM instance
+        llm = get_chat_llm(model=model, temperature=0.0)
+        if not llm:
+            return {
+                "quality_score": 0.8 if task_completed else 0.2,
+                "task_completed": task_completed,
+                "quality_reasoning": "Failed to create LLM instance",
+                "judge_model": "rule_based",
+            }
+
+        # Build prompt
+        system_prompt = """You are a quality assurance evaluator for a credit intelligence workflow.
+Evaluate whether the node executed its task properly based on the input/output data.
+Score from 0.0 to 1.0 based on how well the node performed its task.
+
+Respond ONLY with valid JSON (no markdown, no extra text):
+{"quality_score": 0.0-1.0, "task_completed": true/false, "reasoning": "explanation"}"""
+
+        user_prompt = f"""## Node: {node_name}
+
+## Task Description
+{node_def['task']}
+
+## Success Criteria
+{node_def['success_criteria']}
+
+## Input Summary
+{input_summary[:2000] if input_summary else 'No input data'}
+
+## Output Summary
+{output_summary[:2000] if output_summary else 'No output data'}
+
+## Completed Without Error
+{task_completed}
+
+Evaluate the quality of this node's execution."""
+
+        # Call LLM
+        response = llm.invoke(f"{system_prompt}\n\n{user_prompt}")
+        response_text = response.content if hasattr(response, 'content') else str(response)
+
+        # Parse JSON response
+        import re
+        # Extract JSON from response (handle markdown code blocks)
+        json_match = re.search(r'\{[^{}]*\}', response_text, re.DOTALL)
+        if json_match:
+            result = json.loads(json_match.group())
+            return {
+                "quality_score": float(result.get("quality_score", 0.5)),
+                "task_completed": result.get("task_completed", task_completed),
+                "quality_reasoning": result.get("reasoning", "No reasoning provided"),
+                "judge_model": model,
+            }
+        else:
+            # Couldn't parse JSON, fall back to rule-based
+            return {
+                "quality_score": 0.7 if task_completed else 0.3,
+                "task_completed": task_completed,
+                "quality_reasoning": f"LLM response parsing failed: {response_text[:200]}",
+                "judge_model": "rule_based_fallback",
+            }
+
+    except Exception as e:
+        logger.warning(f"LLM judge evaluation failed for {node_name}: {e}")
+        return {
+            "quality_score": 0.6 if task_completed else 0.2,
+            "task_completed": task_completed,
+            "quality_reasoning": f"LLM judge error: {str(e)}",
+            "judge_model": "error_fallback",
+        }
+
+
+def evaluate_all_nodes_with_llm_judge(
+    state: CreditWorkflowState,
+    run_id: str,
+    company_name: str,
+) -> List[Dict[str, Any]]:
+    """
+    Evaluate all executed nodes in the workflow using LLM judge.
+
+    Returns list of node scoring results.
+    """
+    results = []
+    company_info = state.get("company_info", {})
+    is_public = company_info.get("is_public_company", False)
+
+    # Define nodes to evaluate based on company type
+    nodes_to_evaluate = [
+        ("parse_input", 1),
+        ("validate_company", 2),
+        ("create_plan", 3),
+    ]
+
+    # PUBLIC: includes fetch_api_data, PRIVATE: skips it
+    if is_public:
+        nodes_to_evaluate.append(("fetch_api_data", 4))
+        # Determine which search was used based on status
+        if "enhanced" in state.get("status", ""):
+            nodes_to_evaluate.append(("search_web_enhanced", 5))
+        else:
+            nodes_to_evaluate.append(("search_web", 5))
+    else:
+        # Private companies skip fetch_api_data, use enhanced search
+        nodes_to_evaluate.append(("search_web_enhanced", 4))
+
+    nodes_to_evaluate.extend([
+        ("synthesize", 6 if is_public else 5),
+        ("save_to_database", 7 if is_public else 6),
+    ])
+
+    # Prepare input/output summaries for each node
+    node_data = {
+        "parse_input": {
+            "input": f"company_name: {company_name}",
+            "output": json.dumps(company_info, default=str)[:1000] if company_info else "No company info",
+            "completed": bool(company_info),
+        },
+        "validate_company": {
+            "input": json.dumps(company_info, default=str)[:500] if company_info else "",
+            "output": f"validated: {state.get('status', 'unknown')}, is_public: {is_public}",
+            "completed": state.get("status") not in ["error", "invalid"],
+        },
+        "create_plan": {
+            "input": f"company: {company_name}, is_public: {is_public}",
+            "output": json.dumps(state.get("task_plan", []), default=str)[:1000],
+            "completed": bool(state.get("task_plan")),
+        },
+        "fetch_api_data": {
+            "input": f"company: {company_name}, ticker: {company_info.get('ticker', 'N/A')}",
+            "output": json.dumps({k: bool(v) for k, v in state.get("api_data", {}).items()}, default=str),
+            "completed": bool(state.get("api_data")),
+        },
+        "search_web": {
+            "input": f"company: {company_name}",
+            "output": f"results_count: {len(state.get('search_data', {}).get('web_results', []))}",
+            "completed": bool(state.get("search_data")),
+        },
+        "search_web_enhanced": {
+            "input": f"company: {company_name}, enhanced_mode: true",
+            "output": f"results_count: {len(state.get('search_data', {}).get('web_results', []))}",
+            "completed": bool(state.get("search_data")),
+        },
+        "synthesize": {
+            "input": f"api_data_sources: {len(state.get('api_data', {}))}, search_results: {bool(state.get('search_data'))}",
+            "output": json.dumps({
+                "risk_level": state.get("assessment", {}).get("overall_risk_level"),
+                "credit_score": state.get("assessment", {}).get("credit_score_estimate"),
+                "confidence": state.get("assessment", {}).get("confidence_score"),
+            }, default=str),
+            "completed": bool(state.get("assessment", {}).get("overall_risk_level")),
+        },
+        "save_to_database": {
+            "input": f"run_id: {run_id}, company: {company_name}",
+            "output": f"status: {state.get('status', 'unknown')}",
+            "completed": "complete" in state.get("status", ""),
+        },
+    }
+
+    # Evaluate each node
+    for node_name, step_number in nodes_to_evaluate:
+        data = node_data.get(node_name, {
+            "input": "",
+            "output": "",
+            "completed": True,
+        })
+
+        # Call LLM judge
+        eval_result = evaluate_node_with_llm_judge(
+            node_name=node_name,
+            input_summary=data["input"],
+            output_summary=data["output"],
+            task_completed=data["completed"],
+            model="fast",  # Use fast model for quick evaluation
+        )
+
+        # Get node definition
+        node_def = NODE_TASK_DEFINITIONS.get(node_name, {})
+
+        results.append({
+            "node": node_name,
+            "node_type": node_def.get("node_type", "agent"),
+            "agent_name": node_def.get("agent_name", node_name),
+            "step_number": step_number,
+            "task_description": node_def.get("task", ""),
+            "input_summary": data["input"],
+            "output_summary": data["output"],
+            **eval_result,
+        })
+
+    # === EVALUATE INDIVIDUAL TOOLS ===
+    # Score each tool that was executed (from api_data and search_data)
+    tool_step_base = len(nodes_to_evaluate) + 1
+
+    # API Tools (for PUBLIC companies)
+    if is_public:
+        api_data = state.get("api_data", {})
+
+        # fetch_sec_edgar
+        sec_data = api_data.get("sec_edgar", {})
+        sec_success = bool(sec_data and (sec_data.get("filings") or sec_data.get("data")))
+        tool_def = NODE_TASK_DEFINITIONS.get("fetch_sec_edgar", {})
+        eval_result = evaluate_node_with_llm_judge(
+            node_name="fetch_sec_edgar",
+            input_summary=f"company: {company_name}, ticker: {company_info.get('ticker', 'N/A')}",
+            output_summary=f"filings_found: {len(sec_data.get('filings', []))} " if sec_data else "No SEC data",
+            task_completed=sec_success,
+            model="fast",
+        )
+        results.append({
+            "node": "fetch_sec_edgar",
+            "node_type": "tool",
+            "agent_name": "api_agent",
+            "step_number": tool_step_base,
+            "task_description": tool_def.get("task", "Fetch SEC EDGAR filings"),
+            "input_summary": f"company: {company_name}",
+            "output_summary": f"filings: {len(sec_data.get('filings', []))}",
+            **eval_result,
+        })
+
+        # fetch_finnhub
+        finnhub_data = api_data.get("finnhub", {})
+        finnhub_success = bool(finnhub_data and (finnhub_data.get("profile") or finnhub_data.get("data")))
+        tool_def = NODE_TASK_DEFINITIONS.get("fetch_finnhub", {})
+        eval_result = evaluate_node_with_llm_judge(
+            node_name="fetch_finnhub",
+            input_summary=f"company: {company_name}, ticker: {company_info.get('ticker', 'N/A')}",
+            output_summary=f"profile: {bool(finnhub_data.get('profile'))}, financials: {bool(finnhub_data.get('financials'))}",
+            task_completed=finnhub_success,
+            model="fast",
+        )
+        results.append({
+            "node": "fetch_finnhub",
+            "node_type": "tool",
+            "agent_name": "api_agent",
+            "step_number": tool_step_base + 1,
+            "task_description": tool_def.get("task", "Fetch Finnhub data"),
+            "input_summary": f"company: {company_name}",
+            "output_summary": f"has_profile: {bool(finnhub_data.get('profile'))}",
+            **eval_result,
+        })
+
+        # fetch_court_listener
+        court_data = api_data.get("court_listener", {})
+        court_success = bool(court_data)  # Even empty result is OK
+        tool_def = NODE_TASK_DEFINITIONS.get("fetch_court_listener", {})
+        eval_result = evaluate_node_with_llm_judge(
+            node_name="fetch_court_listener",
+            input_summary=f"company: {company_name}",
+            output_summary=f"cases_found: {len(court_data.get('cases', []))}",
+            task_completed=court_success,
+            model="fast",
+        )
+        results.append({
+            "node": "fetch_court_listener",
+            "node_type": "tool",
+            "agent_name": "api_agent",
+            "step_number": tool_step_base + 2,
+            "task_description": tool_def.get("task", "Fetch CourtListener data"),
+            "input_summary": f"company: {company_name}",
+            "output_summary": f"cases: {len(court_data.get('cases', []))}",
+            **eval_result,
+        })
+
+    # Search Tools (for both PUBLIC and PRIVATE)
+    search_data = state.get("search_data", {})
+    web_results = search_data.get("web_results", []) if isinstance(search_data, dict) else []
+    search_success = len(web_results) > 0
+
+    tool_name = "web_search_enhanced" if not is_public else "web_search"
+    tool_def = NODE_TASK_DEFINITIONS.get(tool_name, {})
+    eval_result = evaluate_node_with_llm_judge(
+        node_name=tool_name,
+        input_summary=f"company: {company_name}, enhanced: {not is_public}",
+        output_summary=f"results_count: {len(web_results)}",
+        task_completed=search_success,
+        model="fast",
+    )
+    results.append({
+        "node": tool_name,
+        "node_type": "tool",
+        "agent_name": "search_agent",
+        "step_number": tool_step_base + 3 if is_public else tool_step_base,
+        "task_description": tool_def.get("task", "Web search"),
+        "input_summary": f"company: {company_name}",
+        "output_summary": f"results: {len(web_results)}",
+        **eval_result,
+    })
+
+    return results
 
 
 def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
@@ -3292,6 +3678,38 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                 )
                 overall_perf = (tool_overall + agent_overall + workflow_overall) / 3
 
+                # ============ NODE SCORING WITH LLM JUDGE ============
+                # Evaluate each node's execution quality using LLM-as-judge
+                try:
+                    logger.info(f"[{run_id[:8]}] Starting LLM-based node scoring evaluation...")
+                    node_scores = evaluate_all_nodes_with_llm_judge(state, run_id, company_name)
+
+                    # Log each node's score
+                    for node_score in node_scores:
+                        if wf_logger:
+                            wf_logger.log_node_scoring(
+                                run_id=run_id,
+                                company_name=company_name,
+                                node=node_score["node"],
+                                node_type=node_score["node_type"],
+                                agent_name=node_score["agent_name"],
+                                master_agent="supervisor",
+                                step_number=node_score["step_number"],
+                                task_description=node_score["task_description"],
+                                task_completed=node_score["task_completed"],
+                                quality_score=node_score["quality_score"],
+                                quality_reasoning=node_score["quality_reasoning"],
+                                input_summary=node_score["input_summary"],
+                                output_summary=node_score["output_summary"],
+                                judge_model=node_score.get("judge_model", "fast"),
+                            )
+
+                    # Calculate average node score
+                    avg_node_score = sum(ns["quality_score"] for ns in node_scores) / len(node_scores) if node_scores else 0.0
+                    logger.info(f"[{run_id[:8]}] Node scoring complete: {len(node_scores)} nodes evaluated, avg_score={avg_node_score:.2f}")
+                except Exception as ns_err:
+                    logger.warning(f"Node scoring evaluation failed: {ns_err}")
+
                 # Update the runs sheet with the 3 performance scores
                 perf_sheets.update_run_performance(
                     run_id=run_id,
@@ -3349,36 +3767,39 @@ def should_continue_after_validation(state: CreditWorkflowState) -> str:
     return "continue"
 
 
-def route_after_search_by_company_type(state: CreditWorkflowState) -> str:
+def route_after_plan_by_company_type(state: CreditWorkflowState) -> str:
     """
-    Route after search based on company type.
+    Route after create_plan based on company type.
 
-    - PUBLIC companies: Continue to synthesize (full workflow)
-    - PRIVATE companies: Skip synthesize, go directly to save_to_database
+    - PUBLIC companies: Continue to fetch_api_data (full API data collection)
+    - PRIVATE companies: Skip fetch_api_data, go directly to search_web_enhanced
+      (no SEC/Finnhub data available for private companies)
     """
     company_info = state.get("company_info", {})
     is_public = company_info.get("is_public_company", False)
 
     if is_public:
-        return "synthesize"
+        return "PUBLIC"
     else:
-        return "save_to_database"
+        return "PRIVATE"
+
+
+def route_after_search_by_company_type(state: CreditWorkflowState) -> str:
+    """
+    Route after search - always continue to synthesize.
+
+    Both PUBLIC and PRIVATE companies now run the full synthesis workflow.
+    """
+    return "synthesize"
 
 
 def route_after_save_by_company_type(state: CreditWorkflowState) -> str:
     """
-    Route after save_to_database based on company type.
+    Route after save_to_database - always continue to evaluate.
 
-    - PUBLIC companies: Continue to evaluate
-    - PRIVATE companies: End workflow (skip evaluate)
+    Both PUBLIC and PRIVATE companies now run the full evaluation workflow.
     """
-    company_info = state.get("company_info", {})
-    is_public = company_info.get("is_public_company", False)
-
-    if is_public:
-        return "evaluate"
-    else:
-        return "end"
+    return "evaluate"
 
 
 def build_graph() -> StateGraph:
@@ -3414,53 +3835,32 @@ def build_graph() -> StateGraph:
         }
     )
 
-    workflow.add_edge("create_plan", "fetch_api_data")
-
-    # NEW: Conditional edge based on API data quality
-    # Routes to enhanced search if API data is limited (<2 sources)
+    # Conditional edge after create_plan based on company type
+    # PUBLIC: create_plan → fetch_api_data (collect API data)
+    # PRIVATE: create_plan → search_web_enhanced (skip API, go directly to enhanced web search)
     workflow.add_conditional_edges(
-        "fetch_api_data",
-        route_after_api_data,
+        "create_plan",
+        route_after_plan_by_company_type,
         {
-            "normal_search": "search_web",
-            "enhanced_search": "search_web_enhanced",
+            "PUBLIC": "fetch_api_data",
+            "PRIVATE": "search_web_enhanced",
         }
     )
 
-    # Conditional edge after search based on company type
-    # PUBLIC: search → synthesize → save_to_database → evaluate → END
-    # PRIVATE: search → save_to_database → END (skip synthesize and evaluate)
-    workflow.add_conditional_edges(
-        "search_web",
-        route_after_search_by_company_type,
-        {
-            "synthesize": "synthesize",
-            "save_to_database": "save_to_database",
-        }
-    )
-    workflow.add_conditional_edges(
-        "search_web_enhanced",
-        route_after_search_by_company_type,
-        {
-            "synthesize": "synthesize",
-            "save_to_database": "save_to_database",
-        }
-    )
+    # PUBLIC companies: fetch_api_data → search_web
+    workflow.add_edge("fetch_api_data", "search_web")
 
-    # synthesize always goes to save_to_database (only runs for public)
+    # Both search nodes go to synthesize
+    # PUBLIC: fetch_api_data → search_web → synthesize
+    # PRIVATE: search_web_enhanced → synthesize
+    workflow.add_edge("search_web", "synthesize")
+    workflow.add_edge("search_web_enhanced", "synthesize")
+
+    # synthesize always goes to save_to_database
     workflow.add_edge("synthesize", "save_to_database")
 
-    # Conditional edge after save based on company type
-    # PUBLIC: save → evaluate → END
-    # PRIVATE: save → END (skip evaluate)
-    workflow.add_conditional_edges(
-        "save_to_database",
-        route_after_save_by_company_type,
-        {
-            "evaluate": "evaluate",
-            "end": END,
-        }
-    )
+    # save_to_database always goes to evaluate (full workflow for both public and private)
+    workflow.add_edge("save_to_database", "evaluate")
 
     workflow.add_edge("evaluate", END)
 

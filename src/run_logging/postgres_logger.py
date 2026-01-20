@@ -906,6 +906,44 @@ class PostgresLogger:
         data.update(kwargs)
         return self.log("coalition", data)
 
+    def log_node_scoring(
+        self,
+        run_id: str,
+        company_name: str,
+        node: str = "",
+        node_type: str = "",
+        agent_name: str = "",
+        master_agent: str = "supervisor",
+        step_number: int = 0,
+        task_description: str = "",
+        task_completed: bool = True,
+        quality_score: float = 0.0,
+        quality_reasoning: str = "",
+        input_summary: str = "",
+        output_summary: str = "",
+        judge_model: str = "",
+        **kwargs,
+    ) -> bool:
+        """Log LLM judge quality score for a node - matches Google Sheets schema."""
+        data = {
+            "run_id": run_id,
+            "company_name": company_name,
+            "node": node,
+            "node_type": node_type,
+            "agent_name": agent_name,
+            "master_agent": master_agent or "supervisor",
+            "step_number": step_number,
+            "task_description": task_description,
+            "task_completed": task_completed,
+            "quality_score": quality_score,
+            "quality_reasoning": quality_reasoning,
+            "input_summary": input_summary,
+            "output_summary": output_summary,
+            "judge_model": judge_model,
+        }
+        data.update(kwargs)
+        return self.log("node_scoring", data)
+
     def log_cross_model_eval(
         self,
         run_id: str,

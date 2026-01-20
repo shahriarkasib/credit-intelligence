@@ -50,7 +50,7 @@ except ImportError:
 
 # Import LLM factory
 try:
-    from config.langchain_llm import get_chat_groq, get_llm_for_prompt
+    from config.langchain_llm import get_chat_llm, get_llm_for_prompt
     LLM_AVAILABLE = True
 except ImportError:
     LLM_AVAILABLE = False
@@ -159,7 +159,7 @@ class AgentToolSelector:
             callbacks=callbacks,
         )
         if not llm:
-            llm = get_chat_groq(model=self.model, temperature=self.temperature, callbacks=callbacks)
+            llm = get_chat_llm(model=self.model, temperature=self.temperature, callbacks=callbacks)
 
         if not llm:
             logger.error("Failed to create LLM for agent")

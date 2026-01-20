@@ -371,7 +371,7 @@ class SheetsLogger:
                 "runs", "langgraph_events", "llm_calls", "tool_calls",
                 "assessments", "evaluations", "tool_selections",
                 "consistency_scores", "data_sources", "plans", "prompts",
-                "cross_model_eval", "llm_judge_results", "agent_metrics", "coalition",
+                "cross_model_eval", "llm_judge_results", "agent_metrics", "coalition", "node_scoring",
                 # Summary
                 "total_sheets_logged", "verification_status",
                 "timestamp", "generated_by"
@@ -395,6 +395,21 @@ class SheetsLogger:
                 "errors_json", "error_count",
                 # Metadata
                 "total_state_size_bytes", "duration_ms", "status",
+                "timestamp", "generated_by"
+            ],
+            # Sheet 18: Node Scoring - LLM judge quality scores for each node
+            "node_scoring": [
+                "run_id", "company_name", "node", "node_type", "agent_name", "master_agent", "step_number",
+                # Task definition
+                "task_description",
+                # Completion status
+                "task_completed",
+                # LLM Judge scores
+                "quality_score", "quality_reasoning",
+                # Input/Output summaries
+                "input_summary", "output_summary",
+                # Judge metadata
+                "judge_model",
                 "timestamp", "generated_by"
             ]
         }
@@ -1228,6 +1243,58 @@ class SheetsLogger:
                 sheet.append_row(row)
             except Exception as e:
                 logger.error(f"Failed to log LangGraph event to sheets: {e}")
+
+        _sheets_executor.submit(_write)
+
+    def log_node_scoring(
+        self,
+        run_id: str,
+        company_name: str,
+        node: str,
+        node_type: str = "",
+        agent_name: str = "",
+        master_agent: str = "supervisor",
+        step_number: int = 0,
+        task_description: str = "",
+        task_completed: bool = True,
+        quality_score: float = 0.0,
+        quality_reasoning: str = "",
+        input_summary: str = "",
+        output_summary: str = "",
+        judge_model: str = "",
+    ):
+        """Log LLM judge quality score for a node (non-blocking)."""
+        if not self.is_connected():
+            return
+
+        # Normalize node info using static definitions
+        node_info = normalize_node_info(node, node_type, agent_name, master_agent)
+
+        row = [
+            run_id,
+            company_name,
+            node_info["node"],
+            node_info["node_type"],
+            node_info["agent_name"],
+            node_info["master_agent"],
+            step_number,
+            self._safe_str(task_description, max_length=5000),
+            "TRUE" if task_completed else "FALSE",
+            quality_score,
+            self._safe_str(quality_reasoning, max_length=10000),
+            self._safe_str(input_summary, max_length=10000),
+            self._safe_str(output_summary, max_length=10000),
+            judge_model or "",
+            datetime.utcnow().isoformat(),  # timestamp
+            "LLM_JUDGE",  # generated_by
+        ]
+
+        def _write():
+            try:
+                sheet = self._get_sheet("node_scoring")
+                sheet.append_row(row)
+            except Exception as e:
+                logger.error(f"Failed to log node scoring to sheets: {e}")
 
         _sheets_executor.submit(_write)
 
@@ -2120,7 +2187,7 @@ class SheetsLogger:
                 "runs", "langgraph_events", "llm_calls", "tool_calls",
                 "assessments", "evaluations", "tool_selections",
                 "consistency_scores", "data_sources", "plans", "prompts",
-                "cross_model_eval", "llm_judge_results", "agent_metrics", "coalition",
+                "cross_model_eval", "llm_judge_results", "agent_metrics", "coalition", "node_scoring",
                 "total_sheets_logged", "verification_status",
                 "timestamp", "generated_by"
             ],
@@ -2134,6 +2201,15 @@ class SheetsLogger:
                 "coalition_score", "agent_metrics_score", "evaluation_json",
                 "errors_json", "error_count",
                 "total_state_size_bytes", "duration_ms", "status",
+                "timestamp", "generated_by"
+            ],
+            "node_scoring": [
+                "run_id", "company_name", "node", "node_type", "agent_name", "master_agent", "step_number",
+                "task_description",
+                "task_completed",
+                "quality_score", "quality_reasoning",
+                "input_summary", "output_summary",
+                "judge_model",
                 "timestamp", "generated_by"
             ]
         }
