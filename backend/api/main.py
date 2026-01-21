@@ -412,10 +412,22 @@ async def run_workflow_with_streaming(
     # Define workflow steps (matching the LangGraph nodes)
     # Format: (node_name, display_name, agent_name)
     # Agent names must match config/node_definitions.py for consistency
-    step_definitions = [
+    #
+    # Steps are dynamically determined based on company type:
+    # - PUBLIC: parse_input → validate_company → create_plan → fetch_api_data → search_web → synthesize → save_to_database → evaluate
+    # - PRIVATE: parse_input → validate_company → create_plan → search_web_enhanced → synthesize → save_to_database → evaluate
+    #
+    # We start with only the common initial steps, then add the rest after parse_input determines company type
+
+    # Common initial steps (before we know company type)
+    initial_step_definitions = [
         ("parse_input", "Parsing Input", "llm_parser"),
         ("validate_company", "Validating Company", "supervisor"),
         ("create_plan", "Creating Plan", "tool_supervisor"),
+    ]
+
+    # Steps for PUBLIC companies
+    public_step_definitions = [
         ("fetch_api_data", "Fetching API Data", "api_agent"),
         ("search_web", "Searching Web", "search_agent"),
         ("synthesize", "Synthesizing Assessment", "llm_analyst"),
@@ -423,7 +435,22 @@ async def run_workflow_with_streaming(
         ("evaluate", "Evaluating Results", "workflow_evaluator"),
     ]
 
-    # Initialize all steps as pending
+    # Steps for PRIVATE companies
+    private_step_definitions = [
+        ("search_web_enhanced", "Enhanced Web Search", "search_agent"),
+        ("synthesize", "Synthesizing Assessment", "llm_analyst"),
+        ("save_to_database", "Saving to Database", "db_writer"),
+        ("evaluate", "Evaluating Results", "workflow_evaluator"),
+    ]
+
+    # Start with initial steps only - will be updated after parse_input
+    step_definitions = list(initial_step_definitions)
+
+    # Track if we've determined company type yet
+    company_type_determined = [False]  # Use list for mutability in nested function
+    is_public_company = [None]  # Will be set to True/False after parse_input
+
+    # Initialize only initial steps as pending
     for step_id, step_name, agent_name in step_definitions:
         workflow_status.steps.append(WorkflowStep(
             step_id=step_id,
@@ -442,16 +469,12 @@ async def run_workflow_with_streaming(
         # Import the graph
         from agents.graph import graph
 
-        # Step name mapping (LangGraph node names to display names)
+        # Step name mapping (LangGraph node names to step indices)
+        # This will be updated after company type is determined
         step_name_map = {
             "parse_input": 0,
             "validate_company": 1,
             "create_plan": 2,
-            "fetch_api_data": 3,
-            "search_web": 4,
-            "synthesize": 5,
-            "save_to_database": 6,
-            "evaluate": 7,
         }
 
         # Human-readable step descriptions for better progress visibility
@@ -461,10 +484,56 @@ async def run_workflow_with_streaming(
             "create_plan": "Planning which data sources to check based on company type...",
             "fetch_api_data": f"Fetching SEC filings, financial data, and court records for {company_name}...",
             "search_web": f"Searching for recent news and company information about {company_name}...",
+            "search_web_enhanced": f"Performing deep web search for private company {company_name}...",
             "synthesize": "Analyzing all collected data and generating credit assessment...",
             "save_to_database": "Saving assessment results to database...",
             "evaluate": "Evaluating analysis quality and confidence scores...",
         }
+
+        async def update_steps_for_company_type(is_public: bool):
+            """Update step definitions and workflow_status.steps after determining company type."""
+            nonlocal step_definitions, step_name_map
+
+            # Add the appropriate remaining steps based on company type
+            if is_public:
+                remaining_steps = public_step_definitions
+                logger.info(f"Company is PUBLIC - adding steps: {[s[0] for s in remaining_steps]}")
+            else:
+                remaining_steps = private_step_definitions
+                logger.info(f"Company is PRIVATE - adding steps: {[s[0] for s in remaining_steps]}")
+
+            # Extend step_definitions
+            step_definitions.extend(remaining_steps)
+
+            # Update step_name_map with new indices
+            for i, (step_id, _, _) in enumerate(remaining_steps):
+                step_name_map[step_id] = len(initial_step_definitions) + i
+
+            # Add new steps to workflow_status.steps
+            for step_id, step_name, agent_name in remaining_steps:
+                workflow_status.steps.append(WorkflowStep(
+                    step_id=step_id,
+                    name=step_name,
+                    agent_name=agent_name,
+                    status="pending"
+                ))
+
+            # Broadcast updated steps to frontend
+            await manager.broadcast(run_id, {
+                "type": "steps_updated",
+                "data": {
+                    "steps": [s.model_dump() for s in workflow_status.steps],
+                    "company_type": "PUBLIC" if is_public else "PRIVATE",
+                    "total_steps": len(step_definitions)
+                }
+            })
+
+            # Persist updated steps to MongoDB
+            if db and db.is_connected():
+                db.update_active_run(
+                    run_id=run_id,
+                    steps=[s.model_dump() for s in workflow_status.steps]
+                )
 
         async def update_step(step_idx: int, status: str, output_summary: str = None, error: str = None, output_data: dict = None):
             """Update a step's status and broadcast."""
@@ -603,6 +672,23 @@ async def run_workflow_with_streaming(
                     "top_results": search_data.get("results", [])[:3],
                     "top_news": search_data.get("news", [])[:3],
                     "status": source.get("status", ""),
+                }
+
+            elif node_name == "search_web_enhanced":
+                # Enhanced web search for private companies
+                search_data = source.get("search_data", state.get("search_data", {}))
+                output_summary = "Enhanced web search completed (private company)"
+                if search_data:
+                    num_results = len(search_data.get("results", []))
+                    num_news = len(search_data.get("news", []))
+                    output_summary = f"Found {num_results} web results, {num_news} news articles (enhanced search)"
+                output_data = {
+                    "num_results": len(search_data.get("results", [])),
+                    "num_news": len(search_data.get("news", [])),
+                    "top_results": search_data.get("results", [])[:3],
+                    "top_news": search_data.get("news", [])[:3],
+                    "status": source.get("status", ""),
+                    "search_type": "enhanced",
                 }
 
             elif node_name == "synthesize":
@@ -862,6 +948,17 @@ async def run_workflow_with_streaming(
                         # Update current state with node output
                         if isinstance(node_output, dict):
                             current_state.update(node_output)
+
+                        # After parse_input completes, determine company type and update steps
+                        if node_name == "parse_input" and not company_type_determined[0]:
+                            company_info = node_output.get("company_info", current_state.get("company_info", {}))
+                            is_public = company_info.get("is_public_company", False)
+                            is_public_company[0] = is_public
+                            company_type_determined[0] = True
+                            logger.info(f"Company type determined: {'PUBLIC' if is_public else 'PRIVATE'}")
+
+                            # Update steps for this company type
+                            await update_steps_for_company_type(is_public)
 
                         # Find step index
                         step_idx = step_name_map.get(node_name)

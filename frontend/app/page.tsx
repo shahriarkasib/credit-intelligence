@@ -640,6 +640,30 @@ export default function CreditIntelligenceStudio() {
           addLog('workflow', `Workflow started for ${message.data.company_name}`)
           break
 
+        case 'steps_updated':
+          // Dynamic step update when company type is determined (PUBLIC vs PRIVATE)
+          setWorkflow(prev => {
+            if (!prev) return prev
+            return {
+              ...prev,
+              steps: message.data.steps.map((step: any) => ({
+                step_id: step.step_id,
+                name: step.name,
+                agent_name: step.agent_name,
+                status: step.status,
+                started_at: step.started_at,
+                completed_at: step.completed_at,
+                duration_ms: step.duration_ms,
+                output_summary: step.output_summary,
+                error: step.error,
+                input_data: step.input_data,
+                output_data: step.output_data
+              }))
+            }
+          })
+          addLog('workflow', `Company type: ${message.data.company_type} - Updated workflow steps (${message.data.total_steps} steps)`)
+          break
+
         case 'step_update':
           setWorkflow(prev => {
             if (!prev) return prev
