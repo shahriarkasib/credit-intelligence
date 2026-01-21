@@ -3090,6 +3090,17 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
             total_tokens = sum(r.get("total_tokens", 0) for r in llm_results if r.get("success"))
             total_cost = sum(r.get("total_cost", 0) for r in llm_results if r.get("success"))
 
+            # Determine agents_used based on company type (PUBLIC vs PRIVATE routing)
+            company_info = state.get("company_info", {})
+            is_public = company_info.get("is_public_company", False)
+
+            if is_public:
+                # PUBLIC: parse_input → validate_company → create_plan → fetch_api_data → search_web → synthesize → evaluate
+                agents_used_list = ["llm_parser", "supervisor", "tool_supervisor", "api_agent", "search_agent", "llm_analyst", "workflow_evaluator"]
+            else:
+                # PRIVATE: parse_input → validate_company → create_plan → search_web_enhanced → synthesize → evaluate
+                agents_used_list = ["llm_parser", "supervisor", "tool_supervisor", "search_agent", "llm_analyst", "workflow_evaluator"]
+
             wf_logger.log_run_summary(
                 run_id=run_id,
                 company_name=company_name,
@@ -3106,7 +3117,7 @@ def evaluate_assessment(state: CreditWorkflowState) -> Dict[str, Any]:
                 decision_reasoning=f"Risk level: {assessment.get('overall_risk_level')}, Score: {assessment.get('credit_score_estimate')}",
                 errors=state.get("errors", []),
                 tools_used=[t.get("action", "") for t in state.get("task_plan", []) if t.get("action")],
-                agents_used=["llm_parser", "supervisor", "tool_supervisor", "api_agent", "search_agent", "llm_analyst", "workflow_evaluator"],
+                agents_used=agents_used_list,
                 duration_ms=(time.time() - start_time) * 1000,
                 total_tokens=total_tokens,
                 total_cost=total_cost,
